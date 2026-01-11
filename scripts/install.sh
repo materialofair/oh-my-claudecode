@@ -1036,6 +1036,40 @@ echo -e "${GREEN}✓ Installed 3 skills${NC}"
 echo -e "${BLUE}[6/8]${NC} Installing hook scripts..."
 mkdir -p "$CLAUDE_CONFIG_DIR/hooks"
 
+# Ask user about silent auto-update preference (opt-in for security)
+CONFIG_FILE="$CLAUDE_CONFIG_DIR/.sisyphus-config.json"
+ENABLE_SILENT_UPDATE="false"
+
+echo ""
+echo -e "${YELLOW}Silent Auto-Update Configuration${NC}"
+echo "  Sisyphus can automatically check for and install updates in the background."
+echo "  This runs without user interaction when you start Claude Code."
+echo ""
+echo -e "${YELLOW}Security Note:${NC} Silent updates download and execute code from GitHub."
+echo "  You can always manually update using /update command instead."
+echo ""
+read -p "Enable silent auto-updates? (y/N) " -n 1 -r
+echo
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    ENABLE_SILENT_UPDATE="true"
+    echo -e "${GREEN}✓ Silent auto-updates enabled${NC}"
+else
+    ENABLE_SILENT_UPDATE="false"
+    echo -e "${GREEN}✓ Silent auto-updates disabled (use /update to update manually)${NC}"
+fi
+
+# Save configuration
+cat > "$CONFIG_FILE" << CONFIG_EOF
+{
+  "silentAutoUpdate": $ENABLE_SILENT_UPDATE,
+  "configuredAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "configVersion": 1
+}
+CONFIG_EOF
+echo -e "${GREEN}✓ Saved configuration to $CONFIG_FILE${NC}"
+echo ""
+
 # Keyword detector hook - detects ultrawork/ultrathink/search/analyze keywords
 cat > "$CLAUDE_CONFIG_DIR/hooks/keyword-detector.sh" << 'HOOK_EOF'
 #!/bin/bash
@@ -1150,12 +1184,14 @@ exit 0
 HOOK_EOF
 chmod +x "$CLAUDE_CONFIG_DIR/hooks/stop-continuation.sh"
 
-# Silent auto-update hook - checks and applies updates without user awareness
+# Silent auto-update hook - checks and applies updates only if enabled
 cat > "$CLAUDE_CONFIG_DIR/hooks/silent-auto-update.sh" << 'HOOK_EOF'
 #!/bin/bash
 # Sisyphus Silent Auto-Update Hook
-# Runs completely in the background to check for and apply updates
-# without any user notification or interruption.
+# Runs completely in the background to check for and apply updates.
+#
+# SECURITY: This hook only runs if the user has explicitly enabled
+# silent auto-updates in ~/.claude/.sisyphus-config.json
 #
 # This hook is designed to be called on UserPromptSubmit events
 # but runs asynchronously so it doesn't block the user experience.
@@ -1167,6 +1203,7 @@ INPUT=$(cat)
 # The actual update check happens in the background
 (
   # Configuration
+  CONFIG_FILE="$HOME/.claude/.sisyphus-config.json"
   VERSION_FILE="$HOME/.claude/.sisyphus-version.json"
   STATE_FILE="$HOME/.claude/.sisyphus-silent-update.json"
   LOG_FILE="$HOME/.claude/.sisyphus-update.log"
@@ -1177,6 +1214,36 @@ INPUT=$(cat)
   log() {
     echo "[$(date -Iseconds)] $1" >> "$LOG_FILE" 2>/dev/null
   }
+
+  # Check if silent auto-update is enabled in configuration
+  is_enabled() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+      # No config file = not explicitly enabled = disabled for security
+      return 1
+    fi
+
+    # Check silentAutoUpdate setting
+    local enabled=""
+    if command -v jq &> /dev/null; then
+      enabled=$(jq -r '.silentAutoUpdate // false' "$CONFIG_FILE" 2>/dev/null)
+    else
+      # Fallback: simple grep
+      enabled=$(grep -o '"silentAutoUpdate"[[:space:]]*:[[:space:]]*true' "$CONFIG_FILE" 2>/dev/null)
+      if [ -n "$enabled" ]; then
+        enabled="true"
+      else
+        enabled="false"
+      fi
+    fi
+
+    [ "$enabled" = "true" ]
+  }
+
+  # Exit early if silent auto-update is disabled
+  if ! is_enabled; then
+    log "Silent auto-update is disabled (run installer to enable, or use /update)"
+    exit 0
+  fi
 
   # Check if we should check for updates (rate limiting)
   should_check() {

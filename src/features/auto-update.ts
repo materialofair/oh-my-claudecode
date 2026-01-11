@@ -24,6 +24,49 @@ export const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/$
 /** Installation paths */
 export const CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
 export const VERSION_FILE = join(CLAUDE_CONFIG_DIR, '.sisyphus-version.json');
+export const CONFIG_FILE = join(CLAUDE_CONFIG_DIR, '.sisyphus-config.json');
+
+/**
+ * Sisyphus configuration (stored in .sisyphus-config.json)
+ */
+export interface SisyphusConfig {
+  /** Whether silent auto-updates are enabled (opt-in for security) */
+  silentAutoUpdate: boolean;
+  /** When the configuration was set */
+  configuredAt?: string;
+  /** Configuration schema version */
+  configVersion?: number;
+}
+
+/**
+ * Read the Sisyphus configuration
+ */
+export function getSisyphusConfig(): SisyphusConfig {
+  if (!existsSync(CONFIG_FILE)) {
+    // No config file = disabled by default for security
+    return { silentAutoUpdate: false };
+  }
+
+  try {
+    const content = readFileSync(CONFIG_FILE, 'utf-8');
+    const config = JSON.parse(content) as SisyphusConfig;
+    return {
+      silentAutoUpdate: config.silentAutoUpdate ?? false,
+      configuredAt: config.configuredAt,
+      configVersion: config.configVersion
+    };
+  } catch {
+    // If config file is invalid, default to disabled for security
+    return { silentAutoUpdate: false };
+  }
+}
+
+/**
+ * Check if silent auto-updates are enabled
+ */
+export function isSilentAutoUpdateEnabled(): boolean {
+  return getSisyphusConfig().silentAutoUpdate;
+}
 
 /**
  * Version metadata stored after installation
@@ -511,6 +554,13 @@ export async function silentAutoUpdate(config: SilentUpdateConfig = {}): Promise
     logFile = join(CLAUDE_CONFIG_DIR, '.sisyphus-update.log'),
     maxRetries = 3
   } = config;
+
+  // SECURITY: Check if silent auto-update is enabled in configuration
+  // Default is disabled - users must explicitly opt-in during installation
+  if (!isSilentAutoUpdateEnabled()) {
+    silentLog('Silent auto-update is disabled (run installer to enable, or use /update)', logFile);
+    return null;
+  }
 
   const state = getSilentUpdateState();
 
