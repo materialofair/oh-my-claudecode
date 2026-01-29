@@ -446,34 +446,15 @@ Ask user: "Would you like to install the OMC CLI for standalone analytics? (Reco
 1. **Yes (Recommended)** - Install CLI tools globally for `omc stats`, `omc agents`, etc.
 2. **No** - Skip CLI installation, use only plugin skills
 
-### If User Chooses YES:
+### CLI Installation Note
 
-```bash
-# Check for bun (preferred) or npm
-if command -v bun &> /dev/null; then
-  echo "Installing OMC CLI via bun..."
-  bun install -g oh-my-claude-sisyphus
-elif command -v npm &> /dev/null; then
-  echo "Installing OMC CLI via npm..."
-  npm install -g oh-my-claude-sisyphus
-else
-  echo "ERROR: Neither bun nor npm found. Please install Node.js or Bun first."
-  exit 1
-fi
+The CLI (`omc` command) is **no longer supported** via npm/bun global install.
 
-# Verify installation
-if command -v omc &> /dev/null; then
-  echo "✓ OMC CLI installed successfully!"
-  echo "  Try: omc stats, omc agents, omc tui"
-else
-  echo "⚠ CLI installed but 'omc' not in PATH."
-  echo "  You may need to restart your terminal or add npm/bun global bin to PATH."
-fi
-```
+All functionality is available through the plugin system:
+- Use `/oh-my-claudecode:help` for guidance
+- Use `/oh-my-claudecode:doctor` for diagnostics
 
-### If User Chooses NO:
-
-Skip this step. User can install later with `npm install -g oh-my-claude-sisyphus`.
+Skip this step - the plugin provides all features.
 
 ## Step 4: Verify Plugin Installation
 

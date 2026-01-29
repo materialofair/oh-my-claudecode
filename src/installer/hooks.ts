@@ -61,17 +61,14 @@ export function isWindows(): boolean {
   return process.platform === 'win32';
 }
 
-/** Check if Node.js hooks should be used (env override or Windows) */
+/** Check if Node.js hooks should be used (default: true, bash templates removed) */
 export function shouldUseNodeHooks(): boolean {
-  // Environment variable overrides
-  if (process.env.OMC_USE_NODE_HOOKS === '1') {
-    return true;
-  }
+  // Environment variable override to force bash (only if user has custom .sh templates)
   if (process.env.OMC_USE_BASH_HOOKS === '1') {
     return false;
   }
-  // Default: use Node.js on Windows, Bash elsewhere
-  return isWindows();
+  // Default: always use Node.js hooks (bash .sh templates removed in v3.8.6)
+  return true;
 }
 
 /** Get the Claude config directory path (cross-platform) */
