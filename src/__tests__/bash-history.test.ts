@@ -12,7 +12,9 @@ describe('Bash History Integration', () => {
   const testHistoryPath = join(tmpdir(), `.bash_history_test_${process.pid}`);
 
   afterEach(() => {
-    try { unlinkSync(testHistoryPath); } catch {}
+    try { unlinkSync(testHistoryPath); } catch {
+      // Cleanup failure is non-critical
+    }
   });
 
   describe('appendToBashHistory logic', () => {
