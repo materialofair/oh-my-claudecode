@@ -234,21 +234,36 @@ When you detect trigger patterns above, you MUST invoke the corresponding skill 
 | Codex | `mcp__x__ask_codex` | OpenAI (gpt-5.2) | Code analysis, planning validation, review |
 | Gemini | `mcp__g__ask_gemini` | Google (gemini-3-pro-preview) | Design consistency across many files (1M context) |
 
-**MCP-First Routing — USE external MCPs as PRIMARY when available:**
+**MCP-Direct Replacement — Call MCPs directly instead of spawning Claude agents:**
 
-| Agents | MCP | Behavior |
-|--------|-----|----------|
-| `architect` (all tiers), `planner`, `critic`, `analyst` | **Codex** | **PRIMARY** — Use Codex for analysis, Claude as fallback |
-| `code-reviewer` (all tiers), `security-reviewer` (all tiers) | **Codex** | **PRIMARY** — Use Codex for review, Claude as fallback |
-| `tdd-guide` (all tiers) | **Codex** | **PRIMARY** — Use Codex for test strategy, Claude as fallback |
-| `designer` (all tiers), `writer`, `vision` | **Gemini** | **PRIMARY** — Use Gemini (1M context), Claude as fallback |
-| `executor`, `explore`, `researcher`, `scientist`, etc. | **None** | Use Claude directly (no MCP preference) |
+| Task Domain | MCP Tool | Use Instead Of |
+|-------------|----------|----------------|
+| Architecture analysis, debugging | `ask_codex` (architect role) | `architect` / `architect-medium` / `architect-low` agents |
+| Planning, strategy | `ask_codex` (planner role) | `planner` agent |
+| Plan critique | `ask_codex` (critic role) | `critic` agent |
+| Pre-planning analysis | `ask_codex` (analyst role) | `analyst` agent |
+| Code review | `ask_codex` (code-reviewer role) | `code-reviewer` / `code-reviewer-low` agents |
+| Security review | `ask_codex` (security-reviewer role) | `security-reviewer` / `security-reviewer-low` agents |
+| TDD guidance | `ask_codex` (tdd-guide role) | `tdd-guide` / `tdd-guide-low` agents |
+| UI/UX design, frontend | `ask_gemini` (designer role) | `designer` / `designer-low` / `designer-high` agents |
+| Documentation writing | `ask_gemini` (writer role) | `writer` agent |
+| Visual/image analysis | `ask_gemini` (vision role) | `vision` agent |
+
+**Agents to keep using (no MCP replacement):**
+- `executor` / `executor-low` / `executor-high` — code execution needs Claude's tool access
+- `explore` / `explore-medium` / `explore-high` — codebase search needs Claude's file tools
+- `researcher` / `researcher-low` — uses Context7 MCP, not Codex/Gemini
+- `scientist` (all tiers) — uses Python REPL MCP
+- `build-fixer` (all tiers) — needs Claude's edit tools
+- `qa-tester` (all tiers) — needs Claude's bash/tmux access
+- `git-master` — needs Claude's git tools
+- `deep-executor` — needs Claude's full tool access
 
 **Protocol:**
-1. **MCP-FIRST:** For agents with MCP routing above, ALWAYS attempt MCP call first when available
-2. **Graceful fallback:** If MCP unavailable/fails, proceed with Claude — never block on missing tools
+1. **MCP-DIRECT:** For tasks in the replacement table, call MCP tools directly — don't spawn Claude agents
+2. **Graceful fallback:** If MCP unavailable/fails, THEN spawn the equivalent Claude agent
 3. **Critical evaluation:** Review MCP output, don't blindly adopt — you are the orchestrator
-4. **No double work:** Don't duplicate analysis — if MCP provides good output, use it directly
+4. **Background pattern:** Use `background: true` for long MCP calls, check with `check_job_status`
 
 **Execution notes:**
 - Codex/Gemini calls can take up to **1 hour** (complex analysis)
@@ -329,23 +344,23 @@ wait_for_job(job_id="...", timeout_ms=3600000)  // Up to 1 hour
 
 **Status Values:** `spawned`, `running`, `completed`, `failed`
 
-### Skill-Level MCP Requirements
+### Skill-Level MCP Usage
 
-Skills inherit the MCP-first behavior from their underlying agents:
+Skills should call MCPs directly instead of spawning Claude agents:
 
-| Skill | MCP | Behavior |
-|-------|-----|----------|
-| `ralplan` | Codex | Uses `planner`/`architect`/`critic` → all route to Codex |
-| `frontend-ui-ux` | Gemini | Uses `designer` → routes to Gemini (1M context) |
-| `code-review` | Codex | Uses `code-reviewer` → routes to Codex |
-| `security-review` | Codex | Uses `security-reviewer` → routes to Codex |
-| `analyze` | Codex | Uses `architect` → routes to Codex |
-| `plan` | Codex | Uses `planner` → routes to Codex |
+| Skill | MCP Tool | Direct Call |
+|-------|----------|-------------|
+| `ralplan` | Codex | Call `ask_codex` with planner/architect/critic roles directly |
+| `frontend-ui-ux` | Gemini | Call `ask_gemini` with designer role directly |
+| `code-review` | Codex | Call `ask_codex` with code-reviewer role directly |
+| `security-review` | Codex | Call `ask_codex` with security-reviewer role directly |
+| `analyze` | Codex | Call `ask_codex` with architect role directly |
+| `plan` | Codex | Call `ask_codex` with planner role directly |
 
 **Enforcement:**
-- Agents with MCP routing ALWAYS attempt MCP call first
-- If MCP unavailable (not configured), agent proceeds with Claude — graceful degradation
-- Agents use Background Orchestration Pattern when orchestrator has parallel work
+- Skills call MCP tools directly — skip spawning Claude agents for analysis/review/design
+- If MCP unavailable, fall back to spawning the equivalent Claude agent
+- Use Background Orchestration Pattern for parallel MCP calls
 
 ### OMC State Tools
 
