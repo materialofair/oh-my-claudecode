@@ -54,6 +54,7 @@ export { loadAgentPrompt };
 
 /**
  * Architect-Medium Agent - Standard Analysis (Sonnet)
+ * @deprecated Use architect agent with model="sonnet" instead
  */
 export const architectMediumAgent: AgentConfig = {
   name: 'architect-medium',
@@ -65,6 +66,7 @@ export const architectMediumAgent: AgentConfig = {
 
 /**
  * Architect-Low Agent - Quick Analysis (Haiku)
+ * @deprecated Use architect agent with model="haiku" instead
  */
 export const architectLowAgent: AgentConfig = {
   name: 'architect-low',
@@ -76,6 +78,7 @@ export const architectLowAgent: AgentConfig = {
 
 /**
  * Executor-High Agent - Complex Execution (Opus)
+ * @deprecated Use executor agent with model="opus" instead
  */
 export const executorHighAgent: AgentConfig = {
   name: 'executor-high',
@@ -87,6 +90,7 @@ export const executorHighAgent: AgentConfig = {
 
 /**
  * Executor-Low Agent - Simple Execution (Haiku)
+ * @deprecated Use executor agent with model="haiku" instead
  */
 export const executorLowAgent: AgentConfig = {
   name: 'executor-low',
@@ -99,6 +103,7 @@ export const executorLowAgent: AgentConfig = {
 
 /**
  * Explore-High Agent - Complex Architectural Search (Opus)
+ * @deprecated Use explore agent with model="opus" instead
  */
 export const exploreHighAgent: AgentConfig = {
   name: 'explore-high',
@@ -110,6 +115,7 @@ export const exploreHighAgent: AgentConfig = {
 
 /**
  * Designer-Low Agent - Simple UI Tasks (Haiku)
+ * @deprecated Use designer agent with model="haiku" instead
  */
 export const designerLowAgent: AgentConfig = {
   name: 'designer-low',
@@ -121,6 +127,7 @@ export const designerLowAgent: AgentConfig = {
 
 /**
  * Designer-High Agent - Complex UI Architecture (Opus)
+ * @deprecated Use designer agent with model="opus" instead
  */
 export const designerHighAgent: AgentConfig = {
   name: 'designer-high',
@@ -133,6 +140,7 @@ export const designerHighAgent: AgentConfig = {
 
 /**
  * Scientist-High Agent - Complex Research (Opus)
+ * @deprecated Use scientist agent with model="opus" instead
  */
 export const scientistHighAgent: AgentConfig = {
   name: 'scientist-high',
@@ -159,6 +167,7 @@ export const securityReviewerAgent: AgentConfig = {
 
 /**
  * Security-Reviewer-Low Agent - Quick Security Scan (Haiku)
+ * @deprecated Use security-reviewer agent with model="haiku" instead
  */
 export const securityReviewerLowAgent: AgentConfig = {
   name: 'security-reviewer-low',
@@ -193,6 +202,7 @@ export const tddGuideAgent: AgentConfig = {
 
 /**
  * TDD-Guide-Low Agent - Quick Test Suggestions (Haiku)
+ * @deprecated Use tdd-guide agent with model="haiku" instead
  */
 export const tddGuideLowAgent: AgentConfig = {
   name: 'tdd-guide-low',
@@ -332,17 +342,40 @@ You are BOUND to your task list. You do not stop. You do not quit. You do not ta
 You coordinate specialized subagents to accomplish complex software engineering tasks. Abandoning work mid-task is not an option. If you stop without completing ALL tasks, you have failed.
 
 ## Available Subagents
-- **architect**: Architecture and debugging expert (use for complex problems)
-- **researcher**: Documentation and external reference finder (use for docs/GitHub)
-- **explore**: Fast pattern matching (use for internal codebase search)
-- **designer**: UI/UX specialist (use for visual/styling work)
-- **writer**: Technical writing (use for documentation)
-- **vision**: Visual analysis (use for image/screenshot analysis)
-- **critic**: Plan reviewer (use for critical evaluation)
-- **analyst**: Pre-planning consultant (use for hidden requirement analysis)
-- **executor**: Focused executor (use for direct implementation)
-- **planner**: Strategic planner (use for comprehensive planning)
-- **qa-tester**: CLI testing specialist (use for interactive CLI/service testing with tmux)
+
+### Base Agents
+- **architect**: Architecture and debugging expert (opus) — use for complex analysis and verification
+- **researcher**: Documentation and external reference finder (sonnet) — use for docs/GitHub
+- **explore**: Fast pattern matching (haiku) — use for internal codebase search
+- **designer**: UI/UX specialist (sonnet) — use for visual/styling work
+- **writer**: Technical writing (haiku) — use for documentation
+- **vision**: Visual analysis (sonnet) — use for image/screenshot analysis
+- **critic**: Plan reviewer (opus) — use for critical evaluation
+- **analyst**: Pre-planning consultant (opus) — use for hidden requirement analysis
+- **executor**: Focused executor (sonnet) — use for direct implementation
+- **planner**: Strategic planner (opus) — use for comprehensive planning
+- **deep-executor**: Autonomous deep worker (opus) — use for complex goal-oriented tasks
+- **qa-tester**: CLI testing specialist (sonnet) — use for interactive CLI/service testing with tmux
+- **scientist**: Data analysis specialist (sonnet) — use for data analysis and statistics
+
+### Tiered Variants
+- **architect-medium**: Standard analysis (sonnet) — moderate complexity debugging
+- **architect-low**: Quick analysis (haiku) — simple lookups, fast answers
+- **executor-high**: Complex executor (opus) — multi-file refactoring
+- **executor-low**: Simple executor (haiku) — trivial single-file tasks
+- **explore-high**: Deep search (opus) — architectural mapping and design pattern discovery
+- **designer-low**: Simple UI (haiku) — minor styling tweaks
+- **designer-high**: Complex UI (opus) — design systems and architecture
+- **scientist-high**: Complex research (opus) — hypothesis testing and ML
+
+### Specialized Agents
+- **security-reviewer**: Security audit (opus) — vulnerability detection, OWASP Top 10
+- **security-reviewer-low**: Quick security scan (haiku) — fast checks on small changes
+- **build-fixer**: Build error resolution (sonnet) — fixing build/type errors
+- **tdd-guide**: TDD specialist (sonnet) — test-driven development workflows
+- **tdd-guide-low**: Quick test suggestions (haiku) — simple test case ideas
+- **code-reviewer**: Code review expert (opus) — comprehensive code quality review
+- **git-master**: Git operations expert (sonnet) — atomic commits, rebasing, history
 
 ## Orchestration Principles
 1. **Delegate Aggressively**: Fire off subagents for specialized tasks - don't do everything yourself
