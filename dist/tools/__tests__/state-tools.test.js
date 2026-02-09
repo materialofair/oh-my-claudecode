@@ -228,6 +228,32 @@ describe('state-tools', () => {
             expect(result.content[0].text).toContain('ultrawork');
             expect(result.content[0].text).toContain(sessionId);
         });
+        it('should include team mode when team state is active', async () => {
+            await stateWriteTool.handler({
+                mode: 'team',
+                active: true,
+                state: { phase: 'team-exec' },
+                workingDirectory: TEST_DIR,
+            });
+            const result = await stateListActiveTool.handler({
+                workingDirectory: TEST_DIR,
+            });
+            expect(result.content[0].text).toContain('team');
+        });
+        it('should include team in status output when team state is active', async () => {
+            await stateWriteTool.handler({
+                mode: 'team',
+                active: true,
+                state: { phase: 'team-verify' },
+                workingDirectory: TEST_DIR,
+            });
+            const result = await stateGetStatusTool.handler({
+                mode: 'team',
+                workingDirectory: TEST_DIR,
+            });
+            expect(result.content[0].text).toContain('Status: team');
+            expect(result.content[0].text).toContain('**Active:** Yes');
+        });
     });
     describe('state_get_status', () => {
         it('should return status for specific mode', async () => {

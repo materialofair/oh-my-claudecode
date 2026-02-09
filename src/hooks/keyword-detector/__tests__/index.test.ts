@@ -778,8 +778,12 @@ World`);
       expect(getAllKeywords('ulw eco fix errors')).toEqual(['ecomode']);
     });
 
-    it('should return ultrapilot over autopilot when both present', () => {
-      expect(getAllKeywords('autopilot ultrapilot build')).toEqual(['ultrapilot']);
+    it('should return team over autopilot when legacy ultrapilot trigger is present', () => {
+      expect(getAllKeywords('autopilot ultrapilot build')).toEqual(['team']);
+    });
+
+    it('should return team for legacy swarm trigger', () => {
+      expect(getAllKeywords('swarm 5 agents build this')).toEqual(['team']);
     });
 
     it('should return ralph with ultrawork (not mutually exclusive)', () => {

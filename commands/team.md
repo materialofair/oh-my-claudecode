@@ -141,6 +141,62 @@ Task(
 
 **If ANY verification fails → CONTINUE WORKING until all pass.**
 
+## Staged Pipeline (Canonical Team Runtime)
+
+Team mode runs as a staged pipeline:
+
+`team-plan -> team-prd -> team-exec -> team-verify -> team-fix (loop)`
+
+### Stage Entry/Exit Criteria
+
+1. **team-plan**
+   - **Entry:** `/oh-my-claudecode:team ...` is invoked and orchestration begins.
+   - **Exit:** task decomposition is complete, team slug is chosen, and an execution-ready task graph is defined.
+
+2. **team-prd**
+   - **Entry:** request is broad/ambiguous or needs explicit acceptance criteria before execution.
+   - **Exit:** scope, acceptance criteria, and task boundaries are explicit enough for deterministic execution.
+
+3. **team-exec**
+   - **Entry:** `TeamCreate` is complete, tasks are created/assigned, workers are spawned.
+   - **Exit:** all non-internal tasks reach terminal status (`completed` or explicitly failed/blocked for handoff).
+
+4. **team-verify**
+   - **Entry:** execution reaches a terminal pass for current task set.
+   - **Exit (pass):** verification gates pass (task outcomes, checks/tests required by scope, no unresolved blockers).
+   - **Exit (fail):** verifier emits fix tasks and transitions to `team-fix`.
+
+5. **team-fix (loop)**
+   - **Entry:** `team-verify` identifies defects, regressions, or incomplete acceptance criteria.
+   - **Exit:** fix tasks complete, then return to `team-exec` and re-enter `team-verify`.
+
+### Verify/Fix Loop Policy
+
+- Continue looping `team-exec -> team-verify -> team-fix` until either:
+  1. verification passes with no required follow-up work, or
+  2. work reaches an explicit terminal blocked/failed outcome with evidence.
+- `team-fix` is bounded by a max-attempt policy; if fix attempts exceed the configured bound, transition to terminal `failed` (no infinite loop).
+- Do not report completion while required fixes remain pending.
+
+### Resume Semantics
+
+- On restart, Team mode should detect existing team state and resume from the last incomplete stage.
+- Resume source of truth is the staged state file plus current task reality (`TaskList` statuses, active members, pending fix tasks).
+- If execution finished but verification is incomplete, resume at `team-verify`.
+- If verification failed and fixes exist, resume at `team-fix`.
+
+### Cancel Behavior
+
+`/oh-my-claudecode:cancel` during Team mode should:
+
+1. send `shutdown_request` to active teammates,
+2. wait for `shutdown_response` (best effort within timeout policy),
+3. set staged phase to `cancelled`, `active=false`, and capture cancellation metadata,
+4. run `TeamDelete` to remove team/task infrastructure,
+5. clear Team staged state files (or preserve resumable metadata when configured).
+
+Cancellation is a terminal state (`cancelled`) and stops further stage transitions.
+
 ## Workflow
 
 ### 1. Parse Input

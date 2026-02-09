@@ -13,6 +13,8 @@
  * ```
  */
 import { pathToFileURL } from 'url';
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import { removeCodeBlocks, getAllKeywords } from "./keyword-detector/index.js";
 import { readRalphState, incrementRalphIteration, clearRalphState, createRalphLoopHook, } from "./ralph/index.js";
 import { processOrchestratorPreTool } from "./omc-orchestrator/index.js";
@@ -34,6 +36,73 @@ import { handleSessionEnd } from "./session-end/index.js";
 import { initSilentAutoUpdate } from "../features/auto-update.js";
 const PKILL_F_FLAG_PATTERN = /\bpkill\b.*\s-f\b/;
 const PKILL_FULL_FLAG_PATTERN = /\bpkill\b.*--full\b/;
+const TEAM_TERMINAL_VALUES = new Set([
+    "completed",
+    "complete",
+    "cancelled",
+    "canceled",
+    "cancel",
+    "failed",
+    "aborted",
+    "terminated",
+    "done",
+]);
+function readTeamStagedState(directory, sessionId) {
+    const stateDir = join(directory, ".omc", "state");
+    const statePaths = sessionId
+        ? [
+            join(stateDir, "sessions", sessionId, "team-state.json"),
+            join(stateDir, "team-state.json"),
+        ]
+        : [join(stateDir, "team-state.json")];
+    for (const statePath of statePaths) {
+        if (!existsSync(statePath)) {
+            continue;
+        }
+        try {
+            const parsed = JSON.parse(readFileSync(statePath, "utf-8"));
+            if (typeof parsed !== "object" || parsed === null) {
+                continue;
+            }
+            const stateSessionId = parsed.session_id || parsed.sessionId;
+            if (sessionId && stateSessionId && stateSessionId !== sessionId) {
+                continue;
+            }
+            return parsed;
+        }
+        catch {
+            continue;
+        }
+    }
+    return null;
+}
+function getTeamStage(state) {
+    return state.stage || state.current_stage || state.currentStage || "team-exec";
+}
+function isTeamStateTerminal(state) {
+    if (state.terminal === true || state.cancelled === true || state.canceled === true || state.completed === true) {
+        return true;
+    }
+    const status = String(state.status || "").toLowerCase();
+    const stage = String(getTeamStage(state)).toLowerCase();
+    return TEAM_TERMINAL_VALUES.has(status) || TEAM_TERMINAL_VALUES.has(stage);
+}
+function getTeamStagePrompt(stage) {
+    switch (stage) {
+        case "team-plan":
+            return "Continue planning and decomposition, then move into execution once the task graph is ready.";
+        case "team-prd":
+            return "Continue clarifying scope and acceptance criteria, then proceed to execution once criteria are explicit.";
+        case "team-exec":
+            return "Continue execution: monitor teammates, unblock dependencies, and drive tasks to terminal status for this pass.";
+        case "team-verify":
+            return "Continue verification: validate outputs, run required checks, and decide pass or fix-loop entry.";
+        case "team-fix":
+            return "Continue fix loop work, then return to execution/verification until no required follow-up remains.";
+        default:
+            return "Continue from the current Team stage and preserve staged workflow semantics.";
+    }
+}
 /**
  * Validates that an input object contains all required fields.
  * Returns true if all required fields are present, false otherwise.
@@ -110,9 +179,8 @@ function processKeywordDetector(input) {
             // These are handled by UserPromptSubmit hook for skill invocation
             case "cancel":
             case "autopilot":
-            case "ultrapilot":
+            case "team":
             case "ecomode":
-            case "swarm":
             case "pipeline":
             case "ralplan":
             case "plan":
@@ -220,7 +288,33 @@ async function processPersistentMode(input) {
         userRequested: input.userRequested,
     };
     const result = await checkPersistentModes(sessionId, directory, stopContext);
-    return createHookOutput(result);
+    const output = createHookOutput(result);
+    const teamState = readTeamStagedState(directory, sessionId);
+    if (!teamState || teamState.active !== true || isTeamStateTerminal(teamState)) {
+        return output;
+    }
+    const stage = getTeamStage(teamState);
+    const stagePrompt = getTeamStagePrompt(stage);
+    const teamName = teamState.team_name || teamState.teamName || "team";
+    const currentMessage = output.message ? `${output.message}\n` : "";
+    return {
+        ...output,
+        message: `${currentMessage}<team-stage-continuation>
+
+[TEAM MODE CONTINUATION]
+
+Team "${teamName}" is currently in stage: ${stage}
+${stagePrompt}
+
+While stage state is active and non-terminal, keep progressing the staged workflow.
+When team verification passes or cancel is requested, allow terminal cleanup behavior.
+
+</team-stage-continuation>
+
+---
+
+`,
+    };
 }
 /**
  * Process session start hook
@@ -268,6 +362,42 @@ Continue working in ultrawork mode until all tasks are complete.
 ---
 
 `);
+    }
+    const teamState = readTeamStagedState(directory, sessionId);
+    if (teamState?.active) {
+        const teamName = teamState.team_name || teamState.teamName || "team";
+        const stage = getTeamStage(teamState);
+        if (isTeamStateTerminal(teamState)) {
+            messages.push(`<session-restore>
+
+[TEAM MODE TERMINAL STATE DETECTED]
+
+Team "${teamName}" stage state is terminal (${stage}).
+If this is expected, run normal cleanup/cancel completion flow and clear stale Team state files.
+
+</session-restore>
+
+---
+
+`);
+        }
+        else {
+            messages.push(`<session-restore>
+
+[TEAM MODE RESTORED]
+
+You have an active Team staged run for "${teamName}".
+Current stage: ${stage}
+${getTeamStagePrompt(stage)}
+
+Resume from this stage and continue the staged Team workflow.
+
+</session-restore>
+
+---
+
+`);
+        }
     }
     // Check for incomplete todos
     const todoResult = await checkIncompleteTodos(sessionId, directory);

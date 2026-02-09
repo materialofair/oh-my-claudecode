@@ -35,10 +35,9 @@ const KEYWORD_PATTERNS = {
     cancel: /\b(cancelomc|stopomc)\b/i,
     ralph: /\b(ralph|don't stop|must complete|until done)\b/i,
     autopilot: /\b(autopilot|auto pilot|auto-pilot|autonomous|full auto|fullsend)\b/i,
-    ultrapilot: /\b(ultrapilot|ultra-pilot)\b|\bparallel\s+build\b|\bswarm\s+build\b/i,
+    team: /\b(team)\b|\bcoordinated\s+team\b|\b(ultrapilot|ultra-pilot)\b|\bparallel\s+build\b|\bswarm\s+build\b|\bswarm\s+\d+\s+agents?\b|\bcoordinated\s+agents\b/i,
     ultrawork: /\b(ultrawork|ulw|uw)\b/i,
     ecomode: /\b(eco|ecomode|eco-mode|efficient|save-tokens|budget)\b/i,
-    swarm: /\bswarm\s+\d+\s+agents?\b|\bcoordinated\s+agents\b/i,
     pipeline: /\b(pipeline)\b|\bchain\s+agents\b/i,
     ralplan: /\b(ralplan)\b/i,
     plan: /\bplan\s+(this|the)\b/i,
@@ -55,8 +54,8 @@ const KEYWORD_PATTERNS = {
  * Higher priority keywords take precedence
  */
 const KEYWORD_PRIORITY = [
-    'cancel', 'ralph', 'autopilot', 'ultrapilot', 'ultrawork', 'ecomode',
-    'swarm', 'pipeline', 'ralplan', 'plan', 'tdd', 'research',
+    'cancel', 'ralph', 'autopilot', 'team', 'ultrawork', 'ecomode',
+    'pipeline', 'ralplan', 'plan', 'tdd', 'research',
     'ultrathink', 'deepsearch', 'analyze', 'codex', 'gemini'
 ];
 /**
@@ -159,8 +158,8 @@ export function getAllKeywords(text) {
     if (types.includes('ecomode') && types.includes('ultrawork') && isEcomodeEnabled()) {
         types = types.filter(t => t !== 'ultrawork');
     }
-    // Mutual exclusion: ultrapilot beats autopilot
-    if (types.includes('ultrapilot') && types.includes('autopilot')) {
+    // Mutual exclusion: team beats autopilot (legacy ultrapilot semantics)
+    if (types.includes('team') && types.includes('autopilot')) {
         types = types.filter(t => t !== 'autopilot');
     }
     // Sort by priority order

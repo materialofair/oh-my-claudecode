@@ -13,20 +13,19 @@ export type KeywordType =
   | 'cancel'      // Priority 1
   | 'ralph'       // Priority 2
   | 'autopilot'   // Priority 3
-  | 'ultrapilot'  // Priority 4
+  | 'team'        // Priority 4
   | 'ultrawork'   // Priority 5
   | 'ecomode'     // Priority 6
-  | 'swarm'       // Priority 7
-  | 'pipeline'    // Priority 8
-  | 'ralplan'     // Priority 9
-  | 'plan'        // Priority 10
-  | 'tdd'         // Priority 11
-  | 'research'    // Priority 12
-  | 'ultrathink'  // Priority 13
-  | 'deepsearch'  // Priority 14
-  | 'analyze'     // Priority 15
-  | 'codex'       // Priority 16
-  | 'gemini';     // Priority 17
+  | 'pipeline'    // Priority 7
+  | 'ralplan'     // Priority 8
+  | 'plan'        // Priority 9
+  | 'tdd'         // Priority 10
+  | 'research'    // Priority 11
+  | 'ultrathink'  // Priority 12
+  | 'deepsearch'  // Priority 13
+  | 'analyze'     // Priority 14
+  | 'codex'       // Priority 15
+  | 'gemini';     // Priority 16
 
 export interface DetectedKeyword {
   type: KeywordType;
@@ -64,10 +63,9 @@ const KEYWORD_PATTERNS: Record<KeywordType, RegExp> = {
   cancel: /\b(cancelomc|stopomc)\b/i,
   ralph: /\b(ralph|don't stop|must complete|until done)\b/i,
   autopilot: /\b(autopilot|auto pilot|auto-pilot|autonomous|full auto|fullsend)\b/i,
-  ultrapilot: /\b(ultrapilot|ultra-pilot)\b|\bparallel\s+build\b|\bswarm\s+build\b/i,
+  team: /\b(team)\b|\bcoordinated\s+team\b|\b(ultrapilot|ultra-pilot)\b|\bparallel\s+build\b|\bswarm\s+build\b|\bswarm\s+\d+\s+agents?\b|\bcoordinated\s+agents\b/i,
   ultrawork: /\b(ultrawork|ulw|uw)\b/i,
   ecomode: /\b(eco|ecomode|eco-mode|efficient|save-tokens|budget)\b/i,
-  swarm: /\bswarm\s+\d+\s+agents?\b|\bcoordinated\s+agents\b/i,
   pipeline: /\b(pipeline)\b|\bchain\s+agents\b/i,
   ralplan: /\b(ralplan)\b/i,
   plan: /\bplan\s+(this|the)\b/i,
@@ -85,8 +83,8 @@ const KEYWORD_PATTERNS: Record<KeywordType, RegExp> = {
  * Higher priority keywords take precedence
  */
 const KEYWORD_PRIORITY: KeywordType[] = [
-  'cancel', 'ralph', 'autopilot', 'ultrapilot', 'ultrawork', 'ecomode',
-  'swarm', 'pipeline', 'ralplan', 'plan', 'tdd', 'research',
+  'cancel', 'ralph', 'autopilot', 'team', 'ultrawork', 'ecomode',
+  'pipeline', 'ralplan', 'plan', 'tdd', 'research',
   'ultrathink', 'deepsearch', 'analyze', 'codex', 'gemini'
 ];
 
@@ -216,8 +214,8 @@ export function getAllKeywords(text: string): KeywordType[] {
     types = types.filter(t => t !== 'ultrawork');
   }
 
-  // Mutual exclusion: ultrapilot beats autopilot
-  if (types.includes('ultrapilot') && types.includes('autopilot')) {
+  // Mutual exclusion: team beats autopilot (legacy ultrapilot semantics)
+  if (types.includes('team') && types.includes('autopilot')) {
     types = types.filter(t => t !== 'autopilot');
   }
 

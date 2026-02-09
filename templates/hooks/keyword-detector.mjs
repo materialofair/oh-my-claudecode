@@ -9,23 +9,22 @@
  * 1. cancelomc/stopomc: Stop active modes
  * 2. ralph: Persistence mode until task completion
  * 3. autopilot: Full autonomous execution
- * 4. ultrapilot: Parallel autopilot
+ * 4. team: Coordinated team execution
  * 5. ultrawork/ulw: Maximum parallel execution
  * 6. ecomode/eco: Token-efficient execution
- * 7. swarm: N coordinated agents
- * 8. pipeline: Sequential agent chaining
- * 9. ralplan: Iterative planning with consensus
- * 10. plan: Planning interview mode
- * 11. tdd: Test-driven development
- * 12. research: Research orchestration
- * 13. ultrathink/think: Extended reasoning
- * 14. deepsearch: Codebase search (restricted patterns)
- * 15. analyze: Analysis mode (restricted patterns)
- * 16. codex/gpt: Delegate to Codex MCP (ask_codex)
- * 17. gemini: Delegate to Gemini MCP (ask_gemini)
+ * 7. pipeline: Sequential agent chaining
+ * 8. ralplan: Iterative planning with consensus
+ * 9. plan: Planning interview mode
+ * 10. tdd: Test-driven development
+ * 11. research: Research orchestration
+ * 12. ultrathink/think: Extended reasoning
+ * 13. deepsearch: Codebase search (restricted patterns)
+ * 14. analyze: Analysis mode (restricted patterns)
+ * 15. codex/gpt: Delegate to Codex MCP (ask_codex)
+ * 16. gemini: Delegate to Gemini MCP (ask_gemini)
  */
 
-import { writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, unlinkSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
@@ -251,14 +250,14 @@ function resolveConflicts(matches) {
     resolved = resolved.filter(m => m.name !== 'ultrawork');
   }
 
-  // Ultrapilot beats autopilot
-  if (names.includes('ultrapilot') && names.includes('autopilot')) {
+  // Team beats autopilot (legacy ultrapilot semantics)
+  if (names.includes('team') && names.includes('autopilot')) {
     resolved = resolved.filter(m => m.name !== 'autopilot');
   }
 
   // Sort by priority order
-  const priorityOrder = ['cancel','ralph','autopilot','ultrapilot','ultrawork','ecomode',
-    'swarm','pipeline','ralplan','plan','tdd','research','ultrathink','deepsearch','analyze',
+  const priorityOrder = ['cancel','ralph','autopilot','team','ultrawork','ecomode',
+    'pipeline','ralplan','plan','tdd','research','ultrathink','deepsearch','analyze',
     'codex','gemini'];
   resolved.sort((a, b) => priorityOrder.indexOf(a.name) - priorityOrder.indexOf(b.name));
 
@@ -277,6 +276,52 @@ function createHookOutput(additionalContext) {
       additionalContext
     }
   };
+}
+
+/**
+ * Check if the team feature is enabled in Claude Code settings.
+ * Reads ~/.claude/settings.json and checks for CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS env var.
+ * @returns {boolean} true if team feature is enabled
+ */
+function isTeamEnabled() {
+  try {
+    const settingsPath = join(homedir(), '.claude', 'settings.json');
+    if (!existsSync(settingsPath)) {
+      return false;
+    }
+    const content = readFileSync(settingsPath, 'utf-8');
+    const settings = JSON.parse(content);
+    const envValue = settings?.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS;
+    if (typeof envValue === 'string') {
+      const normalized = envValue.toLowerCase().trim();
+      return normalized === '1' || normalized === 'true' || normalized === 'yes';
+    }
+    return false;
+  } catch {
+    // Best effort: if we can't read settings, assume disabled
+    return false;
+  }
+}
+
+/**
+ * Create a warning message for when team skill is invoked but feature is not enabled
+ */
+function createTeamWarning() {
+  return `⚠️ **TEAM FEATURE NOT ENABLED**
+
+The team skill requires the experimental agent teams feature to be enabled in Claude Code.
+
+To enable teams, add the following to your ~/.claude/settings.json:
+
+\`\`\`json
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
+\`\`\`
+
+Then restart Claude Code. The team skill will proceed, but may not function correctly without this setting.`;
 }
 
 // Main
@@ -326,11 +371,16 @@ async function main() {
       matches.push({ name: 'autopilot', args: '' });
     }
 
-    // Ultrapilot keywords
-    if (/\b(ultrapilot|ultra-pilot)\b/i.test(cleanPrompt) ||
-        /\bparallel\s+build\b/i.test(cleanPrompt) ||
-        /\bswarm\s+build\b/i.test(cleanPrompt)) {
-      matches.push({ name: 'ultrapilot', args: '' });
+    // Team keywords (including legacy ultrapilot/swarm phrases)
+    const swarmMatch = cleanPrompt.match(/\bswarm\s+(\d+)\s+agents?\b/i);
+    const hasTeamKeyword = /\b(team)\b/i.test(cleanPrompt) || /\bcoordinated\s+team\b/i.test(cleanPrompt);
+    const hasLegacyTeamKeyword = /\b(ultrapilot|ultra-pilot)\b/i.test(cleanPrompt) ||
+      /\bparallel\s+build\b/i.test(cleanPrompt) ||
+      /\bswarm\s+build\b/i.test(cleanPrompt) ||
+      !!swarmMatch ||
+      /\bcoordinated\s+agents\b/i.test(cleanPrompt);
+    if (hasTeamKeyword || hasLegacyTeamKeyword) {
+      matches.push({ name: 'team', args: swarmMatch ? swarmMatch[1] : '' });
     }
 
     // Ultrawork keywords
@@ -341,13 +391,6 @@ async function main() {
     // Ecomode keywords
     if (/\b(eco|ecomode|eco-mode|efficient|save-tokens|budget)\b/i.test(cleanPrompt)) {
       matches.push({ name: 'ecomode', args: '' });
-    }
-
-    // Swarm - parse N from "swarm N agents"
-    const swarmMatch = cleanPrompt.match(/\bswarm\s+(\d+)\s+agents?\b/i);
-    if (swarmMatch || /\bcoordinated\s+agents\b/i.test(cleanPrompt)) {
-      const agentCount = swarmMatch ? swarmMatch[1] : '3';
-      matches.push({ name: 'swarm', args: agentCount });
     }
 
     // Pipeline keywords
@@ -419,14 +462,14 @@ async function main() {
 
     // Handle cancel specially - clear states and emit
     if (resolved.length > 0 && resolved[0].name === 'cancel') {
-      clearStateFiles(directory, ['ralph', 'autopilot', 'ultrapilot', 'ultrawork', 'ecomode', 'swarm', 'pipeline']);
+      clearStateFiles(directory, ['ralph', 'autopilot', 'team', 'ultrawork', 'ecomode', 'pipeline']);
       console.log(JSON.stringify(createHookOutput(createSkillInvocation('cancel', prompt))));
       return;
     }
 
     // Activate states for modes that need them
     const sessionId = data.sessionId || data.session_id || data.sessionid || '';
-    const stateModes = resolved.filter(m => ['ralph', 'autopilot', 'ultrapilot', 'ultrawork', 'ecomode'].includes(m.name));
+    const stateModes = resolved.filter(m => ['ralph', 'autopilot', 'team', 'ultrawork', 'ecomode'].includes(m.name));
     for (const mode of stateModes) {
       activateState(directory, prompt, mode.name, sessionId);
     }
@@ -462,16 +505,22 @@ async function main() {
     const skillMatches = resolved.filter(m => !MCP_KEYWORDS.includes(m.name));
     const delegationMatches = resolved.filter(m => MCP_KEYWORDS.includes(m.name));
 
+    // Check if team skill is being invoked and add warning if feature not enabled
+    const hasTeamSkill = skillMatches.some(m => m.name === 'team');
+    const teamWarning = hasTeamSkill && !isTeamEnabled() ? createTeamWarning() + '\n\n---\n\n' : '';
+
     if (skillMatches.length > 0 && delegationMatches.length > 0) {
       // Combined: skills + MCP delegations
-      console.log(JSON.stringify(createHookOutput(createCombinedOutput(skillMatches, delegationMatches, prompt))));
+      const output = teamWarning + createCombinedOutput(skillMatches, delegationMatches, prompt);
+      console.log(JSON.stringify(createHookOutput(output)));
     } else if (delegationMatches.length > 0) {
       // MCP delegation only
       const delegationParts = delegationMatches.map(d => createMcpDelegation(d.name, prompt));
       console.log(JSON.stringify(createHookOutput(delegationParts.join('\n\n---\n\n'))));
     } else {
       // Skills only (existing behavior)
-      console.log(JSON.stringify(createHookOutput(createMultiSkillInvocation(skillMatches, prompt))));
+      const output = teamWarning + createMultiSkillInvocation(skillMatches, prompt);
+      console.log(JSON.stringify(createHookOutput(output)));
     }
   } catch (error) {
     // On any error, allow continuation

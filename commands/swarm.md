@@ -7,7 +7,9 @@ aliases: [swarm-agents]
 
 [SWARM MODE ACTIVATED]
 
-Spawn N coordinated agents working on a shared task list with SQLite-based atomic claiming. Like a dev team tackling multiple files in parallel—fast, reliable, and with full fault tolerance.
+Swarm is now a compatibility facade over Team mode. It keeps legacy `/swarm` invocation syntax, but runtime orchestration follows Team's staged pipeline and native team/task infrastructure.
+
+Staged runtime: `team-plan -> team-prd -> team-exec -> team-verify -> team-fix (loop)`.
 
 ## User's Request
 
@@ -57,6 +59,36 @@ When N > 5 or "aggressive" keyword is used, swarm automatically:
 /oh-my-claudecode:swarm 30:executor "fix all TypeScript errors"
 /oh-my-claudecode:swarm aggressive:build-fixer "fix build errors across entire codebase"
 ```
+
+## Compatibility Behavior (Team-backed)
+
+`/oh-my-claudecode:swarm` is maintained for backward compatibility, but orchestration is delegated to Team mode.
+
+Canonical staged runtime:
+
+`team-plan -> team-prd -> team-exec -> team-verify -> team-fix (loop)`
+
+### Stage Entry/Exit Criteria
+
+- **team-plan**: enters on legacy swarm invocation; exits when decomposition and task graph are ready.
+- **team-prd**: enters when scope/acceptance criteria are ambiguous; exits when execution criteria are explicit.
+- **team-exec**: enters once TeamCreate/TaskCreate/worker spawn are complete; exits when execution pass reaches terminal task states.
+- **team-verify**: enters after execution pass; exits to done on pass, or to `team-fix` on failure.
+- **team-fix**: enters when verification finds gaps; exits by feeding fixes back into `team-exec`.
+
+### Verify/Fix Loop Policy and Stop Conditions
+
+Continue `team-exec -> team-verify -> team-fix` until verification passes with no required fix tasks, or work reaches an explicit terminal blocked/failed outcome with evidence.
+
+`team-fix` is bounded by max attempts; exceeding the bound transitions to terminal `failed`.
+
+### Resume and Cancel Semantics
+
+- **Resume:** continue from the last non-terminal Team stage using staged state + live task status.
+- **Cancel:** `/oh-my-claudecode:cancel` requests teammate shutdown, waits best-effort for responses, marks phase `cancelled` with `active=false`, records cancellation metadata, runs `TeamDelete`, and clears/preserves Team state per policy.
+- Terminal states are `complete`, `failed`, and `cancelled`.
+
+> Historical SQLite details below are legacy reference and not the canonical runtime path for migrated Team mode.
 
 ## Architecture
 

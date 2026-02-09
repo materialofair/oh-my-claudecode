@@ -32,9 +32,9 @@ import {
 } from '../hooks/mode-registry/index.js';
 import { ToolDefinition } from './types.js';
 
-// ExecutionMode from mode-registry (8 modes - NO ralplan)
+// ExecutionMode from mode-registry (9 modes - NO ralplan)
 const EXECUTION_MODES: [string, ...string[]] = [
-  'autopilot', 'ultrapilot', 'swarm', 'pipeline',
+  'autopilot', 'ultrapilot', 'swarm', 'pipeline', 'team',
   'ralph', 'ultrawork', 'ultraqa', 'ecomode'
 ];
 

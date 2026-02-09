@@ -76,6 +76,45 @@ User: "/team 3:executor fix all TypeScript errors"
     ...
 ```
 
+## Staged Pipeline (Canonical Team Runtime)
+
+Team execution follows a staged pipeline:
+
+`team-plan -> team-prd -> team-exec -> team-verify -> team-fix (loop)`
+
+### Stage Entry/Exit Criteria
+
+- **team-plan**
+  - Entry: Team invocation is parsed and orchestration starts.
+  - Exit: decomposition is complete and a runnable task graph is prepared.
+- **team-prd**
+  - Entry: scope is ambiguous or acceptance criteria are missing.
+  - Exit: acceptance criteria and boundaries are explicit.
+- **team-exec**
+  - Entry: `TeamCreate`, `TaskCreate`, assignment, and worker spawn are complete.
+  - Exit: execution tasks reach terminal state for the current pass.
+- **team-verify**
+  - Entry: execution pass finishes.
+  - Exit (pass): verification gates pass with no required follow-up.
+  - Exit (fail): fix tasks are generated and control moves to `team-fix`.
+- **team-fix**
+  - Entry: verification found defects/regressions/incomplete criteria.
+  - Exit: fixes are complete and flow returns to `team-exec` then `team-verify`.
+
+### Verify/Fix Loop and Stop Conditions
+
+Continue `team-exec -> team-verify -> team-fix` until:
+1. verification passes and no required fix tasks remain, or
+2. work reaches an explicit terminal blocked/failed outcome with evidence.
+
+`team-fix` is bounded by max attempts. If fix attempts exceed the configured limit, transition to terminal `failed` (no infinite loop).
+
+### Resume and Cancel Semantics
+
+- **Resume:** restart from the last non-terminal stage using staged state + live task status.
+- **Cancel:** `/oh-my-claudecode:cancel` requests teammate shutdown, waits for responses (best effort), marks phase `cancelled` with `active=false`, captures cancellation metadata, then deletes team resources and clears/preserves Team state per policy.
+- Terminal states are `complete`, `failed`, and `cancelled`.
+
 ## Workflow
 
 ### Phase 1: Parse Input

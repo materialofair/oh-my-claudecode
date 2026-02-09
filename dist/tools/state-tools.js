@@ -9,9 +9,9 @@ import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { resolveStatePath, ensureOmcDir, validateWorkingDirectory, resolveSessionStatePath, ensureSessionStateDir, listSessionIds, validateSessionId, } from '../lib/worktree-paths.js';
 import { atomicWriteJsonSync } from '../lib/atomic-write.js';
 import { isModeActive, getActiveModes, getAllModeStatuses, clearModeState, getStateFilePath, MODE_CONFIGS, getActiveSessionsForMode } from '../hooks/mode-registry/index.js';
-// ExecutionMode from mode-registry (8 modes - NO ralplan)
+// ExecutionMode from mode-registry (9 modes - NO ralplan)
 const EXECUTION_MODES = [
-    'autopilot', 'ultrapilot', 'swarm', 'pipeline',
+    'autopilot', 'ultrapilot', 'swarm', 'pipeline', 'team',
     'ralph', 'ultrawork', 'ultraqa', 'ecomode'
 ];
 // Extended type for state tools - includes ralplan which has state but isn't in mode-registry
