@@ -15977,6 +15977,7 @@ async function handleAskCodex(args) {
   const config2 = loadConfig();
   const resolved = resolveExternalModel(config2.externalModels, {
     agentRole: args.agent_role,
+    explicitProvider: "codex",
     explicitModel: args.model
     // user explicitly passed model
   });

@@ -15884,6 +15884,7 @@ async function handleAskGemini(args) {
   const config2 = loadConfig();
   const resolved = resolveExternalModel(config2.externalModels, {
     agentRole: agent_role,
+    explicitProvider: "gemini",
     explicitModel: args.model
     // user explicitly passed model
   });
