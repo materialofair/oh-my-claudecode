@@ -129,6 +129,18 @@ export function wrapUntrustedFileContent(filepath, content) {
 export function wrapUntrustedCliResponse(content, metadata) {
     return `\n--- UNTRUSTED CLI RESPONSE (${metadata.tool}:${metadata.source}) ---\n${content}\n--- END UNTRUSTED CLI RESPONSE ---\n`;
 }
+export function singleErrorBlock(text) {
+    return { content: [{ type: 'text', text }], isError: true };
+}
+export function inlineSuccessBlocks(metadataText, wrappedResponse) {
+    return {
+        content: [
+            { type: 'text', text: metadataText },
+            { type: 'text', text: wrappedResponse },
+        ],
+        isError: false,
+    };
+}
 /**
  * Build the full prompt with system prompt prepended.
  *

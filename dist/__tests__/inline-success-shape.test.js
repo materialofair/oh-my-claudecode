@@ -72,10 +72,25 @@ describe('Inline success response shape', () => {
         expect(result.content[0].type).toBe('text');
         expect(result.content[0].text).toContain('Agent Role');
         expect(result.content[0].text).toContain('Request ID');
+        expect(result.content[0].text).toContain('Response File');
+        expect(result.content[0].text).toMatch(/(inline-response|codex-response|gemini-response)/);
         // Block 2: untrusted CLI response wrapper
         expect(result.content[1].type).toBe('text');
         expect(result.content[1].text).toContain('--- UNTRUSTED CLI RESPONSE');
         expect(result.content[1].text).toContain('--- END UNTRUSTED CLI RESPONSE');
+    });
+    it('Codex inline success metadata should not duplicate "Resolved Working Directory" key', async () => {
+        const codexOutput = '{"type":"item.completed","item":{"type":"agent_message","text":"Analysis from Codex"}}\n';
+        vi.mocked(spawn).mockReturnValue(createMockChildProcess(codexOutput, 0));
+        const result = await handleAskCodex({
+            agent_role: 'architect',
+            prompt: 'Test inline codex prompt',
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.content).toHaveLength(2);
+        const metadataText = result.content[0].text;
+        const occurrences = (metadataText.match(/Resolved Working Directory/g) ?? []).length;
+        expect(occurrences).toBeLessThanOrEqual(1);
     });
     it('Gemini inline success returns two content blocks with untrusted wrapper', async () => {
         // Gemini outputs plain text
@@ -90,10 +105,20 @@ describe('Inline success response shape', () => {
         expect(result.content[0].type).toBe('text');
         expect(result.content[0].text).toContain('Agent Role');
         expect(result.content[0].text).toContain('Request ID');
+        expect(result.content[0].text).toContain('Response File');
+        expect(result.content[0].text).toMatch(/(inline-response|codex-response|gemini-response)/);
         // Block 2: untrusted CLI response wrapper
         expect(result.content[1].type).toBe('text');
         expect(result.content[1].text).toContain('--- UNTRUSTED CLI RESPONSE');
         expect(result.content[1].text).toContain('--- END UNTRUSTED CLI RESPONSE');
+    });
+    it('Gemini inline success metadata should not duplicate "Resolved Working Directory" key', async () => {
+        vi.mocked(spawn).mockReturnValue(createMockChildProcess('Gemini response', 0));
+        const result = await handleAskGemini({ agent_role: 'designer', prompt: 'Test' });
+        expect(result.isError).toBeFalsy();
+        const metadataText = result.content[0].text;
+        const occurrences = (metadataText.match(/Resolved Working Directory/g) ?? []).length;
+        expect(occurrences).toBeLessThanOrEqual(1);
     });
 });
 //# sourceMappingURL=inline-success-shape.test.js.map

@@ -40,6 +40,23 @@ export declare function wrapUntrustedCliResponse(content: string, metadata: {
     source: string;
     tool: string;
 }): string;
+export declare function singleErrorBlock(text: string): {
+    content: [{
+        type: 'text';
+        text: string;
+    }];
+    isError: true;
+};
+export declare function inlineSuccessBlocks(metadataText: string, wrappedResponse: string): {
+    content: [{
+        type: 'text';
+        text: string;
+    }, {
+        type: 'text';
+        text: string;
+    }];
+    isError: false;
+};
 /**
  * Build the full prompt with system prompt prepended.
  *

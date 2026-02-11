@@ -547,8 +547,9 @@ export async function handleAskGemini(args: {
         : resolvedOutputFile;
       resolvedPromptFile = resolvedPromptFileLocal;
       resolvedOutputFile = resolvedOutputFileLocal;
-    } catch {
-      return singleErrorBlock('Failed to persist inline prompt. Check working directory permissions and disk space.');
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'unknown error';
+      return singleErrorBlock(`Failed to persist inline prompt (${reason}). Check working directory permissions and disk space.`);
     }
   }
 
