@@ -15,25 +15,17 @@
 import { pathToFileURL } from 'url';
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+// Hot-path imports: needed on every/most hook invocations (keyword-detector, pre/post-tool-use)
 import { removeCodeBlocks, getAllKeywords } from "./keyword-detector/index.js";
-import { readRalphState, incrementRalphIteration, clearRalphState, createRalphLoopHook, } from "./ralph/index.js";
-import { processOrchestratorPreTool } from "./omc-orchestrator/index.js";
+import { processOrchestratorPreTool, processOrchestratorPostTool } from "./omc-orchestrator/index.js";
+import { normalizeHookInput } from "./bridge-normalize.js";
 import { addBackgroundTask, getRunningTaskCount, } from "../hud/background-tasks.js";
 import { loadConfig } from "../config/loader.js";
-import { readVerificationState, getArchitectVerificationPrompt, clearVerificationState, } from "./ralph/index.js";
-import { checkIncompleteTodos, } from "./todo-continuation/index.js";
-import { checkPersistentModes, createHookOutput, } from "./persistent-mode/index.js";
-import { activateUltrawork, readUltraworkState } from "./ultrawork/index.js";
-import { readAutopilotState, getPhasePrompt, } from "./autopilot/index.js";
 import { ULTRAWORK_MESSAGE, ULTRATHINK_MESSAGE, SEARCH_MESSAGE, ANALYZE_MESSAGE, RALPH_MESSAGE, } from "../installer/hooks.js";
-// New async hook imports
-import { processSubagentStart, processSubagentStop, getAgentDashboard, } from "./subagent-tracker/index.js";
-import { recordAgentStart, recordAgentStop, recordFileTouch, } from "./subagent-tracker/session-replay.js";
-import { processPreCompact, } from "./pre-compact/index.js";
-import { processSetup } from "./setup/index.js";
-import { handlePermissionRequest, } from "./permission-handler/index.js";
-import { handleSessionEnd } from "./session-end/index.js";
-import { initSilentAutoUpdate } from "../features/auto-update.js";
+// Agent dashboard is used in pre/post-tool-use hot path
+import { getAgentDashboard, } from "./subagent-tracker/index.js";
+// Session replay recordFileTouch is used in pre-tool-use hot path
+import { recordFileTouch, } from "./subagent-tracker/session-replay.js";
 const PKILL_F_FLAG_PATTERN = /\bpkill\b.*\s-f\b/;
 const PKILL_FULL_FLAG_PATTERN = /\bpkill\b.*--full\b/;
 const TEAM_TERMINAL_VALUES = new Set([
@@ -104,14 +96,39 @@ function getTeamStagePrompt(stage) {
     }
 }
 /**
+ * Returns the required camelCase keys for a given hook type.
+ * Centralizes key requirements to avoid drift between normalization and validation.
+ */
+export function requiredKeysForHook(hookType) {
+    switch (hookType) {
+        case "session-end":
+        case "subagent-start":
+        case "subagent-stop":
+        case "pre-compact":
+        case "setup-init":
+        case "setup-maintenance":
+            return ["sessionId", "directory"];
+        case "permission-request":
+            return ["sessionId", "directory", "toolName"];
+        default:
+            return [];
+    }
+}
+/**
  * Validates that an input object contains all required fields.
  * Returns true if all required fields are present, false otherwise.
+ * Logs missing keys at debug level on failure.
  */
-function validateHookInput(input, requiredFields) {
+function validateHookInput(input, requiredFields, hookType) {
     if (typeof input !== "object" || input === null)
         return false;
     const obj = input;
-    return requiredFields.every((field) => field in obj && obj[field] !== undefined);
+    const missing = requiredFields.filter((field) => !(field in obj) || obj[field] === undefined);
+    if (missing.length > 0) {
+        console.error(`[hook-bridge] validateHookInput failed for "${hookType ?? "unknown"}": missing keys: ${missing.join(", ")}`);
+        return false;
+    }
+    return true;
 }
 /**
  * Extract prompt text from various input formats
@@ -136,7 +153,7 @@ function getPromptText(input) {
  * Detects magic keywords and returns injection message
  * Also activates persistent state for modes that require it (ralph, ultrawork)
  */
-function processKeywordDetector(input) {
+async function processKeywordDetector(input) {
     const promptText = getPromptText(input);
     if (!promptText) {
         return { continue: true };
@@ -155,17 +172,22 @@ function processKeywordDetector(input) {
     for (const keywordType of keywords) {
         switch (keywordType) {
             case "ralph": {
+                // Lazy-load ralph module
+                const { createRalphLoopHook } = await import("./ralph/index.js");
                 // Activate ralph state which also auto-activates ultrawork
                 const hook = createRalphLoopHook(directory);
                 hook.startLoop(sessionId || "cli-session", promptText);
                 messages.push(RALPH_MESSAGE);
                 break;
             }
-            case "ultrawork":
+            case "ultrawork": {
+                // Lazy-load ultrawork module
+                const { activateUltrawork } = await import("./ultrawork/index.js");
                 // Activate persistent ultrawork state
                 activateUltrawork(promptText, sessionId, directory);
                 messages.push(ULTRAWORK_MESSAGE);
                 break;
+            }
             case "ultrathink":
                 messages.push(ULTRATHINK_MESSAGE);
                 break;
@@ -221,6 +243,8 @@ async function processRalph(input) {
     if (!sessionId) {
         return { continue: true };
     }
+    // Lazy-load ralph module
+    const { readRalphState, incrementRalphIteration, clearRalphState, readVerificationState, getArchitectVerificationPrompt, clearVerificationState, } = await import("./ralph/index.js");
     // Read Ralph state
     const state = readRalphState(directory);
     if (!state || !state.active) {
@@ -280,6 +304,8 @@ ${newState.prompt}`;
 async function processPersistentMode(input) {
     const sessionId = input.sessionId;
     const directory = input.directory || process.cwd();
+    // Lazy-load persistent-mode and todo-continuation modules
+    const { checkPersistentModes, createHookOutput } = await import("./persistent-mode/index.js");
     // Extract stop context for abort detection (supports both camelCase and snake_case)
     const stopContext = {
         stop_reason: input.stop_reason,
@@ -323,6 +349,11 @@ When team verification passes or cancel is requested, allow terminal cleanup beh
 async function processSessionStart(input) {
     const sessionId = input.sessionId;
     const directory = input.directory || process.cwd();
+    // Lazy-load session-start dependencies
+    const { initSilentAutoUpdate } = await import("../features/auto-update.js");
+    const { readAutopilotState } = await import("./autopilot/index.js");
+    const { readUltraworkState } = await import("./ultrawork/index.js");
+    const { checkIncompleteTodos } = await import("./todo-continuation/index.js");
     // Trigger silent auto-update check (non-blocking, checks config internally)
     initSilentAutoUpdate();
     const messages = [];
@@ -518,15 +549,29 @@ function processPreToolUse(input) {
  */
 function processPostToolUse(input) {
     const directory = input.directory || process.cwd();
+    const messages = [];
+    // Run orchestrator post-tool processing (remember tags, verification reminders, etc.)
+    const orchestratorResult = processOrchestratorPostTool({
+        toolName: input.toolName || "",
+        toolInput: input.toolInput || {},
+        sessionId: input.sessionId,
+        directory,
+    }, String(input.toolOutput ?? ""));
+    if (orchestratorResult.message) {
+        messages.push(orchestratorResult.message);
+    }
     // After Task completion, show updated agent dashboard
     if (input.toolName === "Task") {
         const dashboard = getAgentDashboard(directory);
         if (dashboard) {
-            return {
-                continue: true,
-                message: dashboard,
-            };
+            messages.push(dashboard);
         }
+    }
+    if (messages.length > 0) {
+        return {
+            continue: true,
+            message: messages.join("\n\n"),
+        };
     }
     return { continue: true };
 }
@@ -534,9 +579,11 @@ function processPostToolUse(input) {
  * Process autopilot hook
  * Manages autopilot state and injects phase prompts
  */
-function processAutopilot(input) {
+async function processAutopilot(input) {
     const directory = input.directory || process.cwd();
-    const state = readAutopilotState(directory);
+    // Lazy-load autopilot module
+    const { readAutopilotState, getPhasePrompt } = await import("./autopilot/index.js");
+    const state = readAutopilotState(directory, input.sessionId);
     if (!state || !state.active) {
         return { continue: true };
     }
@@ -578,7 +625,7 @@ export function resetSkipHooksCache() {
  * Main hook processor
  * Routes to specific hook handler based on type
  */
-export async function processHook(hookType, input) {
+export async function processHook(hookType, rawInput) {
     // Environment kill-switches for plugin coexistence
     if (process.env.DISABLE_OMC === "1" || process.env.DISABLE_OMC === "true") {
         return { continue: true };
@@ -587,10 +634,12 @@ export async function processHook(hookType, input) {
     if (skipHooks.includes(hookType)) {
         return { continue: true };
     }
+    // Normalize snake_case fields from Claude Code to camelCase
+    const input = normalizeHookInput(rawInput, hookType);
     try {
         switch (hookType) {
             case "keyword-detector":
-                return processKeywordDetector(input);
+                return await processKeywordDetector(input);
             case "stop-continuation":
                 return await processStopContinuation(input);
             case "ralph":
@@ -604,20 +653,21 @@ export async function processHook(hookType, input) {
             case "post-tool-use":
                 return processPostToolUse(input);
             case "autopilot":
-                return processAutopilot(input);
-            // New async hook types
+                return await processAutopilot(input);
+            // Lazy-loaded async hook types
             case "session-end": {
-                if (!validateHookInput(input, ["session_id", "cwd"])) {
-                    console.error("[hook-bridge] Invalid SessionEndInput - missing required fields");
+                if (!validateHookInput(input, requiredKeysForHook("session-end"), "session-end")) {
                     return { continue: true };
                 }
+                const { handleSessionEnd } = await import("./session-end/index.js");
                 return await handleSessionEnd(input);
             }
             case "subagent-start": {
-                if (!validateHookInput(input, ["session_id", "cwd"])) {
-                    console.error("[hook-bridge] Invalid SubagentStartInput - missing required fields");
+                if (!validateHookInput(input, requiredKeysForHook("subagent-start"), "subagent-start")) {
                     return { continue: true };
                 }
+                const { processSubagentStart } = await import("./subagent-tracker/index.js");
+                const { recordAgentStart } = await import("./subagent-tracker/session-replay.js");
                 const startInput = input;
                 // Record to session replay
                 recordAgentStart(startInput.cwd, startInput.session_id, startInput.agent_id, startInput.agent_type, startInput.prompt, undefined, // parentMode detected in tracker
@@ -625,10 +675,11 @@ export async function processHook(hookType, input) {
                 return processSubagentStart(startInput);
             }
             case "subagent-stop": {
-                if (!validateHookInput(input, ["session_id", "cwd"])) {
-                    console.error("[hook-bridge] Invalid SubagentStopInput - missing required fields");
+                if (!validateHookInput(input, requiredKeysForHook("subagent-stop"), "subagent-stop")) {
                     return { continue: true };
                 }
+                const { processSubagentStop } = await import("./subagent-tracker/index.js");
+                const { recordAgentStop } = await import("./subagent-tracker/session-replay.js");
                 const stopInput = input;
                 const result = processSubagentStop(stopInput);
                 // Record to session replay (default to true when SDK doesn't provide success)
@@ -636,18 +687,18 @@ export async function processHook(hookType, input) {
                 return result;
             }
             case "pre-compact": {
-                if (!validateHookInput(input, ["session_id", "cwd"])) {
-                    console.error("[hook-bridge] Invalid PreCompactInput - missing required fields");
+                if (!validateHookInput(input, requiredKeysForHook("pre-compact"), "pre-compact")) {
                     return { continue: true };
                 }
+                const { processPreCompact } = await import("./pre-compact/index.js");
                 return await processPreCompact(input);
             }
             case "setup-init":
             case "setup-maintenance": {
-                if (!validateHookInput(input, ["session_id", "cwd"])) {
-                    console.error("[hook-bridge] Invalid SetupInput - missing required fields");
+                if (!validateHookInput(input, requiredKeysForHook(hookType), hookType)) {
                     return { continue: true };
                 }
+                const { processSetup } = await import("./setup/index.js");
                 return await processSetup({
                     ...input,
                     trigger: hookType === "setup-init" ? "init" : "maintenance",
@@ -655,15 +706,15 @@ export async function processHook(hookType, input) {
                 });
             }
             case "permission-request": {
-                if (!validateHookInput(input, [
-                    "session_id",
-                    "cwd",
-                    "tool_name",
-                ])) {
-                    console.error("[hook-bridge] Invalid PermissionRequestInput - missing required fields");
+                if (!validateHookInput(input, requiredKeysForHook("permission-request"), "permission-request")) {
                     return { continue: true };
                 }
+                const { handlePermissionRequest } = await import("./permission-handler/index.js");
                 return await handlePermissionRequest(input);
+            }
+            case "conductor": {
+                const { processConductor } = await import("./conductor/index.js");
+                return await processConductor(input);
             }
             default:
                 return { continue: true };

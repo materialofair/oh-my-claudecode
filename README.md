@@ -114,6 +114,21 @@ Multiple strategies for different use cases — from Team-backed orchestration t
 | **Pipeline** | Sequential, staged processing | Multi-step transformations with strict ordering |
 | **Swarm / Ultrapilot (legacy)** | Compatibility facades that route to **Team** | Existing workflows and older docs |
 
+### Enhanced Code Review (4-Layer Deep Analysis)
+
+Multi-layer AI code review with MBTI-driven personas and confidence scoring:
+
+| Layer | Engine | MBTI Persona | Focus |
+|-------|--------|-------------|-------|
+| **Layer 1** | 5 parallel Claude agents | INTJ/ISTJ/INTP/ENTP/ISFJ | CLAUDE.md compliance, bug detection, git history, related PRs, code comments |
+| **Layer 2** | Gemini CLI (`gemp`) | INTJ Architect | Architecture review, security, performance |
+| **Layer 3** | Codex CLI (`codex exec`) | ISTJ Engineer | Best practices, maintainability, pattern adherence |
+| **Layer 4** | Synthesis | All personas | Combined findings, final confidence scoring, comprehensive report |
+
+- **Confidence scoring** (0-100) with false positive filtering (threshold: 80+)
+- **3 modes**: `--quick` (single-pass), standard (5 agents), `--deep` (full 4-layer)
+- **Chinese output** by default
+
 ### Intelligent Orchestration
 
 - **32 specialized agents** for architecture, research, design, testing, data science
@@ -184,12 +199,25 @@ omc wait --stop   # Disable daemon
 
 ### Optional: Multi-AI Orchestration
 
-OMC can optionally orchestrate external AI providers for cross-validation and design consistency. These are **not required** — OMC works fully without them.
+OMC can optionally orchestrate external AI providers via **CLI invocation** (not MCP) for cross-validation and deep analysis. These are **not required** — OMC works fully without them.
 
-| Provider | Install | What it enables |
-|----------|---------|-----------------|
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `npm install -g @google/gemini-cli` | Design review, UI consistency (1M token context) |
-| [Codex CLI](https://github.com/openai/codex) | `npm install -g @openai/codex` | Architecture validation, code review cross-check |
+| Provider | Install | CLI Usage | What it enables |
+|----------|---------|-----------|-----------------|
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `npm install -g @google/gemini-cli` | `gemp` / `gemini --yolo` | Architecture review, design consistency (1M token context) |
+| [Codex CLI](https://github.com/openai/codex) | `npm install -g @openai/codex` | `codex exec` | Quality audit, code review cross-check |
+
+**Invocation method:** Prompt piped via stdin to CLI tools — no MCP server dependency, no timeout limits.
+
+```bash
+# Gemini (preferred: gemp with long task support)
+cat /tmp/prompt.txt | node ~/.gemini/long_task_runner.js 2>&1
+
+# Gemini (fallback)
+cat /tmp/prompt.txt | gemini --yolo 2>&1
+
+# Codex
+cat /tmp/prompt.txt | codex exec --dangerously-bypass-approvals-and-sandbox - 2>&1
+```
 
 **Cost:** 3 Pro plans (Claude + Gemini + ChatGPT) cover everything for ~$60/month.
 

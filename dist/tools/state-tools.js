@@ -150,7 +150,8 @@ export const stateReadTool = {
                 content: [{
                         type: 'text',
                         text: `Error reading state for ${mode}: ${error instanceof Error ? error.message : String(error)}`
-                    }]
+                    }],
+                isError: true
             };
         }
     }
@@ -187,7 +188,8 @@ export const stateWriteTool = {
                     content: [{
                             type: 'text',
                             text: `Error: Swarm uses SQLite database (swarm.db), not JSON. Use swarm-specific APIs to modify state.`
-                        }]
+                        }],
+                    isError: true
                 };
             }
             // Determine state path based on session_id
@@ -257,7 +259,8 @@ export const stateWriteTool = {
                 content: [{
                         type: 'text',
                         text: `Error writing state for ${mode}: ${error instanceof Error ? error.message : String(error)}`
-                    }]
+                    }],
+                isError: true
             };
         }
     }
@@ -401,7 +404,8 @@ export const stateClearTool = {
                 content: [{
                         type: 'text',
                         text: `Error clearing state for ${mode}: ${error instanceof Error ? error.message : String(error)}`
-                    }]
+                    }],
+                isError: true
             };
         }
     }
@@ -528,7 +532,8 @@ export const stateListActiveTool = {
                 content: [{
                         type: 'text',
                         text: `Error listing active modes: ${error instanceof Error ? error.message : String(error)}`
-                    }]
+                    }],
+                isError: true
             };
         }
     }
@@ -693,7 +698,8 @@ export const stateGetStatusTool = {
                 content: [{
                         type: 'text',
                         text: `Error getting status: ${error instanceof Error ? error.message : String(error)}`
-                    }]
+                    }],
+                isError: true
             };
         }
     }

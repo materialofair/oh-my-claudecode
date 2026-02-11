@@ -82,6 +82,12 @@ const MODE_CONFIGS: Record<ExecutionMode, ModeConfig> = {
     stateFile: 'ecomode-state.json',
     activeProperty: 'active',
     hasGlobalState: false
+  },
+  conductor: {
+    name: 'Conductor',
+    stateFile: 'conductor/conductor-state.json',
+    activeProperty: 'active',
+    hasGlobalState: false
   }
 };
 

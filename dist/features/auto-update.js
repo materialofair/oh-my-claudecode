@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { execSync } from 'child_process';
-import { install as installSisyphus, HOOKS_DIR, isProjectScopedPlugin } from '../installer/index.js';
+import { install as installSisyphus, HOOKS_DIR, isProjectScopedPlugin, isRunningAsPlugin } from '../installer/index.js';
 /** GitHub repository information */
 export const REPO_OWNER = 'Yeachan-Heo';
 export const REPO_NAME = 'oh-my-claudecode';
@@ -254,6 +254,15 @@ export async function performUpdate(options) {
     const installed = getInstalledVersion();
     const previousVersion = installed?.version ?? null;
     try {
+        // Check if running as plugin - prevent npm global update from corrupting plugin
+        if (isRunningAsPlugin() && !options?.standalone) {
+            return {
+                success: false,
+                previousVersion,
+                newVersion: 'unknown',
+                message: 'Running as a Claude Code plugin. Use "/plugin install oh-my-claudecode" to update, or pass --standalone to force npm update.',
+            };
+        }
         // Fetch the latest release to get the version
         const release = await fetchLatestRelease();
         const newVersion = release.tag_name.replace(/^v/, '');

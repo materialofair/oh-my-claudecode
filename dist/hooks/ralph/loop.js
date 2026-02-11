@@ -191,7 +191,7 @@ export function incrementRalphIteration(directory, sessionId) {
 export function createRalphLoopHook(directory) {
     const startLoop = (sessionId, prompt, options) => {
         // Mutual exclusion check: cannot start Ralph Loop if UltraQA is active
-        if (isUltraQAActive(directory)) {
+        if (isUltraQAActive(directory, sessionId)) {
             console.error("Cannot start Ralph Loop while UltraQA is active. Cancel UltraQA first with /oh-my-claudecode:cancel.");
             return false;
         }

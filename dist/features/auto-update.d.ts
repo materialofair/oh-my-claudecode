@@ -193,6 +193,7 @@ export declare function reconcileUpdateRuntime(options?: {
 export declare function performUpdate(options?: {
     skipConfirmation?: boolean;
     verbose?: boolean;
+    standalone?: boolean;
 }): Promise<UpdateResult>;
 /**
  * Get a formatted update notification message

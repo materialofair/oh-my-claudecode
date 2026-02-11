@@ -999,6 +999,11 @@ export async function processHook(
         return await handlePermissionRequest(input as PermissionRequestInput);
       }
 
+      case "conductor": {
+        const { processConductor } = await import("./conductor/index.js");
+        return await processConductor(input);
+      }
+
       default:
         return { continue: true };
     }

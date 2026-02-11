@@ -13,7 +13,8 @@ export type ExecutionMode =
   | 'ralph'
   | 'ultrawork'
   | 'ultraqa'
-  | 'ecomode';
+  | 'ecomode'
+  | 'conductor';
 
 export interface ModeConfig {
   /** Display name for the mode */
