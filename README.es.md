@@ -26,7 +26,7 @@
 
 **Paso 2: Configurar**
 ```bash
-/oh-my-claudecode:omc-setup
+/omc:omc-setup
 ```
 
 **Paso 3: Construye algo**
@@ -45,13 +45,13 @@ Eso es todo. Todo lo demás es automático.
 /plugin install oh-my-claudecode
 
 # 2. Volver a ejecutar el setup para actualizar la configuracion
-/oh-my-claudecode:omc-setup
+/omc:omc-setup
 ```
 
 Si experimentas problemas despues de actualizar, limpia la cache antigua del plugin:
 
 ```bash
-/oh-my-claudecode:omc-doctor
+/omc:omc-doctor
 ```
 
 <h1 align="center">Tu Claude acaba de recibir esteroides.</h1>

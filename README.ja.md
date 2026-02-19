@@ -26,7 +26,7 @@
 
 **ステップ 2: セットアップ**
 ```bash
-/oh-my-claudecode:omc-setup
+/omc:omc-setup
 ```
 
 **ステップ 3: 何か作ってみる**
@@ -45,13 +45,13 @@ autopilot: build a REST API for managing tasks
 /plugin install oh-my-claudecode
 
 # 2. セットアップを再実行して設定を更新
-/oh-my-claudecode:omc-setup
+/omc:omc-setup
 ```
 
 更新後に問題が発生した場合は、古いプラグインキャッシュをクリアしてください：
 
 ```bash
-/oh-my-claudecode:omc-doctor
+/omc:omc-doctor
 ```
 
 <h1 align="center">あなたの Claude がステロイド級にパワーアップ。</h1>

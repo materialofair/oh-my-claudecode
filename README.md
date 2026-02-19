@@ -26,7 +26,7 @@ English | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](READM
 
 **Step 2: Setup**
 ```bash
-/oh-my-claudecode:omc-setup
+/omc:omc-setup
 ```
 
 **Step 3: Build something**
@@ -41,7 +41,7 @@ That's it. Everything else is automatic.
 Starting in **v4.1.7**, **Team** is the canonical orchestration surface in OMC. Legacy entrypoints like **swarm** and **ultrapilot** are still supported, but they now **route to Team under the hood**.
 
 ```bash
-/oh-my-claudecode:team 3:executor "fix all TypeScript errors"
+/omc:team 3:executor "fix all TypeScript errors"
 ```
 
 Team runs as a staged pipeline:
@@ -69,13 +69,13 @@ Enable Claude Code native teams in `~/.claude/settings.json`:
 /plugin install oh-my-claudecode
 
 # 2. Re-run setup to refresh configuration
-/oh-my-claudecode:omc-setup
+/omc:omc-setup
 ```
 
 If you experience issues after updating, clear the old plugin cache:
 
 ```bash
-/oh-my-claudecode:omc-doctor
+/omc:omc-doctor
 ```
 
 <h1 align="center">Your Claude Just Have been Steroided.</h1>
@@ -137,7 +137,7 @@ Optional shortcuts for power users. Natural language works fine without them.
 
 | Keyword | Effect | Example |
 |---------|--------|---------|
-| `team` | Canonical Team orchestration | `/oh-my-claudecode:team 3:executor "fix all TypeScript errors"` |
+| `team` | Canonical Team orchestration | `/omc:team 3:executor "fix all TypeScript errors"` |
 | `autopilot` | Full autonomous execution | `autopilot: build a todo app` |
 | `ralph` | Persistence mode | `ralph: refactor auth` |
 | `ulw` | Maximum parallelism | `ulw fix all errors` |
