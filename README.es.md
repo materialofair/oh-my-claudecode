@@ -139,7 +139,7 @@ omc wait --stop   # Deshabilitar demonio
 
 **Requiere:** tmux (para detección de sesión)
 
-### Etiquetas de notificación (Telegram/Discord)
+### Etiquetas de notificación (Telegram/Discord/Slack)
 
 Puedes configurar a quién etiquetar cuando los callbacks de stop envían el resumen de sesión.
 
@@ -147,6 +147,7 @@ Puedes configurar a quién etiquetar cuando los callbacks de stop envían el res
 # Definir/reemplazar lista de etiquetas
 omc config-stop-callback telegram --enable --token <bot_token> --chat <chat_id> --tag-list "@alice,bob"
 omc config-stop-callback discord --enable --webhook <url> --tag-list "@here,123456789012345678,role:987654321098765432"
+omc config-stop-callback slack --enable --webhook <url> --tag-list "<!here>,<@U1234567890>"
 
 # Actualizaciones incrementales
 omc config-stop-callback telegram --add-tag charlie
@@ -157,6 +158,7 @@ omc config-stop-callback discord --clear-tags
 Comportamiento de etiquetas:
 - Telegram: `alice` se normaliza a `@alice`
 - Discord: soporta `@here`, `@everyone`, IDs numéricos de usuario y `role:<id>`
+- Slack: soporta `<@MEMBER_ID>`, `<!channel>`, `<!here>`, `<!everyone>`, `<!subteam^GROUP_ID>`
 - El callback `file` ignora las opciones de etiquetas
 
 ---
@@ -183,9 +185,12 @@ export OMC_DISCORD_NOTIFIER_CHANNEL="your_channel_id"
 export OMC_TELEGRAM_BOT_TOKEN="your_bot_token"
 export OMC_TELEGRAM_CHAT_ID="your_chat_id"
 
+# Slack
+export OMC_SLACK_WEBHOOK_URL="your_webhook_url"
+export OMC_SLACK_MENTION="<@U1234567890>"  # optional
+
 # Webhooks opcionales
 export OMC_DISCORD_WEBHOOK_URL="your_webhook_url"
-export OMC_SLACK_WEBHOOK_URL="your_webhook_url"
 ```
 
 > Nota: las variables deben estar cargadas en el mismo shell donde ejecutas `claude`.

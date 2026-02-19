@@ -167,7 +167,7 @@ omc wait --stop   # Disable daemon
 
 **Yêu cầu:** tmux (để phát hiện phiên)
 
-### Notification Tags (Telegram/Discord)
+### Notification Tags (Telegram/Discord/Slack)
 
 Bạn có thể cấu hình ai sẽ được tag khi stop callbacks gửi tóm tắt phiên.
 
@@ -175,6 +175,7 @@ Bạn có thể cấu hình ai sẽ được tag khi stop callbacks gửi tóm t
 # Set/replace tag list
 omc config-stop-callback telegram --enable --token <bot_token> --chat <chat_id> --tag-list "@alice,bob"
 omc config-stop-callback discord --enable --webhook <url> --tag-list "@here,123456789012345678,role:987654321098765432"
+omc config-stop-callback slack --enable --webhook <url> --tag-list "<!here>,<@U1234567890>"
 
 # Incremental updates
 omc config-stop-callback telegram --add-tag charlie
@@ -185,6 +186,7 @@ omc config-stop-callback discord --clear-tags
 Hành vi tag:
 - Telegram: `alice` trở thành `@alice`
 - Discord: hỗ trợ `@here`, `@everyone`, user ID dạng số, và `role:<id>`
+- Slack: hỗ trợ `<@MEMBER_ID>`, `<!channel>`, `<!here>`, `<!everyone>`, `<!subteam^GROUP_ID>`
 - callbacks kiểu `file` bỏ qua các tùy chọn tag
 
 ---
