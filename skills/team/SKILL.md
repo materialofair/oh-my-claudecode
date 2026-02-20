@@ -140,10 +140,47 @@ Continue `team-exec -> team-verify -> team-fix` until:
 
 `team-fix` is bounded by max attempts. If fix attempts exceed the configured limit, transition to terminal `failed` (no infinite loop).
 
+### Stage Handoff Convention
+
+When transitioning between stages, important context — decisions made, alternatives rejected, risks identified — lives only in the lead's conversation history. If the lead's context compacts or agents restart, this knowledge is lost.
+
+**Each completing stage MUST produce a handoff document before transitioning.**
+
+The lead writes handoffs to `.omc/handoffs/<stage-name>.md`.
+
+#### Handoff Format
+
+```markdown
+## Handoff: <current-stage> → <next-stage>
+- **Decided**: [key decisions made in this stage]
+- **Rejected**: [alternatives considered and why they were rejected]
+- **Risks**: [identified risks for the next stage]
+- **Files**: [key files created or modified]
+- **Remaining**: [items left for the next stage to handle]
+```
+
+#### Handoff Rules
+
+1. **Lead reads previous handoff BEFORE spawning next stage's agents.** The handoff content is included in the next stage's agent spawn prompts, ensuring agents start with full context.
+2. **Handoffs accumulate.** The verify stage can read all prior handoffs (plan → prd → exec) for full decision history.
+3. **On team cancellation, handoffs survive** in `.omc/handoffs/` for session resume. They are not deleted by `TeamDelete`.
+4. **Handoffs are lightweight.** 10-20 lines max. They capture decisions and rationale, not full specifications (those live in deliverable files like DESIGN.md).
+
+#### Example
+
+```markdown
+## Handoff: team-plan → team-exec
+- **Decided**: Microservice architecture with 3 services (auth, api, worker). PostgreSQL for persistence. JWT for auth tokens.
+- **Rejected**: Monolith (scaling concerns), MongoDB (team expertise is SQL), session cookies (API-first design).
+- **Risks**: Worker service needs Redis for job queue — not yet provisioned. Auth service has no rate limiting in initial design.
+- **Files**: DESIGN.md, TEST_STRATEGY.md
+- **Remaining**: Database migration scripts, CI/CD pipeline config, Redis provisioning.
+```
+
 ### Resume and Cancel Semantics
 
-- **Resume:** restart from the last non-terminal stage using staged state + live task status.
-- **Cancel:** `/oh-my-claudecode:cancel` requests teammate shutdown, waits for responses (best effort), marks phase `cancelled` with `active=false`, captures cancellation metadata, then deletes team resources and clears/preserves Team state per policy.
+- **Resume:** restart from the last non-terminal stage using staged state + live task status. Read `.omc/handoffs/` to recover stage transition context.
+- **Cancel:** `/oh-my-claudecode:cancel` requests teammate shutdown, waits for responses (best effort), marks phase `cancelled` with `active=false`, captures cancellation metadata, then deletes team resources and clears/preserves Team state per policy. Handoff files in `.omc/handoffs/` are preserved for potential resume.
 - Terminal states are `complete`, `failed`, and `cancelled`.
 
 ## Workflow
