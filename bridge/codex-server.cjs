@@ -15336,6 +15336,7 @@ var CODEX_MODEL_FALLBACKS = [
   "gpt-5.2"
 ];
 var GEMINI_MODEL_FALLBACKS = [
+  "gemini-3.1-pro-preview",
   "gemini-3-pro-preview",
   "gemini-3-flash-preview",
   "gemini-2.5-pro",
@@ -15343,7 +15344,7 @@ var GEMINI_MODEL_FALLBACKS = [
 ];
 var HARDCODED_DEFAULTS = {
   codex: "gpt-5.3-codex",
-  gemini: "gemini-3-pro-preview"
+  gemini: "gemini-3.1-pro-preview"
 };
 var DEFAULT_FALLBACK_POLICY = {
   onModelFailure: "provider_chain",
@@ -16425,7 +16426,7 @@ var DEFAULT_CONFIG = {
   externalModels: {
     defaults: {
       codexModel: process.env.OMC_CODEX_DEFAULT_MODEL || "gpt-5.3-codex",
-      geminiModel: process.env.OMC_GEMINI_DEFAULT_MODEL || "gemini-3-pro-preview"
+      geminiModel: process.env.OMC_GEMINI_DEFAULT_MODEL || "gemini-3.1-pro-preview"
     },
     fallbackPolicy: {
       onModelFailure: "provider_chain",
@@ -17399,7 +17400,7 @@ var spawnedPids2 = /* @__PURE__ */ new Set();
 function isSpawnedPid2(pid) {
   return spawnedPids2.has(pid);
 }
-var GEMINI_DEFAULT_MODEL = process.env.OMC_GEMINI_DEFAULT_MODEL || "gemini-3-pro-preview";
+var GEMINI_DEFAULT_MODEL = process.env.OMC_GEMINI_DEFAULT_MODEL || "gemini-3.1-pro-preview";
 var GEMINI_TIMEOUT = Math.min(Math.max(5e3, parseInt(process.env.OMC_GEMINI_TIMEOUT || "3600000", 10) || 36e5), 36e5);
 var MAX_FILE_SIZE2 = 5 * 1024 * 1024;
 var MAX_STDOUT_BYTES2 = 10 * 1024 * 1024;

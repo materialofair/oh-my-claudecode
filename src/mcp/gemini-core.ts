@@ -51,7 +51,7 @@ function validateModelName(model: string): void {
 }
 
 // Default model can be overridden via environment variable
-export const GEMINI_DEFAULT_MODEL = process.env.OMC_GEMINI_DEFAULT_MODEL || 'gemini-3-pro-preview';
+export const GEMINI_DEFAULT_MODEL = process.env.OMC_GEMINI_DEFAULT_MODEL || 'gemini-3.1-pro-preview';
 export const GEMINI_TIMEOUT = Math.min(Math.max(5000, parseInt(process.env.OMC_GEMINI_TIMEOUT || '3600000', 10) || 3600000), 3600000);
 
 // Gemini is best for design review and implementation tasks (recommended, not enforced)
