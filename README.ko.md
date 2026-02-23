@@ -1,4 +1,4 @@
-[English](README.md) | 한국어 | [中文](README.zh.md) | [日本語](README.ja.md) | [Español](README.es.md)
+[English](README.md) | 한국어 | [中文](README.zh.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Tiếng Việt](README.vi.md) | [Português](README.pt.md)
 
 # oh-my-claudecode
 
@@ -26,7 +26,7 @@
 
 **Step 2: 설정**
 ```bash
-/oh-my-claudecode:omc-setup
+/omc-setup
 ```
 
 **Step 3: 무언가 만들기**
@@ -36,22 +36,24 @@ autopilot: build a REST API for managing tasks
 
 끝입니다. 나머지는 모두 자동입니다.
 
-> **참고: 패키지 이름** — 프로젝트 브랜드명은 **oh-my-claudecode** (저장소, 플러그인, 명령어)이지만, npm 패키지는 [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus)로 배포됩니다. npm/bun으로 CLI 도구를 설치할 때는 `npm install -g oh-my-claude-sisyphus`를 사용하세요.
+> **참고: 패키지 이름** — 프로젝트 브랜드명은 **oh-my-claudecode** (저장소, 플러그인, 명령어)이지만, npm 패키지는 [`oh-my-claudecode`](https://www.npmjs.com/package/oh-my-claude-sisyphus)로 배포됩니다. npm/bun으로 CLI 도구를 설치할 때는 `npm install -g oh-my-claude-sisyphus`를 사용하세요.
 
 ### 업데이트
 
 ```bash
-# 1. 플러그인 업데이트
-/plugin install oh-my-claudecode
+# 1. 마켓플레이스 클론 업데이트
+/plugin marketplace update omc
 
 # 2. 셋업을 다시 실행하여 설정 갱신
-/oh-my-claudecode:omc-setup
+/omc-setup
 ```
+
+> **참고:** 마켓플레이스 auto-update가 활성화되어 있지 않은 경우, 셋업 실행 전에 `/plugin marketplace update omc`를 수동으로 실행하여 최신 버전을 동기화해야 합니다.
 
 업데이트 후 문제가 발생하면, 이전 플러그인 캐시를 정리하세요:
 
 ```bash
-/oh-my-claudecode:doctor
+/omc-doctor
 ```
 
 <h1 align="center">당신의 Claude가 스테로이드를 맞았습니다.</h1>
@@ -85,7 +87,6 @@ autopilot: build a REST API for managing tasks
 | **Ultrawork** | 병렬 | 모든 작업에 최대 병렬화 |
 | **Ralph** | 지속적 | 반드시 완료해야 하는 작업 |
 | **Ultrapilot** | 3-5배 빠름 | 다중 컴포넌트 시스템 |
-| **Ecomode** | 빠름 + 30-50% 저렴 | 예산을 고려한 프로젝트 |
 | **Swarm** | 협조적 | 병렬 독립 작업 |
 | **Pipeline** | 순차적 | 다단계 처리 |
 
@@ -97,7 +98,7 @@ autopilot: build a REST API for managing tasks
 
 ### 개발자 경험
 
-- **매직 키워드** - 명시적 제어를 위한 `ralph`, `ulw`, `eco`, `plan`
+- **매직 키워드** - 명시적 제어를 위한 `ralph`, `ulw`, `plan`
 - **HUD 상태바** - 상태바에서 실시간 오케스트레이션 메트릭 확인
 - **스킬 학습** - 세션에서 재사용 가능한 패턴 추출
 - **분석 및 비용 추적** - 모든 세션의 토큰 사용량 이해
@@ -115,7 +116,6 @@ autopilot: build a REST API for managing tasks
 | `autopilot` | 완전 자율 실행 | `autopilot: build a todo app` |
 | `ralph` | 지속 모드 | `ralph: refactor auth` |
 | `ulw` | 최대 병렬화 | `ulw fix all errors` |
-| `eco` | 토큰 효율적 실행 | `eco: migrate database` |
 | `plan` | 계획 인터뷰 | `plan the API` |
 | `ralplan` | 반복적 계획 합의 | `ralplan this feature` |
 
@@ -136,6 +136,62 @@ omc wait --stop   # 데몬 비활성화
 ```
 
 **요구사항:** tmux (세션 감지용)
+
+### 알림 태그 설정 (Telegram/Discord/Slack)
+
+stop 콜백이 세션 요약을 보낼 때 태그할 대상을 설정할 수 있습니다.
+
+```bash
+# 태그 목록 설정/교체
+omc config-stop-callback telegram --enable --token <bot_token> --chat <chat_id> --tag-list "@alice,bob"
+omc config-stop-callback discord --enable --webhook <url> --tag-list "@here,123456789012345678,role:987654321098765432"
+omc config-stop-callback slack --enable --webhook <url> --tag-list "<!here>,<@U1234567890>"
+
+# 점진적 수정
+omc config-stop-callback telegram --add-tag charlie
+omc config-stop-callback discord --remove-tag @here
+omc config-stop-callback discord --clear-tags
+```
+
+태그 동작:
+- Telegram: `alice`는 `@alice`로 정규화됩니다
+- Discord: `@here`, `@everyone`, 숫자 사용자 ID, `role:<id>` 지원
+- Slack: `<@MEMBER_ID>`, `<!channel>`, `<!here>`, `<!everyone>`, `<!subteam^GROUP_ID>` 지원
+- `file` 콜백은 태그 옵션을 무시합니다
+
+---
+
+## 알림 (Notifications)
+
+세션 라이프사이클 이벤트에 대해 실시간 알림을 받을 수 있습니다.
+
+지원 이벤트:
+- `session-start`
+- `session-stop` (persistent 모드가 대기/블록 상태로 들어갈 때)
+- `session-end`
+- `ask-user-question`
+
+### 설정
+쉘 프로필(예: `~/.zshrc`, `~/.bashrc`)에 환경 변수를 추가하세요:
+
+```bash
+# Discord Bot
+export OMC_DISCORD_NOTIFIER_BOT_TOKEN="your_bot_token"
+export OMC_DISCORD_NOTIFIER_CHANNEL="your_channel_id"
+
+# Telegram
+export OMC_TELEGRAM_BOT_TOKEN="your_bot_token"
+export OMC_TELEGRAM_CHAT_ID="your_chat_id"
+
+# Slack
+export OMC_SLACK_WEBHOOK_URL="your_webhook_url"
+export OMC_SLACK_MENTION="<@U1234567890>"  # optional
+
+# Optional webhooks
+export OMC_DISCORD_WEBHOOK_URL="your_webhook_url"
+```
+
+> 참고: `claude`를 실행하는 동일한 쉘에서 환경 변수가 로드되어 있어야 합니다.
 
 ---
 

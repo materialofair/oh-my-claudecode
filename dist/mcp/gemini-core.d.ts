@@ -42,10 +42,6 @@ export declare function executeGeminiBackground(fullPrompt: string, modelInput: 
     error: string;
 };
 /**
- * Validate and read a file for context inclusion
- */
-export declare function validateAndReadFile(filePath: string, baseDir?: string): string;
-/**
  * Handle ask_gemini tool request - contains ALL business logic
  *
  * This function is called by both the SDK server and standalone server.
@@ -61,8 +57,9 @@ export declare function validateAndReadFile(filePath: string, baseDir?: string):
  * @returns MCP-compatible response with content array
  */
 export declare function handleAskGemini(args: {
-    prompt_file: string;
-    output_file: string;
+    prompt?: string;
+    prompt_file?: string;
+    output_file?: string;
     agent_role: string;
     model?: string;
     files?: string[];

@@ -137,6 +137,10 @@ describe('auto-update reconciliation', () => {
   });
 
   it('runs reconciliation as part of performUpdate', async () => {
+    // Set env var so performUpdate takes the direct reconciliation path
+    // (simulates being in the re-exec'd process after npm install)
+    process.env.OMC_UPDATE_RECONCILE = '1';
+
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -155,7 +159,7 @@ describe('auto-update reconciliation', () => {
     const result = await performUpdate({ verbose: false });
 
     expect(result.success).toBe(true);
-    expect(mockedExecSync).toHaveBeenCalledWith('npm install -g oh-my-claude-sisyphus@latest', expect.any(Object));
+    expect(mockedExecSync).toHaveBeenCalledWith('npm install -g oh-my-claudecode@latest', expect.any(Object));
     expect(mockedInstall).toHaveBeenCalledWith({
       force: true,
       verbose: false,
@@ -163,9 +167,14 @@ describe('auto-update reconciliation', () => {
       forceHooks: true,
       refreshHooksInPlugin: true,
     });
+
+    delete process.env.OMC_UPDATE_RECONCILE;
   });
 
   it('does not persist metadata when reconciliation fails', async () => {
+    // Set env var so performUpdate takes the direct reconciliation path
+    process.env.OMC_UPDATE_RECONCILE = '1';
+
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -194,8 +203,10 @@ describe('auto-update reconciliation', () => {
     const result = await performUpdate({ verbose: false });
 
     expect(result.success).toBe(false);
-    expect(result.errors).toEqual(['boom']);
+    expect(result.errors).toEqual(['Reconciliation failed: boom']);
     expect(mockedWriteFileSync).not.toHaveBeenCalled();
+
+    delete process.env.OMC_UPDATE_RECONCILE;
   });
 
   it('preserves non-OMC hooks when refreshing plugin hooks during reconciliation', () => {

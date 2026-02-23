@@ -31,7 +31,9 @@ export const DEFAULT_DELEGATION_CONFIG: DelegationRoutingConfig = {
 export const ROLE_CATEGORY_DEFAULTS: Record<string, string> = {
   // Exploration roles
   explore: 'explore',
-  researcher: 'researcher',
+  'document-specialist': 'document-specialist',
+  researcher: 'document-specialist',
+  'tdd-guide': 'test-engineer',
 
   // Advisory roles (high complexity)
   architect: 'architect',
@@ -41,7 +43,6 @@ export const ROLE_CATEGORY_DEFAULTS: Record<string, string> = {
 
   // Implementation roles
   executor: 'executor',
-  'deep-executor': 'deep-executor',
 
   // Review roles
   'code-reviewer': 'code-reviewer',
@@ -51,12 +52,31 @@ export const ROLE_CATEGORY_DEFAULTS: Record<string, string> = {
   // Specialized roles
   designer: 'designer',
   writer: 'writer',
-  vision: 'vision',
   'qa-tester': 'qa-tester',
   debugger: 'debugger',
   scientist: 'scientist',
   'build-fixer': 'build-fixer',
 };
+
+/**
+ * Deprecated role aliases mapped to canonical role names.
+ */
+export const DEPRECATED_ROLE_ALIASES: Readonly<Record<string, string>> = {
+  researcher: 'document-specialist',
+  'tdd-guide': 'test-engineer',
+  'api-reviewer': 'code-reviewer',
+  'performance-reviewer': 'quality-reviewer',
+  'dependency-expert': 'document-specialist',
+  'quality-strategist': 'quality-reviewer',
+  vision: 'document-specialist',
+};
+
+/**
+ * Normalize legacy role aliases to canonical role names.
+ */
+export function normalizeDelegationRole(role: string): string {
+  return DEPRECATED_ROLE_ALIASES[role] ?? role;
+}
 
 /**
  * Check if delegation routing is enabled

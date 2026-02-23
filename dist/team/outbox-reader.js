@@ -7,12 +7,12 @@
  */
 import { readFileSync, openSync, readSync, closeSync, statSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../utils/paths.js';
 import { validateResolvedPath, writeFileWithMode, atomicWriteJson, ensureDirWithMode } from './fs-utils.js';
 import { sanitizeName } from './tmux-session.js';
 const MAX_OUTBOX_READ_SIZE = 10 * 1024 * 1024; // 10MB cap per read
 function teamsDir() {
-    return join(homedir(), '.claude', 'teams');
+    return join(getClaudeConfigDir(), 'teams');
 }
 /**
  * Read new outbox messages for a worker using byte-offset cursor.
@@ -54,7 +54,8 @@ export function readNewOutboxMessages(teamName, workerName) {
     finally {
         closeSync(fd);
     }
-    const lines = buf.toString('utf-8').split('\n').filter(l => l.trim());
+    const chunk = buf.toString('utf-8');
+    const lines = chunk.split('\n').filter(l => l.trim());
     const messages = [];
     for (const line of lines) {
         try {
@@ -62,8 +63,17 @@ export function readNewOutboxMessages(teamName, workerName) {
         }
         catch { /* skip malformed lines */ }
     }
+    // If the buffer ends mid-line (no trailing newline), backtrack the cursor
+    // to the start of that partial line so it is retried on the next read.
+    let consumed = bytesToRead;
+    if (!chunk.endsWith('\n')) {
+        const lastNewline = chunk.lastIndexOf('\n');
+        consumed = lastNewline >= 0
+            ? Buffer.byteLength(chunk.slice(0, lastNewline + 1), 'utf-8')
+            : 0;
+    }
     // Update cursor atomically to prevent corruption on crash
-    const newCursor = { bytesRead: cursor.bytesRead + bytesToRead };
+    const newCursor = { bytesRead: cursor.bytesRead + consumed };
     const cursorDir = join(teamsDir(), safeName, 'outbox');
     ensureDirWithMode(cursorDir);
     atomicWriteJson(cursorPath, newCursor);

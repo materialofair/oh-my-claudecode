@@ -14,7 +14,7 @@ import { renderSkills, renderLastSkill } from './elements/skills.js';
 import { renderContext, renderContextWithBar } from './elements/context.js';
 import { renderBackground } from './elements/background.js';
 import { renderPrd } from './elements/prd.js';
-import { renderRateLimits, renderRateLimitsWithBar } from './elements/limits.js';
+import { renderRateLimits, renderRateLimitsWithBar, renderCustomBuckets } from './elements/limits.js';
 import { renderPermission } from './elements/permission.js';
 import { renderThinking } from './elements/thinking.js';
 import { renderSession } from './elements/session.js';
@@ -22,6 +22,8 @@ import { renderAutopilot } from './elements/autopilot.js';
 import { renderCwd } from './elements/cwd.js';
 import { renderGitRepo, renderGitBranch } from './elements/git.js';
 import { renderModel } from './elements/model.js';
+import { renderCallCounts } from './elements/call-counts.js';
+import { renderContextLimitWarning } from './elements/context-warning.js';
 import {
   getAnalyticsDisplay,
   renderAnalyticsLineWithConfig,
@@ -127,7 +129,7 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
       // If showBudgetWarning is explicitly set, use it; otherwise default to true (backward compat)
       const showBudgetAnalytics = enabledElements.showBudgetWarning ?? true;
       if (showBudgetAnalytics && enabledElements.showCost) {
-        const budgetWarning = renderBudgetWarning(context.sessionHealth);
+        const budgetWarning = renderBudgetWarning(context.sessionHealth, config.thresholds);
         if (budgetWarning) lines.push(budgetWarning);
       }
     }
@@ -170,13 +172,18 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
 
   // Model name
   if (enabledElements.model && context.modelName) {
-    const modelElement = renderModel(context.modelName);
+    const modelElement = renderModel(context.modelName, enabledElements.modelFormat);
     if (modelElement) gitElements.push(modelElement);
   }
 
-  // [OMC] label
+  // [OMC#X.Y.Z] label with optional update notification
   if (enabledElements.omcLabel) {
-    elements.push(bold('[OMC]'));
+    const versionTag = context.omcVersion ? `#${context.omcVersion}` : '';
+    if (context.updateAvailable) {
+      elements.push(bold(`[OMC${versionTag}] -> ${context.updateAvailable} omc update`));
+    } else {
+      elements.push(bold(`[OMC${versionTag}]`));
+    }
   }
 
   // Rate limits (5h and weekly)
@@ -185,6 +192,13 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
       ? renderRateLimitsWithBar(context.rateLimits)
       : renderRateLimits(context.rateLimits);
     if (limits) elements.push(limits);
+  }
+
+  // Custom rate limit buckets
+  if (context.customBuckets) {
+    const thresholdPercent = config.rateLimitsProvider?.resetsAtDisplayThresholdPercent;
+    const custom = renderCustomBuckets(context.customBuckets, thresholdPercent);
+    if (custom) elements.push(custom);
   }
 
   // Permission status indicator (heuristic-based)
@@ -217,7 +231,7 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
     // If showBudgetWarning is explicitly set, use it; otherwise default to true (backward compat)
     const showBudget = enabledElements.showBudgetWarning ?? true;
     if (showBudget && enabledElements.showCost) {
-      const warning = renderBudgetWarning(context.sessionHealth);
+      const warning = renderBudgetWarning(context.sessionHealth, config.thresholds);
       if (warning) detailLines.push(warning);
     }
   }
@@ -286,6 +300,26 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
     const bg = renderBackground(context.backgroundTasks);
     if (bg) elements.push(bg);
   }
+
+  // Call counts on the right side of the status line (Issue #710)
+  // Controlled by showCallCounts config option (default: true)
+  const showCounts = enabledElements.showCallCounts ?? true;
+  if (showCounts) {
+    const counts = renderCallCounts(
+      context.toolCallCount,
+      context.agentCallCount,
+      context.skillCallCount,
+    );
+    if (counts) elements.push(counts);
+  }
+
+  // Context limit warning banner (shown when ctx% >= threshold)
+  const ctxWarning = renderContextLimitWarning(
+    context.contextPercent,
+    config.contextLimitWarning.threshold,
+    config.contextLimitWarning.autoCompact
+  );
+  if (ctxWarning) detailLines.push(ctxWarning);
 
   // Compose output
   const outputLines: string[] = [];

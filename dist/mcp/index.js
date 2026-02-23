@@ -16,4 +16,6 @@ export { persistPrompt, persistResponse, getExpectedResponsePath, getPromptsDir,
 getStatusFilePath, writeJobStatus, readJobStatus, checkResponseReady, readCompletedResponse, listActiveJobs, cleanupStaleJobs } from './prompt-persistence.js';
 // Job management tools for background execution
 export { handleWaitForJob, handleCheckJobStatus, handleKillJob, handleListJobs, findJobStatusFile, getJobManagementToolSchemas } from './job-management.js';
+// MCP Configuration module
+export { loadMcpConfig, getMcpConfig, clearMcpConfigCache, isExternalPromptAllowed, getOutputPathPolicy, getOutputRedirectDir, DEFAULT_MCP_CONFIG } from './mcp-config.js';
 //# sourceMappingURL=index.js.map

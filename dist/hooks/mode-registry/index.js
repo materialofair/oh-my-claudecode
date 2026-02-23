@@ -70,18 +70,6 @@ const MODE_CONFIGS = {
         name: 'UltraQA',
         stateFile: 'ultraqa-state.json',
         activeProperty: 'active'
-    },
-    ecomode: {
-        name: 'Ecomode',
-        stateFile: 'ecomode-state.json',
-        activeProperty: 'active',
-        hasGlobalState: false
-    },
-    conductor: {
-        name: 'Conductor',
-        stateFile: 'conductor/conductor-state.json',
-        activeProperty: 'active',
-        hasGlobalState: false
     }
 };
 // Export for use in other modules
@@ -129,7 +117,7 @@ export function getMarkerFilePath(cwd, mode) {
  * @deprecated Global state is no longer supported. All modes use local-only state in .omc/state/
  * @returns Always returns null
  */
-export function getGlobalStateFilePath(mode) {
+export function getGlobalStateFilePath(_mode) {
     // Global state is deprecated - all modes now use local-only state
     return null;
 }

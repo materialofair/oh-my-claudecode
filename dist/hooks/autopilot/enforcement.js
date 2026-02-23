@@ -8,7 +8,7 @@
  */
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../../utils/paths.js';
 import { OmcPaths } from '../../lib/worktree-paths.js';
 import { readAutopilotState, writeAutopilotState, transitionPhase, transitionRalphToUltraQA, transitionUltraQAToValidation, transitionToComplete } from './state.js';
 import { getPhasePrompt } from './prompts.js';
@@ -33,7 +33,7 @@ const SIGNAL_PATTERNS = {
  * Detect a specific signal in the session transcript
  */
 export function detectSignal(sessionId, signal) {
-    const claudeDir = join(homedir(), '.claude');
+    const claudeDir = getClaudeConfigDir();
     const possiblePaths = [
         join(claudeDir, 'sessions', sessionId, 'transcript.md'),
         join(claudeDir, 'sessions', sessionId, 'messages.json'),
@@ -191,7 +191,7 @@ function generateContinuationPrompt(state, directory, sessionId) {
         specPath: state.expansion.spec_path || `${OmcPaths.AUTOPILOT}/spec.md`,
         planPath: state.planning.plan_path || `${OmcPaths.PLANS}/autopilot-impl.md`
     });
-    let continuationPrompt = `<autopilot-continuation>
+    const continuationPrompt = `<autopilot-continuation>
 ${errorGuidance ? errorGuidance + '\n' : ''}
 [AUTOPILOT - PHASE: ${state.phase.toUpperCase()} | ITERATION ${state.iteration}/${state.max_iterations}]
 

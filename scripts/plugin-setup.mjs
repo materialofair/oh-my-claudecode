@@ -8,12 +8,12 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const CLAUDE_DIR = join(homedir(), '.claude');
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
 const HUD_DIR = join(CLAUDE_DIR, 'hud');
 const SETTINGS_FILE = join(CLAUDE_DIR, 'settings.json');
 
@@ -25,7 +25,7 @@ if (!existsSync(HUD_DIR)) {
 }
 
 // 2. Create HUD wrapper script
-const hudScriptPath = join(HUD_DIR, 'omc-hud.mjs');
+const hudScriptPath = join(HUD_DIR, 'omc-hud.mjs').replace(/\\/g, '/');
 const hudScript = `#!/usr/bin/env node
 /**
  * OMC HUD - Statusline Script
@@ -35,6 +35,7 @@ const hudScript = `#!/usr/bin/env node
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // Semantic version comparison: returns negative if a < b, positive if a > b, 0 if equal
 function semverCompare(a, b) {
@@ -71,7 +72,7 @@ async function main() {
         if (builtVersions.length > 0) {
           const latestBuilt = builtVersions.sort(semverCompare).reverse()[0];
           const pluginPath = join(pluginCacheBase, latestBuilt, "dist/hud/index.js");
-          await import(pluginPath);
+          await import(pathToFileURL(pluginPath).href);
           return;
         }
       }
@@ -80,8 +81,8 @@ async function main() {
 
   // 2. Development paths
   const devPaths = [
-    join(home, "Workspace/oh-my-claude-sisyphus/dist/hud/index.js"),
-    join(home, "workspace/oh-my-claude-sisyphus/dist/hud/index.js"),
+    join(home, "Workspace/oh-my-claudecode/dist/hud/index.js"),
+    join(home, "workspace/oh-my-claudecode/dist/hud/index.js"),
     join(home, "Workspace/oh-my-claudecode/dist/hud/index.js"),
     join(home, "workspace/oh-my-claudecode/dist/hud/index.js"),
   ];
@@ -115,13 +116,31 @@ try {
     settings = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'));
   }
 
-  // Update statusLine to use new HUD path
+  // Use the absolute node binary path so nvm/fnm users don't get
+  // "node not found" errors in non-interactive shells (issue #892).
+  const nodeBin = process.execPath || 'node';
   settings.statusLine = {
     type: 'command',
-    command: `node ${hudScriptPath}`
+    command: `${nodeBin} ${hudScriptPath.replace(/\\/g, "/")}`
   };
   writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   console.log('[OMC] Configured HUD statusLine in settings.json');
+
+  // Persist the node binary path to .omc-config.json for use by find-node.sh
+  try {
+    const configPath = join(CLAUDE_DIR, '.omc-config.json');
+    let omcConfig = {};
+    if (existsSync(configPath)) {
+      omcConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+    }
+    if (nodeBin !== 'node') {
+      omcConfig.nodeBinary = nodeBin;
+      writeFileSync(configPath, JSON.stringify(omcConfig, null, 2));
+      console.log(`[OMC] Saved node binary path: ${nodeBin}`);
+    }
+  } catch (e) {
+    console.log('[OMC] Warning: Could not save node binary path (non-fatal):', e.message);
+  }
 } catch (e) {
   console.log('[OMC] Warning: Could not configure settings.json:', e.message);
 }

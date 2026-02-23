@@ -121,6 +121,20 @@ export const LSP_SERVERS = {
         args: ['-lsp'],
         extensions: ['.cs'],
         installHint: 'dotnet tool install -g omnisharp'
+    },
+    dart: {
+        name: 'Dart Analysis Server',
+        command: 'dart',
+        args: ['language-server', '--protocol=lsp'],
+        extensions: ['.dart'],
+        installHint: 'Install Dart SDK from https://dart.dev/get-dart or Flutter SDK from https://flutter.dev'
+    },
+    swift: {
+        name: 'SourceKit-LSP',
+        command: 'sourcekit-lsp',
+        args: [],
+        extensions: ['.swift'],
+        installHint: 'Install Swift from https://swift.org/download or via Xcode'
     }
 };
 /**
@@ -199,7 +213,10 @@ export function getServerForLanguage(language) {
         'eex': 'elixir',
         'csharp': 'csharp',
         'c#': 'csharp',
-        'cs': 'csharp'
+        'cs': 'csharp',
+        'dart': 'dart',
+        'flutter': 'dart',
+        'swift': 'swift'
     };
     const serverKey = langMap[language.toLowerCase()];
     if (serverKey && LSP_SERVERS[serverKey]) {

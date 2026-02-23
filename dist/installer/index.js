@@ -12,10 +12,11 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { execSync } from 'child_process';
-import { getHookScripts, getHooksSettingsConfig, isWindows, MIN_NODE_VERSION } from './hooks.js';
+import { isWindows, MIN_NODE_VERSION } from './hooks.js';
 import { getRuntimePackageVersion } from '../lib/version.js';
+import { getConfigDir } from '../utils/config-dir.js';
 /** Claude Code configuration directory */
-export const CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
+export const CLAUDE_CONFIG_DIR = getConfigDir();
 export const AGENTS_DIR = join(CLAUDE_CONFIG_DIR, 'agents');
 export const COMMANDS_DIR = join(CLAUDE_CONFIG_DIR, 'commands');
 export const SKILLS_DIR = join(CLAUDE_CONFIG_DIR, 'skills');
@@ -59,25 +60,83 @@ function findLineAnchoredMarker(content, marker, fromEnd = false) {
     }
 }
 /**
+ * Read hudEnabled from .omc-config.json without importing auto-update
+ * (avoids circular dependency since auto-update imports from installer)
+ */
+export function isHudEnabledInConfig() {
+    const configPath = join(CLAUDE_CONFIG_DIR, '.omc-config.json');
+    if (!existsSync(configPath)) {
+        return true; // default: enabled
+    }
+    try {
+        const content = readFileSync(configPath, 'utf-8');
+        const config = JSON.parse(content);
+        // Only disable if explicitly set to false
+        return config.hudEnabled !== false;
+    }
+    catch {
+        return true; // default: enabled on parse error
+    }
+}
+/**
+ * Detect whether a statusLine config belongs to oh-my-claudecode.
+ *
+ * Checks the command string for known OMC HUD paths so that custom
+ * (non-OMC) statusLine configurations are preserved during forced
+ * updates/reconciliation.
+ *
+ * @param statusLine - The statusLine setting object from settings.json
+ * @returns true if the statusLine was set by OMC
+ */
+export function isOmcStatusLine(statusLine) {
+    if (!statusLine || typeof statusLine !== 'object')
+        return false;
+    const sl = statusLine;
+    if (typeof sl.command !== 'string')
+        return false;
+    return sl.command.includes('omc-hud');
+}
+/**
+ * Known OMC hook script filenames installed into .claude/hooks/.
+ * Must be kept in sync with getHookScripts() in hooks.ts and
+ * HOOKS_SETTINGS_CONFIG_NODE command entries.
+ */
+const OMC_HOOK_FILENAMES = new Set([
+    'keyword-detector.mjs',
+    'session-start.mjs',
+    'pre-tool-use.mjs',
+    'post-tool-use.mjs',
+    'post-tool-use-failure.mjs',
+    'persistent-mode.mjs',
+    'stop-continuation.mjs',
+]);
+/**
  * Detect whether a hook command belongs to oh-my-claudecode.
  *
- * Uses substring matching rather than word-boundary regex.
- * Rationale: Real OMC hooks use compound names where "omc" is embedded
- * (e.g., `omc-pre-tool-use.mjs`, `oh-my-claudecode-hook.mjs`). A word-boundary
- * regex like /\bomc\b/ would fail to match "oh-my-claudecode" since "omc" appears
- * as an interior substring. The theoretical false positives (words containing "omc"
- * like "atomic", "socom") are extremely unlikely in real hook command paths.
+ * Recognition strategy (any match is sufficient):
+ * 1. Command path contains "omc" as a path/word segment (e.g. `omc-hook.mjs`, `/omc/`)
+ * 2. Command path contains "oh-my-claudecode"
+ * 3. Command references a known OMC hook filename inside .claude/hooks/
  *
  * @param command - The hook command string
- * @returns true if the command contains 'omc' or 'oh-my-claudecode'
+ * @returns true if the command belongs to OMC
  */
 export function isOmcHook(command) {
     const lowerCommand = command.toLowerCase();
-    // Match on path segments or word boundaries, not substrings
+    // Match "omc" as a path segment or word boundary
     // Matches: /omc/, /omc-, omc/, -omc, _omc, omc_
     const omcPattern = /(?:^|[\/\\_-])omc(?:$|[\/\\_-])/;
     const fullNamePattern = /oh-my-claudecode/;
-    return omcPattern.test(lowerCommand) || fullNamePattern.test(lowerCommand);
+    if (omcPattern.test(lowerCommand) || fullNamePattern.test(lowerCommand)) {
+        return true;
+    }
+    // Check for known OMC hook filenames in .claude/hooks/ path.
+    // Handles both Unix (.claude/hooks/) and Windows (.claude\hooks\) paths.
+    const hookPathMatch = lowerCommand.match(/\.claude[/\\]hooks[/\\]([a-z0-9-]+\.mjs)/);
+    if (hookPathMatch && OMC_HOOK_FILENAMES.has(hookPathMatch[1])) {
+        return true;
+    }
+    return false;
 }
 /**
  * Check if the current Node.js version meets the minimum requirement
@@ -138,7 +197,7 @@ export function isProjectScopedPlugin() {
         return false;
     }
     // Global plugins are installed under ~/.claude/plugins/
-    const globalPluginBase = join(homedir(), '.claude', 'plugins');
+    const globalPluginBase = join(CLAUDE_CONFIG_DIR, 'plugins');
     // If the plugin root is NOT under the global plugin directory, it's project-scoped
     // Normalize paths for comparison (resolve symlinks, trailing slashes, etc.)
     const normalizedPluginRoot = pluginRoot.replace(/\\/g, '/').replace(/\/$/, '');
@@ -146,14 +205,28 @@ export function isProjectScopedPlugin() {
     return !normalizedPluginRoot.startsWith(normalizedGlobalBase);
 }
 /**
- * Get the package root directory
- * From dist/installer/index.js, go up to package root
+ * Get the package root directory.
+ * Works for both ESM (dist/installer/) and CJS bundles (bridge/).
+ * When esbuild bundles to CJS, import.meta is replaced with {} so we
+ * fall back to __dirname which is natively available in CJS.
  */
 function getPackageDir() {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    // From dist/installer/index.js, go up to package root
-    return join(__dirname, '..', '..');
+    try {
+        if (import.meta?.url) {
+            const __filename = fileURLToPath(import.meta.url);
+            const __dirname = dirname(__filename);
+            // From dist/installer/index.js, go up to package root
+            return join(__dirname, '..', '..');
+        }
+    }
+    catch {
+        // import.meta.url unavailable — fall through to CJS path
+    }
+    // CJS bundle path: from bridge/ go up 1 level to package root
+    if (typeof __dirname !== 'undefined') {
+        return join(__dirname, '..');
+    }
+    return process.cwd();
 }
 /**
  * Load agent definitions from /agents/*.md files
@@ -174,14 +247,17 @@ function loadAgentDefinitions() {
 }
 /**
  * Load command definitions from /commands/*.md files
+ *
+ * NOTE: The commands/ directory was removed in v4.1.16 (#582).
+ * All commands are now plugin-scoped skills. This function returns
+ * an empty object for backward compatibility.
  */
 function loadCommandDefinitions() {
     const commandsDir = join(getPackageDir(), 'commands');
-    const definitions = {};
     if (!existsSync(commandsDir)) {
-        console.error(`FATAL: commands directory not found: ${commandsDir}`);
-        process.exit(1);
+        return {};
     }
+    const definitions = {};
     for (const file of readdirSync(commandsDir)) {
         if (file.endsWith('.md')) {
             definitions[file] = readFileSync(join(commandsDir, file), 'utf-8');
@@ -316,9 +392,7 @@ export function install(options = {}) {
             if (!existsSync(AGENTS_DIR)) {
                 mkdirSync(AGENTS_DIR, { recursive: true });
             }
-            if (!existsSync(COMMANDS_DIR)) {
-                mkdirSync(COMMANDS_DIR, { recursive: true });
-            }
+            // NOTE: COMMANDS_DIR creation removed - commands/ deprecated in v4.1.16 (#582)
             if (!existsSync(SKILLS_DIR)) {
                 mkdirSync(SKILLS_DIR, { recursive: true });
             }
@@ -388,7 +462,7 @@ export function install(options = {}) {
                     log(`Backed up existing CLAUDE.md to ${backupPath}`);
                 }
                 // Merge OMC content with existing content
-                const mergedContent = mergeClaudeMd(existingContent, omcContent, VERSION);
+                const mergedContent = mergeClaudeMd(existingContent, omcContent, options.version ?? VERSION);
                 writeFileSync(claudeMdPath, mergedContent);
                 if (existingContent) {
                     log('Updated CLAUDE.md (merged with existing content)');
@@ -400,71 +474,39 @@ export function install(options = {}) {
             else {
                 log('CLAUDE.md exists in home directory, skipping');
             }
-            // Install hook scripts
-            const hookScripts = getHookScripts();
-            log('Installing hook scripts...');
-            for (const [filename, content] of Object.entries(hookScripts)) {
-                const filepath = join(HOOKS_DIR, filename);
-                // Create subdirectory if needed (e.g., lib/)
-                const dir = dirname(filepath);
-                if (!existsSync(dir)) {
-                    mkdirSync(dir, { recursive: true });
-                }
-                if (existsSync(filepath) && !options.force) {
-                    log(`  Skipping ${filename} (already exists)`);
-                }
-                else {
-                    writeFileSync(filepath, content);
-                    // Make script executable (skip on Windows - not needed)
-                    if (!isWindows()) {
-                        chmodSync(filepath, 0o755);
-                    }
-                    log(`  Installed ${filename}`);
-                }
-            }
-            // Note: hooks configuration is deferred to consolidated settings.json write below
-            result.hooksConfigured = true; // Will be set properly after consolidated write
-        }
-        else if (allowPluginHookRefresh) {
-            // Refresh hooks in plugin context when explicitly requested (global plugin only)
-            log('Refreshing hook scripts for plugin reconciliation...');
-            if (!existsSync(HOOKS_DIR)) {
-                mkdirSync(HOOKS_DIR, { recursive: true });
-            }
-            const hookScripts = getHookScripts();
-            for (const [filename, content] of Object.entries(hookScripts)) {
-                const filepath = join(HOOKS_DIR, filename);
-                const dir = dirname(filepath);
-                if (!existsSync(dir)) {
-                    mkdirSync(dir, { recursive: true });
-                }
-                writeFileSync(filepath, content);
-                if (!isWindows()) {
-                    chmodSync(filepath, 0o755);
-                }
-            }
-            result.hooksConfigured = true;
+            // Note: hook scripts are no longer installed to ~/.claude/hooks/.
+            // All hooks are delivered via the plugin's hooks/hooks.json + scripts/.
+            // Legacy hook entries are cleaned up from settings.json below.
+            result.hooksConfigured = true; // Will be set properly after consolidated settings.json write
         }
         else {
             log('Skipping agent/command/hook files (managed by plugin system)');
         }
-        // Install HUD statusline (skip for project-scoped plugins to avoid affecting global settings)
-        // Project-scoped plugins should not modify ~/.claude/settings.json
+        // Install HUD statusline (skip for project-scoped plugins, skipHud option, or hudEnabled config)
         let hudScriptPath = null;
+        const hudDisabledByOption = options.skipHud === true;
+        const hudDisabledByConfig = !isHudEnabledInConfig();
+        const skipHud = projectScoped || hudDisabledByOption || hudDisabledByConfig;
         if (projectScoped) {
             log('Skipping HUD statusline (project-scoped plugin should not modify global settings)');
+        }
+        else if (hudDisabledByOption) {
+            log('Skipping HUD statusline (user opted out)');
+        }
+        else if (hudDisabledByConfig) {
+            log('Skipping HUD statusline (hudEnabled is false in .omc-config.json)');
         }
         else {
             log('Installing HUD statusline...');
         }
-        if (!projectScoped)
+        if (!skipHud)
             try {
                 if (!existsSync(HUD_DIR)) {
                     mkdirSync(HUD_DIR, { recursive: true });
                 }
                 // Build the HUD script content (compiled from src/hud/index.ts)
                 // Create a wrapper that checks multiple locations for the HUD module
-                hudScriptPath = join(HUD_DIR, 'omc-hud.mjs');
+                hudScriptPath = join(HUD_DIR, 'omc-hud.mjs').replace(/\\/g, '/');
                 const hudScriptLines = [
                     '#!/usr/bin/env node',
                     '/**',
@@ -527,7 +569,7 @@ export function install(options = {}) {
                     '  ',
                     '  // 3. npm package (global or local install)',
                     '  try {',
-                    '    await import("oh-my-claude-sisyphus/dist/hud/index.js");',
+                    '    await import("oh-my-claudecode/dist/hud/index.js");',
                     '    return;',
                     '  } catch { /* continue */ }',
                     '  ',
@@ -577,50 +619,30 @@ export function install(options = {}) {
                     const settingsContent = readFileSync(SETTINGS_FILE, 'utf-8');
                     existingSettings = JSON.parse(settingsContent);
                 }
-                // 1. Configure hooks (only if not running as plugin unless refresh requested)
-                if (!runningAsPlugin || allowPluginHookRefresh) {
+                // 1. Remove legacy ~/.claude/hooks/ entries from settings.json
+                // These were written by the old installer; hooks are now delivered via the plugin's hooks.json.
+                {
                     const existingHooks = (existingSettings.hooks || {});
-                    const hooksConfig = getHooksSettingsConfig();
-                    const newHooks = hooksConfig.hooks;
-                    // Deep merge: add our hooks, check for conflicts, or update if --force/--forceHooks is used
-                    for (const [eventType, eventHooks] of Object.entries(newHooks)) {
-                        if (!existingHooks[eventType]) {
-                            existingHooks[eventType] = eventHooks;
-                            log(`  Added ${eventType} hook`);
+                    let legacyRemoved = 0;
+                    for (const [eventType, groups] of Object.entries(existingHooks)) {
+                        const groupList = groups;
+                        const filtered = groupList.filter(group => {
+                            const isLegacy = group.hooks.every(h => h.type === 'command' && h.command.includes('/.claude/hooks/'));
+                            if (isLegacy)
+                                legacyRemoved++;
+                            return !isLegacy;
+                        });
+                        if (filtered.length === 0) {
+                            delete existingHooks[eventType];
                         }
                         else {
-                            // Check if existing hook is owned by another plugin
-                            const existingEventHooks = existingHooks[eventType];
-                            let hasNonOmcHook = false;
-                            let nonOmcCommand = '';
-                            for (const hookGroup of existingEventHooks) {
-                                for (const hook of hookGroup.hooks) {
-                                    if (hook.type === 'command' && !isOmcHook(hook.command)) {
-                                        hasNonOmcHook = true;
-                                        nonOmcCommand = hook.command;
-                                        break;
-                                    }
-                                }
-                                if (hasNonOmcHook)
-                                    break;
-                            }
-                            const canOverrideNonOmc = options.forceHooks && !allowPluginHookRefresh;
-                            if (hasNonOmcHook && !canOverrideNonOmc) {
-                                // Conflict detected - don't overwrite
-                                log(`  [OMC] Warning: ${eventType} hook owned by another plugin. Skipping. Use --force-hooks to override.`);
-                                result.hookConflicts.push({ eventType, existingCommand: nonOmcCommand });
-                            }
-                            else if (options.force || options.forceHooks) {
-                                existingHooks[eventType] = eventHooks;
-                                log(`  Updated ${eventType} hook (${options.forceHooks ? '--force-hooks' : '--force'})`);
-                            }
-                            else {
-                                log(`  ${eventType} hook already configured, skipping`);
-                            }
+                            existingHooks[eventType] = filtered;
                         }
                     }
-                    existingSettings.hooks = existingHooks;
-                    log('  Hooks configured');
+                    if (legacyRemoved > 0) {
+                        log(`  Cleaned up ${legacyRemoved} legacy hook entries from settings.json`);
+                    }
+                    existingSettings.hooks = Object.keys(existingHooks).length > 0 ? existingHooks : undefined;
                     result.hooksConfigured = true;
                 }
                 // 2. Configure statusLine (always, even in plugin mode)
@@ -628,16 +650,19 @@ export function install(options = {}) {
                     if (!existingSettings.statusLine) {
                         existingSettings.statusLine = {
                             type: 'command',
-                            command: 'node ' + hudScriptPath
+                            command: 'node ' + hudScriptPath.replace(/\\/g, '/')
                         };
                         log('  Configured statusLine');
                     }
-                    else if (options.force) {
+                    else if (options.force && isOmcStatusLine(existingSettings.statusLine)) {
                         existingSettings.statusLine = {
                             type: 'command',
-                            command: 'node ' + hudScriptPath
+                            command: 'node ' + hudScriptPath.replace(/\\/g, '/')
                         };
                         log('  Updated statusLine (--force)');
+                    }
+                    else if (options.force) {
+                        log('  statusLine owned by another tool, preserving (use manual edit to override)');
                     }
                     else {
                         log('  statusLine already configured, skipping (use --force to override)');
@@ -654,7 +679,7 @@ export function install(options = {}) {
         // Save version metadata (skip for project-scoped plugins)
         if (!projectScoped) {
             const versionMetadata = {
-                version: VERSION,
+                version: options.version ?? VERSION,
                 installedAt: new Date().toISOString(),
                 installMethod: 'npm',
                 lastCheckAt: new Date().toISOString()
@@ -666,8 +691,7 @@ export function install(options = {}) {
             log('Skipping version metadata (project-scoped plugin)');
         }
         result.success = true;
-        const hookCount = Object.keys(getHookScripts()).length;
-        result.message = `Successfully installed ${result.installedAgents.length} agents, ${result.installedCommands.length} commands, ${result.installedSkills.length} skills, and ${hookCount} hooks`;
+        result.message = `Successfully installed ${result.installedAgents.length} agents, ${result.installedCommands.length} commands, ${result.installedSkills.length} skills (hooks delivered via plugin)`;
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -680,7 +704,7 @@ export function install(options = {}) {
  * Check if OMC is already installed
  */
 export function isInstalled() {
-    return existsSync(VERSION_FILE) && existsSync(AGENTS_DIR) && existsSync(COMMANDS_DIR);
+    return existsSync(VERSION_FILE) && existsSync(AGENTS_DIR);
 }
 /**
  * Get installation info

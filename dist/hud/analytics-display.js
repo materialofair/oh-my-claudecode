@@ -55,7 +55,7 @@ export async function getAnalyticsDisplay() {
             costColor
         };
     }
-    catch (error) {
+    catch (_error) {
         // Return safe defaults if analytics not yet initialized
         return {
             sessionCost: '$0.00',
@@ -135,7 +135,7 @@ export async function getSessionInfo() {
         const tags = session.tags.join(',');
         return `Session: ${session.id.slice(-8)} | ${durationMinutes}m | Tags: ${tags}`;
     }
-    catch (error) {
+    catch (_error) {
         return 'Session info unavailable';
     }
 }
@@ -165,12 +165,14 @@ export function renderSessionHealthAnalytics(sessionHealth) {
 /**
  * Render budget warning if cost exceeds thresholds
  */
-export function renderBudgetWarning(sessionHealth) {
+export function renderBudgetWarning(sessionHealth, thresholds) {
     const cost = sessionHealth.sessionCost ?? 0;
-    if (cost > 5.0) {
-        return `⚠️  BUDGET ALERT: Session cost ${cost.toFixed(2)} exceeds $5.00`;
+    const criticalThreshold = thresholds?.budgetCritical ?? 5.0;
+    const warningThreshold = thresholds?.budgetWarning ?? 2.0;
+    if (cost > criticalThreshold) {
+        return `⚠️  BUDGET ALERT: Session cost ${cost.toFixed(2)} exceeds $${criticalThreshold.toFixed(2)}`;
     }
-    else if (cost > 2.0) {
+    else if (cost > warningThreshold) {
         return `⚡ Budget notice: Session cost ${cost.toFixed(2)} approaching limit`;
     }
     return '';

@@ -6,7 +6,8 @@ try {
   var _Module = require('module');
   var _globalRoot = _cp.execSync('npm root -g', { encoding: 'utf8', timeout: 5000 }).trim();
   if (_globalRoot) {
-    process.env.NODE_PATH = _globalRoot + (process.env.NODE_PATH ? ':' + process.env.NODE_PATH : '');
+    var _sep = process.platform === 'win32' ? ';' : ':';
+    process.env.NODE_PATH = _globalRoot + (process.env.NODE_PATH ? _sep + process.env.NODE_PATH : '');
     _Module._initPaths();
   }
 } catch (_e) { /* npm not available - native modules will gracefully degrade */ }
@@ -17886,6 +17887,20 @@ var LSP_SERVERS = {
     args: ["-lsp"],
     extensions: [".cs"],
     installHint: "dotnet tool install -g omnisharp"
+  },
+  dart: {
+    name: "Dart Analysis Server",
+    command: "dart",
+    args: ["language-server", "--protocol=lsp"],
+    extensions: [".dart"],
+    installHint: "Install Dart SDK from https://dart.dev/get-dart or Flutter SDK from https://flutter.dev"
+  },
+  swift: {
+    name: "SourceKit-LSP",
+    command: "sourcekit-lsp",
+    args: [],
+    extensions: [".swift"],
+    installHint: "Install Swift from https://swift.org/download or via Xcode"
   }
 };
 function commandExists(command) {
@@ -17947,7 +17962,10 @@ Install with: ${this.serverConfig.installHint}`
     return new Promise((resolve5, reject) => {
       this.process = (0, import_child_process2.spawn)(this.serverConfig.command, this.serverConfig.args, {
         cwd: this.workspaceRoot,
-        stdio: ["pipe", "pipe", "pipe"]
+        stdio: ["pipe", "pipe", "pipe"],
+        // On Windows, npm-installed binaries are .cmd scripts that require
+        // shell execution. Without this, spawn() fails with ENOENT. (#569)
+        shell: process.platform === "win32"
       });
       this.process.stdout?.on("data", (data) => {
         this.handleData(data.toString());
@@ -18460,6 +18478,9 @@ var LspClientManager = class {
   }
 };
 var lspClientManager = new LspClientManager();
+async function disconnectAll() {
+  return lspClientManager.disconnectAll();
+}
 
 // src/tools/lsp/utils.ts
 var SYMBOL_KINDS = {
@@ -18722,11 +18743,11 @@ function findFiles(directory, extensions, ignoreDirs = []) {
               results.push(fullPath);
             }
           }
-        } catch (error2) {
+        } catch (_error) {
           continue;
         }
       }
-    } catch (error2) {
+    } catch (_error) {
       return;
     }
   }
@@ -18751,7 +18772,7 @@ async function runLspAggregatedDiagnostics(directory, extensions = [".ts", ".tsx
         }
         filesChecked++;
       });
-    } catch (error2) {
+    } catch (_error) {
       continue;
     }
   }
@@ -20183,7 +20204,7 @@ var SessionLock = class {
         acquired: true,
         reason: existingLock ? "stale_broken" : "success"
       };
-    } catch (err) {
+    } catch (_err) {
       return {
         acquired: false,
         reason: "error"
@@ -20888,7 +20909,7 @@ async function handleReset(sessionId, socketPath) {
   try {
     const result = await sendSocketRequest(socketPath, "reset", {}, 1e4);
     return formatResetResult(result, sessionId);
-  } catch (error2) {
+  } catch (_error) {
     await killBridgeWithEscalation(sessionId);
     return [
       "=== Bridge Restarted ===",
@@ -21224,24 +21245,41 @@ function validateWorkingDirectory(workingDirectory) {
     return trustedRoot;
   }
   const resolved = (0, import_path7.resolve)(workingDirectory);
-  const providedRoot = getWorktreeRoot(resolved) || resolved;
   let trustedRootReal;
-  let providedRootReal;
   try {
     trustedRootReal = (0, import_fs6.realpathSync)(trustedRoot);
   } catch {
     trustedRootReal = trustedRoot;
   }
+  const providedRoot = getWorktreeRoot(resolved);
+  if (providedRoot) {
+    let providedRootReal;
+    try {
+      providedRootReal = (0, import_fs6.realpathSync)(providedRoot);
+    } catch {
+      throw new Error(`workingDirectory '${workingDirectory}' does not exist or is not accessible.`);
+    }
+    if (providedRootReal !== trustedRootReal) {
+      console.error("[worktree] workingDirectory resolved to different git worktree root, using trusted root", {
+        workingDirectory: resolved,
+        providedRoot: providedRootReal,
+        trustedRoot: trustedRootReal
+      });
+      return trustedRoot;
+    }
+    return providedRoot;
+  }
+  let resolvedReal;
   try {
-    providedRootReal = (0, import_fs6.realpathSync)(providedRoot);
+    resolvedReal = (0, import_fs6.realpathSync)(resolved);
   } catch {
     throw new Error(`workingDirectory '${workingDirectory}' does not exist or is not accessible.`);
   }
-  const rel = (0, import_path7.relative)(trustedRootReal, providedRootReal);
+  const rel = (0, import_path7.relative)(trustedRootReal, resolvedReal);
   if (rel.startsWith("..") || (0, import_path7.isAbsolute)(rel)) {
     throw new Error(`workingDirectory '${workingDirectory}' is outside the trusted worktree root '${trustedRoot}'.`);
   }
-  return providedRoot;
+  return trustedRoot;
 }
 
 // src/hooks/mode-registry/index.ts
@@ -21294,12 +21332,6 @@ var MODE_CONFIGS = {
     name: "UltraQA",
     stateFile: "ultraqa-state.json",
     activeProperty: "active"
-  },
-  ecomode: {
-    name: "Ecomode",
-    stateFile: "ecomode-state.json",
-    activeProperty: "active",
-    hasGlobalState: false
   }
 };
 function getStateDir(cwd) {
@@ -21467,8 +21499,7 @@ var EXECUTION_MODES = [
   "team",
   "ralph",
   "ultrawork",
-  "ultraqa",
-  "ecomode"
+  "ultraqa"
 ];
 var STATE_TOOL_MODES = [...EXECUTION_MODES, "ralplan"];
 function getStatePath(mode, root) {
@@ -22798,7 +22829,7 @@ async function loadProjectMemory(projectRoot) {
       return null;
     }
     return memory;
-  } catch (error2) {
+  } catch (_error) {
     return null;
   }
 }
@@ -22991,7 +23022,7 @@ var projectMemoryAddNoteTool = {
     const { category, content, workingDirectory } = args;
     try {
       const root = validateWorkingDirectory(workingDirectory);
-      let memory = await loadProjectMemory(root);
+      const memory = await loadProjectMemory(root);
       if (!memory) {
         return {
           content: [{
@@ -23033,7 +23064,7 @@ var projectMemoryAddDirectiveTool = {
     const { directive, context = "", priority = "normal", workingDirectory } = args;
     try {
       const root = validateWorkingDirectory(workingDirectory);
-      let memory = await loadProjectMemory(root);
+      const memory = await loadProjectMemory(root);
       if (!memory) {
         return {
           content: [{
@@ -23729,6 +23760,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true
     };
   }
+});
+async function gracefulShutdown(signal) {
+  const forceExitTimer = setTimeout(() => process.exit(1), 5e3);
+  forceExitTimer.unref();
+  console.error(`OMC MCP Server: received ${signal}, disconnecting LSP servers...`);
+  try {
+    await disconnectAll();
+  } catch {
+  }
+  try {
+    await server.close();
+  } catch {
+  }
+  process.exit(0);
+}
+process.on("SIGTERM", () => {
+  gracefulShutdown("SIGTERM");
+});
+process.on("SIGINT", () => {
+  gracefulShutdown("SIGINT");
 });
 async function main() {
   const transport = new StdioServerTransport();

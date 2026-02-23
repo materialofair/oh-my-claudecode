@@ -5,17 +5,35 @@
  * Enables agents to pass their personality/guidelines when consulting external models.
  */
 import { readdirSync } from 'fs';
-import { join, dirname, basename } from 'path';
+import { join, dirname, basename, resolve, relative, isAbsolute, sep } from 'path';
 import { fileURLToPath } from 'url';
 import { loadAgentPrompt } from '../agents/utils.js';
 /**
- * Get the package root directory
+ * Get the package root directory.
+ * Handles both ESM (import.meta.url) and CJS bundle (__dirname) contexts.
+ * When esbuild bundles to CJS, import.meta is replaced with {} so we
+ * fall back to __dirname which is natively available in CJS.
  */
 function getPackageDir() {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    // From src/mcp/ go up to package root
-    return join(__dirname, '..', '..');
+    try {
+        // ESM path (works in dev via ts/dist)
+        if (import.meta?.url) {
+            const __filename = fileURLToPath(import.meta.url);
+            const __dirname = dirname(__filename);
+            // From src/mcp/ or dist/mcp/ go up to package root
+            return join(__dirname, '..', '..');
+        }
+    }
+    catch {
+        // import.meta.url unavailable — fall through to CJS path
+    }
+    // CJS bundle path: __dirname is available natively in CJS.
+    // From bridge/ go up 1 level to package root.
+    if (typeof __dirname !== 'undefined') {
+        return join(__dirname, '..');
+    }
+    // Last resort: use process.cwd()
+    return process.cwd();
 }
 /**
  * Agent role name validation regex.
@@ -31,13 +49,26 @@ export function isValidAgentRoleName(name) {
     return AGENT_ROLE_NAME_REGEX.test(name);
 }
 /**
- * Discover valid agent roles by scanning agents/*.md files.
- * Cached after first call — agent files don't change at runtime.
+ * Discover valid agent roles.
+ * Uses build-time injected list when available (CJS bundles),
+ * falls back to runtime filesystem scan (dev/test).
+ * Cached after first call.
  */
 let _cachedRoles = null;
 export function getValidAgentRoles() {
     if (_cachedRoles)
         return _cachedRoles;
+    // Prefer build-time injected roles (always available in CJS bundles)
+    try {
+        if (typeof __AGENT_ROLES__ !== 'undefined' && Array.isArray(__AGENT_ROLES__) && __AGENT_ROLES__.length > 0) {
+            _cachedRoles = __AGENT_ROLES__;
+            return _cachedRoles;
+        }
+    }
+    catch {
+        // __AGENT_ROLES__ not defined — fall through to runtime scan
+    }
+    // Runtime fallback: scan agents/ directory (dev/test environments)
     try {
         const agentsDir = join(getPackageDir(), 'agents');
         const files = readdirSync(agentsDir);
@@ -54,8 +85,8 @@ export function getValidAgentRoles() {
     return _cachedRoles;
 }
 /**
- * Valid agent roles discovered dynamically from agents/*.md files.
- * This is computed at module load time for backward compatibility.
+ * Valid agent roles discovered from build-time injection or runtime scan.
+ * Computed at module load time for backward compatibility.
  */
 export const VALID_AGENT_ROLES = getValidAgentRoles();
 /**
@@ -64,7 +95,7 @@ export const VALID_AGENT_ROLES = getValidAgentRoles();
  *
  * Returns undefined if neither is provided or resolution fails.
  */
-export function resolveSystemPrompt(systemPrompt, agentRole) {
+export function resolveSystemPrompt(systemPrompt, agentRole, provider) {
     // Explicit system_prompt takes precedence
     if (systemPrompt && systemPrompt.trim()) {
         return systemPrompt.trim();
@@ -73,7 +104,7 @@ export function resolveSystemPrompt(systemPrompt, agentRole) {
     if (agentRole && agentRole.trim()) {
         const role = agentRole.trim();
         // loadAgentPrompt already validates the name and handles errors gracefully
-        const prompt = loadAgentPrompt(role);
+        const prompt = loadAgentPrompt(role, provider);
         // loadAgentPrompt returns "Agent: {name}\n\nPrompt unavailable." on failure
         if (prompt.includes('Prompt unavailable')) {
             console.warn(`[prompt-injection] Agent role "${role}" prompt not found, skipping injection`);
@@ -84,22 +115,40 @@ export function resolveSystemPrompt(systemPrompt, agentRole) {
     return undefined;
 }
 /**
- * Wrap file content with untrusted delimiters to prevent prompt injection.
- * Each file's content is clearly marked as data to analyze, not instructions.
+ * Wrap CLI response content with untrusted delimiters to prevent prompt injection.
+ * Used for inline CLI responses that are returned directly to the caller.
  */
-export function wrapUntrustedFileContent(filepath, content) {
-    return `\n--- UNTRUSTED FILE CONTENT (${filepath}) ---\n${content}\n--- END UNTRUSTED FILE CONTENT ---\n`;
+export function wrapUntrustedCliResponse(content, metadata) {
+    return `\n--- UNTRUSTED CLI RESPONSE (${metadata.tool}:${metadata.source}) ---\n${content}\n--- END UNTRUSTED CLI RESPONSE ---\n`;
 }
+export function singleErrorBlock(text) {
+    return { content: [{ type: 'text', text }], isError: true };
+}
+export function inlineSuccessBlocks(metadataText, wrappedResponse) {
+    return {
+        content: [
+            { type: 'text', text: metadataText },
+            { type: 'text', text: wrappedResponse },
+        ],
+        isError: false,
+    };
+}
+/**
+ * Header prepended to all prompts sent to subagent CLIs (Codex/Gemini).
+ * Prevents recursive subagent spawning and rate limit cascade issues.
+ */
+export const SUBAGENT_HEADER = '[SUBAGENT MODE] You are running as a subagent. DO NOT spawn additional subagents or call Codex/Gemini CLI recursively. Focus only on your assigned task.';
 /**
  * Build the full prompt with system prompt prepended.
  *
- * Order: system_prompt > file_context > user_prompt
+ * Order: subagent_header > system_prompt > file_context > user_prompt
  *
  * Uses clear XML-like delimiters so the external model can distinguish sections.
  * File context is wrapped with untrusted data warnings to mitigate prompt injection.
  */
 export function buildPromptWithSystemContext(userPrompt, fileContext, systemPrompt) {
     const parts = [];
+    parts.push(SUBAGENT_HEADER);
     if (systemPrompt) {
         parts.push(`<system-instructions>\n${systemPrompt}\n</system-instructions>`);
     }
@@ -108,5 +157,40 @@ export function buildPromptWithSystemContext(userPrompt, fileContext, systemProm
     }
     parts.push(userPrompt);
     return parts.join('\n\n');
+}
+/**
+ * Validate context file paths to prevent path traversal and prompt injection.
+ *
+ * Checks performed:
+ * - Control characters (newlines, carriage returns, null bytes) in the path string
+ *   would inject content into the prompt when paths are interpolated. Rejected as
+ *   E_CONTEXT_FILE_INJECTION.
+ * - Paths that resolve outside baseDir (e.g. '../../../etc/passwd') are rejected as
+ *   E_CONTEXT_FILE_TRAVERSAL, unless allowExternal is true (matches isExternalPromptAllowed()).
+ *
+ * Returns { validPaths, errors } so callers can log rejections and proceed with valid paths.
+ */
+export function validateContextFilePaths(filePaths, baseDir, allowExternal = false) {
+    const validPaths = [];
+    const errors = [];
+    for (const filePath of filePaths) {
+        // Reject paths containing control characters — these would be injected verbatim
+        // into the prompt string when paths are interpolated, bypassing trust boundaries.
+        if (/[\n\r\0]/.test(filePath)) {
+            errors.push(`E_CONTEXT_FILE_INJECTION: Rejected path with control characters: ${JSON.stringify(filePath)}`);
+            continue;
+        }
+        if (!allowExternal) {
+            // Resolve against baseDir and check the result stays within it.
+            const resolved = resolve(baseDir, filePath);
+            const rel = relative(baseDir, resolved);
+            if (rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
+                errors.push(`E_CONTEXT_FILE_TRAVERSAL: Rejected path outside working directory '${baseDir}': ${filePath}`);
+                continue;
+            }
+        }
+        validPaths.push(filePath);
+    }
+    return { validPaths, errors };
 }
 //# sourceMappingURL=prompt-injection.js.map

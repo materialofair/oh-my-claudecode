@@ -9,7 +9,7 @@
  */
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'fs';
 import { join, basename, resolve, normalize } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../utils/paths.js';
 import Ajv from 'ajv';
 /**
  * Security Error for discovery operations
@@ -101,7 +101,6 @@ const mcpServerConfigSchema = {
     additionalProperties: false,
 };
 // Compile schemas
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const AjvConstructor = Ajv.default ?? Ajv;
 const ajv = new AjvConstructor({ allErrors: true, strict: false });
 const validatePluginManifest = ajv.compile(pluginManifestSchema);
@@ -141,11 +140,11 @@ function isPathWithinDirectory(basePath, targetPath) {
  * Default paths for discovery
  */
 const DEFAULT_PLUGIN_PATHS = [
-    join(homedir(), '.claude', 'plugins'),
-    join(homedir(), '.claude', 'installed-plugins'),
+    join(getClaudeConfigDir(), 'plugins'),
+    join(getClaudeConfigDir(), 'installed-plugins'),
 ];
-const DEFAULT_MCP_CONFIG_PATH = join(homedir(), '.claude', 'claude_desktop_config.json');
-const DEFAULT_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
+const DEFAULT_MCP_CONFIG_PATH = join(getClaudeConfigDir(), 'claude_desktop_config.json');
+const DEFAULT_SETTINGS_PATH = join(getClaudeConfigDir(), 'settings.json');
 /**
  * Infer capabilities from tool name and description
  */
@@ -192,7 +191,7 @@ function parsePluginManifest(manifestPath) {
         }
         return parsed;
     }
-    catch (error) {
+    catch (_error) {
         return null;
     }
 }

@@ -5,7 +5,7 @@
  * Minimal continuation enforcer for all OMC modes.
  * Stripped down for reliability — no optional imports, no PRD, no notepad pruning.
  *
- * Supported modes: ralph, autopilot, ultrapilot, swarm, ultrawork, ecomode, ultraqa, pipeline
+ * Supported modes: ralph, autopilot, ultrapilot, swarm, ultrawork, ultraqa, pipeline
  */
 
 import {
@@ -239,7 +239,8 @@ function countIncompleteTasks(sessionId) {
   if (!sessionId || typeof sessionId !== "string") return 0;
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/.test(sessionId)) return 0;
 
-  const taskDir = join(homedir(), ".claude", "tasks", sessionId);
+  const cfgDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const taskDir = join(cfgDir, "tasks", sessionId);
   if (!existsSync(taskDir)) return 0;
 
   let count = 0;
@@ -396,13 +397,13 @@ async function main() {
     // Blocking these causes a deadlock where Claude Code cannot compact.
     // See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/213
     if (isContextLimitStop(data)) {
-      console.log(JSON.stringify({ continue: true }));
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
       return;
     }
 
     // Respect user abort (Ctrl+C, cancel)
     if (isUserAbort(data)) {
-      console.log(JSON.stringify({ continue: true }));
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
       return;
     }
 
@@ -429,12 +430,6 @@ async function main() {
       stateDir,
       globalStateDir,
       "ultrawork-state.json",
-      sessionId,
-    );
-    const ecomode = readStateFileWithSession(
-      stateDir,
-      globalStateDir,
-      "ecomode-state.json",
       sessionId,
     );
     const ultraqa = readStateFileWithSession(
@@ -494,6 +489,19 @@ async function main() {
           );
           return;
         }
+
+        // Do not silently stop Ralph once it hits max iterations; extend and keep going.
+        ralph.state.max_iterations = maxIter + 10;
+        ralph.state.last_checked_at = new Date().toISOString();
+        writeJsonFile(ralph.path, ralph.state);
+
+        console.log(
+          JSON.stringify({
+            decision: "block",
+            reason: `[RALPH LOOP - EXTENDED] Max iterations reached; extending to ${ralph.state.max_iterations} and continuing. When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel (or --force).`,
+          }),
+        );
+        return;
       }
     }
 
@@ -698,7 +706,7 @@ async function main() {
 
       if (newCount > maxReinforcements) {
         // Max reinforcements reached - allow stop
-        console.log(JSON.stringify({ continue: true }));
+        console.log(JSON.stringify({ continue: true, suppressOutput: true }));
         return;
       }
 
@@ -734,58 +742,12 @@ async function main() {
       return;
     }
 
-    // Priority 8: Ecomode - ALWAYS continue while active
-    if (
-      ecomode.state?.active &&
-      !isStaleState(ecomode.state) &&
-      (hasValidSessionId
-        ? ecomode.state.session_id === sessionId
-        : !ecomode.state.session_id || ecomode.state.session_id === sessionId) &&
-      isStateForCurrentProject(ecomode.state, directory, ecomode.isGlobal)
-    ) {
-      const newCount = (ecomode.state.reinforcement_count || 0) + 1;
-      const maxReinforcements = ecomode.state.max_reinforcements || 50;
-
-      if (newCount > maxReinforcements) {
-        // Max reinforcements reached - allow stop
-        console.log(JSON.stringify({ continue: true }));
-        return;
-      }
-
-      const toolError = readLastToolError(stateDir);
-      const errorGuidance = getToolErrorRetryGuidance(toolError);
-
-      ecomode.state.reinforcement_count = newCount;
-      ecomode.state.last_checked_at = new Date().toISOString();
-      writeJsonFile(ecomode.path, ecomode.state);
-
-      let reason = `[ECOMODE #${newCount}/${maxReinforcements}] Mode active.`;
-
-      if (totalIncomplete > 0) {
-        const itemType = taskCount > 0 ? "Tasks" : "todos";
-        reason += ` ${totalIncomplete} incomplete ${itemType} remain. Continue working.`;
-      } else if (newCount >= 3) {
-        // Only suggest cancel after minimum iterations (guard against no-tasks-created scenario)
-        reason += ` If all work is complete, run /oh-my-claudecode:cancel to cleanly exit ecomode and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force. Otherwise, continue working.`;
-      } else {
-        // Early iterations with no tasks yet - just tell LLM to continue
-        reason += ` Continue working - create Tasks to track your progress.`;
-      }
-
-      if (errorGuidance) {
-        reason = errorGuidance + reason;
-      }
-
-      console.log(JSON.stringify({ decision: "block", reason }));
-      return;
-    }
-
     // No blocking needed
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
   } catch (error) {
     // On any error, allow stop rather than blocking forever
     console.error(`[persistent-mode] Error: ${error.message}`);
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
   }
 }
 

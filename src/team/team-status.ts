@@ -9,12 +9,12 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../utils/paths.js';
 import { listMcpWorkers } from './team-registration.js';
 import { readHeartbeat, isWorkerAlive } from './heartbeat.js';
 import { listTaskIds, readTask } from './task-file-ops.js';
 import { sanitizeName } from './tmux-session.js';
-import type { HeartbeatData, TaskFile, OutboxMessage, McpWorkerMember } from './types.js';
+import type { HeartbeatData, TaskFile, OutboxMessage } from './types.js';
 
 /**
  * Read the last N messages from a worker's outbox file without advancing any cursor.
@@ -27,7 +27,7 @@ function peekRecentOutboxMessages(
 ): OutboxMessage[] {
   const safeName = sanitizeName(teamName);
   const safeWorker = sanitizeName(workerName);
-  const outboxPath = join(homedir(), '.claude', 'teams', safeName, 'outbox', `${safeWorker}.jsonl`);
+  const outboxPath = join(getClaudeConfigDir(), 'teams', safeName, 'outbox', `${safeWorker}.jsonl`);
 
   if (!existsSync(outboxPath)) return [];
 

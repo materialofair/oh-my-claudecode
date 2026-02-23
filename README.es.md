@@ -1,4 +1,4 @@
-[English](README.md) | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](README.ja.md) | Español
+[English](README.md) | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](README.ja.md) | Español | [Tiếng Việt](README.vi.md) | [Português](README.pt.md)
 
 # oh-my-claudecode
 
@@ -26,7 +26,7 @@
 
 **Paso 2: Configurar**
 ```bash
-/oh-my-claudecode:omc-setup
+/omc-setup
 ```
 
 **Paso 3: Construye algo**
@@ -36,22 +36,24 @@ autopilot: build a REST API for managing tasks
 
 Eso es todo. Todo lo demás es automático.
 
-> **Nota: Nombre del paquete** — El proyecto usa la marca **oh-my-claudecode** (repositorio, plugin, comandos), pero el paquete npm se publica como [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus). Si instalas las herramientas CLI via npm/bun, usa `npm install -g oh-my-claude-sisyphus`.
+> **Nota: Nombre del paquete** — El proyecto usa la marca **oh-my-claudecode** (repositorio, plugin, comandos), pero el paquete npm se publica como [`oh-my-claudecode`](https://www.npmjs.com/package/oh-my-claude-sisyphus). Si instalas las herramientas CLI via npm/bun, usa `npm install -g oh-my-claude-sisyphus`.
 
 ### Actualizar
 
 ```bash
-# 1. Actualizar el plugin
-/plugin install oh-my-claudecode
+# 1. Actualizar el clon del marketplace
+/plugin marketplace update omc
 
 # 2. Volver a ejecutar el setup para actualizar la configuracion
-/oh-my-claudecode:omc-setup
+/omc-setup
 ```
+
+> **Nota:** Si la actualizacion automatica del marketplace no esta activada, debes ejecutar manualmente `/plugin marketplace update omc` para sincronizar la ultima version antes de ejecutar el setup.
 
 Si experimentas problemas despues de actualizar, limpia la cache antigua del plugin:
 
 ```bash
-/oh-my-claudecode:doctor
+/omc-doctor
 ```
 
 <h1 align="center">Tu Claude acaba de recibir esteroides.</h1>
@@ -85,7 +87,6 @@ Múltiples estrategias para diferentes casos de uso - desde construcciones compl
 | **Ultrawork** | Paralelo | Máximo paralelismo para cualquier tarea |
 | **Ralph** | Persistente | Tareas que deben completarse totalmente |
 | **Ultrapilot** | 3-5x más rápido | Sistemas multi-componente |
-| **Ecomode** | Rápido + 30-50% más barato | Proyectos conscientes del presupuesto |
 | **Swarm** | Coordinado | Tareas independientes en paralelo |
 | **Pipeline** | Secuencial | Procesamiento multi-etapa |
 
@@ -97,7 +98,7 @@ Múltiples estrategias para diferentes casos de uso - desde construcciones compl
 
 ### Experiencia de Desarrollo
 
-- **Palabras clave mágicas** - `ralph`, `ulw`, `eco`, `plan` para control explícito
+- **Palabras clave mágicas** - `ralph`, `ulw`, `plan` para control explícito
 - **Barra de estado HUD** - Métricas de orquestación en tiempo real en tu barra de estado
 - **Aprendizaje de habilidades** - Extrae patrones reutilizables de tus sesiones
 - **Análisis y seguimiento de costos** - Comprende el uso de tokens en todas las sesiones
@@ -115,7 +116,6 @@ Atajos opcionales para usuarios avanzados. El lenguaje natural funciona bien sin
 | `autopilot` | Ejecución completamente autónoma | `autopilot: build a todo app` |
 | `ralph` | Modo persistencia | `ralph: refactor auth` |
 | `ulw` | Máximo paralelismo | `ulw fix all errors` |
-| `eco` | Ejecución eficiente en tokens | `eco: migrate database` |
 | `plan` | Entrevista de planificación | `plan the API` |
 | `ralplan` | Consenso de planificación iterativa | `ralplan this feature` |
 
@@ -136,6 +136,62 @@ omc wait --stop   # Deshabilitar demonio
 ```
 
 **Requiere:** tmux (para detección de sesión)
+
+### Etiquetas de notificación (Telegram/Discord/Slack)
+
+Puedes configurar a quién etiquetar cuando los callbacks de stop envían el resumen de sesión.
+
+```bash
+# Definir/reemplazar lista de etiquetas
+omc config-stop-callback telegram --enable --token <bot_token> --chat <chat_id> --tag-list "@alice,bob"
+omc config-stop-callback discord --enable --webhook <url> --tag-list "@here,123456789012345678,role:987654321098765432"
+omc config-stop-callback slack --enable --webhook <url> --tag-list "<!here>,<@U1234567890>"
+
+# Actualizaciones incrementales
+omc config-stop-callback telegram --add-tag charlie
+omc config-stop-callback discord --remove-tag @here
+omc config-stop-callback discord --clear-tags
+```
+
+Comportamiento de etiquetas:
+- Telegram: `alice` se normaliza a `@alice`
+- Discord: soporta `@here`, `@everyone`, IDs numéricos de usuario y `role:<id>`
+- Slack: soporta `<@MEMBER_ID>`, `<!channel>`, `<!here>`, `<!everyone>`, `<!subteam^GROUP_ID>`
+- El callback `file` ignora las opciones de etiquetas
+
+---
+
+## Notificaciones
+
+Puedes recibir notificaciones en tiempo real para eventos del ciclo de vida de la sesión.
+
+Eventos compatibles:
+- `session-start`
+- `session-stop` (cuando un modo persistent entra en estado de espera/bloqueo)
+- `session-end`
+- `ask-user-question`
+
+### Configuración
+Agrega estas variables de entorno en tu perfil de shell (por ejemplo `~/.zshrc`, `~/.bashrc`):
+
+```bash
+# Discord Bot
+export OMC_DISCORD_NOTIFIER_BOT_TOKEN="your_bot_token"
+export OMC_DISCORD_NOTIFIER_CHANNEL="your_channel_id"
+
+# Telegram
+export OMC_TELEGRAM_BOT_TOKEN="your_bot_token"
+export OMC_TELEGRAM_CHAT_ID="your_chat_id"
+
+# Slack
+export OMC_SLACK_WEBHOOK_URL="your_webhook_url"
+export OMC_SLACK_MENTION="<@U1234567890>"  # optional
+
+# Webhooks opcionales
+export OMC_DISCORD_WEBHOOK_URL="your_webhook_url"
+```
+
+> Nota: las variables deben estar cargadas en el mismo shell donde ejecutas `claude`.
 
 ---
 

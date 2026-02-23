@@ -1,7 +1,7 @@
 import { readdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../utils/paths.js';
 /**
  * Check if the encoded path looks like a Windows path (starts with drive letter)
  * Examples: "C--Users-user-project" or "D--work-project"
@@ -12,7 +12,7 @@ function isWindowsEncodedPath(dirName) {
 /**
  * Normalize decoded path to use OS-native separators consistently
  */
-function normalizePathForOS(decodedPath) {
+function _normalizePathForOS(decodedPath) {
     // On Windows, convert forward slashes to backslashes for consistency
     // But existsSync works with both, so we normalize to forward slashes for cross-platform
     return decodedPath.replace(/\\/g, '/');
@@ -211,7 +211,7 @@ function matchesPattern(path, pattern) {
  * Scan for all transcript files in ~/.claude/projects/
  */
 export async function scanTranscripts(options = {}) {
-    const projectsDir = join(homedir(), '.claude', 'projects');
+    const projectsDir = join(getClaudeConfigDir(), 'projects');
     const transcripts = [];
     const projectDirs = new Set();
     try {

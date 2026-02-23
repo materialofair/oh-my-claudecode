@@ -16,7 +16,7 @@ oh-my-claudecode enhances Claude Code with:
 - **37 skills** for workflow automation and specialized behaviors
 - **31 hooks** for event-driven execution modes and enhancements
 - **15 custom tools** including 12 LSP, 2 AST, and Python REPL
-- **Execution modes**: autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline, ecomode
+- **Execution modes**: autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline
 - **MCP integration** with plugin-scoped tool discovery and skill loading
 
 ## Key Files
@@ -27,7 +27,7 @@ oh-my-claudecode enhances Claude Code with:
 | `tsconfig.json` | TypeScript configuration |
 | `CHANGELOG.md` | Version history and release notes |
 | `docs/CLAUDE.md` | End-user orchestration instructions (installed to user projects) |
-| `src/index.ts` | Main entry point - exports `createSisyphusSession()` |
+| `src/index.ts` | Main entry point - exports `createOmcSession()` |
 | `.mcp.json` | MCP server configuration for plugin discovery |
 | `.claude-plugin/plugin.json` | Claude Code plugin manifest |
 
@@ -62,7 +62,7 @@ oh-my-claudecode enhances Claude Code with:
    | Build errors | `build-fixer` | sonnet |
    | Testing | `qa-tester` | sonnet |
    | Code review | `code-reviewer` | opus |
-   | TDD | `tdd-guide` / `tdd-guide-low` | sonnet/haiku |
+   | TDD | `test-engineer` / `test-engineer-low` | sonnet/haiku |
    | Data analysis | `scientist` / `scientist-high` | sonnet/opus |
 
 2. **LSP/AST Tools**: Use IDE-like tools for code intelligence:
@@ -160,8 +160,8 @@ npm run test:coverage # Coverage report
 
 ```typescript
 // Entry point
-import { createSisyphusSession } from 'oh-my-claudecode';
-const session = createSisyphusSession();
+import { createOmcSession } from 'oh-my-claudecode';
+const session = createOmcSession();
 
 // Agent registration
 import { getAgentDefinitions } from './agents/definitions';
@@ -197,7 +197,7 @@ import { allCustomTools, lspTools, astTools } from './tools';
 | Agent | Model | Purpose |
 |-------|-------|---------|
 | architect | opus | Architecture, debugging, root cause analysis |
-| researcher | sonnet | Documentation, external API research |
+| document-specialist | sonnet | Documentation, external API research |
 | explore | haiku | Fast codebase pattern search |
 | executor | sonnet | Focused task implementation |
 | designer | sonnet | UI/UX, component design |
@@ -215,14 +215,14 @@ import { allCustomTools, lspTools, astTools } from './tools';
 |-------|-------|---------|
 | security-reviewer | opus | Security vulnerability detection and audits |
 | build-fixer | sonnet | Build/type error resolution (multi-language) |
-| tdd-guide | sonnet | Test-driven development workflow |
+| test-engineer | sonnet | Test-driven development workflow |
 | code-reviewer | opus | Expert code review and quality assessment |
 
 ### Tiered Variants (12)
 
 | Tier | Agents |
 |------|--------|
-| **LOW** (Haiku) | `architect-low`, `executor-low`, `designer-low`, `security-reviewer-low`, `tdd-guide-low` (5) |
+| **LOW** (Haiku) | `architect-low`, `executor-low`, `designer-low`, `security-reviewer-low`, `test-engineer-low` (5) |
 | **MEDIUM** (Sonnet) | `architect-medium` (1) |
 | **HIGH** (Opus) | `executor-high`, `designer-high`, `explore-high`, `scientist-high`, `deep-executor` (5) |
 
@@ -236,11 +236,10 @@ import { allCustomTools, lspTools, astTools } from './tools';
 | ultrapilot | "ultrapilot", "parallel build" | Parallel autopilot with file ownership |
 | swarm | "swarm N agents" | N coordinated agents with SQLite task claiming |
 | pipeline | "pipeline" | Sequential agent chaining with data passing |
-| ecomode | "eco", "efficient", "budget" | Token-efficient parallel execution |
 
 ## Skills (37)
 
-Key skills: `autopilot`, `ultrawork`, `ralph`, `ultrapilot`, `plan`, `ralplan`, `deepsearch`, `deepinit`, `frontend-ui-ux`, `git-master`, `tdd`, `security-review`, `code-review`, `research`, `analyze`, `swarm`, `pipeline`, `ecomode`, `cancel`, `learner`, `note`, `hud`, `doctor`, `omc-setup`, `mcp-setup`, `build-fix`, `ultraqa`
+Key skills: `autopilot`, `ultrawork`, `ralph`, `ultrapilot`, `plan`, `ralplan`, `deepsearch`, `deepinit`, `frontend-ui-ux`, `git-master`, `tdd`, `security-review`, `code-review`, `sciomc`, `external-context`, `analyze`, `swarm`, `pipeline`, `cancel`, `learner`, `note`, `hud`, `doctor`, `omc-setup`, `mcp-setup`, `build-fix`, `ultraqa`
 
 ## LSP/AST Tools
 
@@ -350,3 +349,15 @@ Settings in `~/.claude/.omc-config.json`:
 ```
 
 <!-- MANUAL: Project-specific notes below this line are preserved on regeneration -->
+
+<!-- OMX:RUNTIME:START -->
+<session_context>
+**Session:** omx-1771026854926-3tbxcj | 2026-02-13T23:54:14.929Z
+
+**Compaction Protocol:**
+Before context compaction, preserve critical state:
+1. Write progress checkpoint via state_write MCP tool
+2. Save key decisions to notepad via notepad_write_working
+3. If context is >80% full, proactively checkpoint state
+</session_context>
+<!-- OMX:RUNTIME:END -->

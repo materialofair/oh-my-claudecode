@@ -19,7 +19,7 @@ import {
 } from "fs";
 import { promises as fsPromises } from "fs";
 import { join } from "path";
-import { initJobDb, getActiveJobs, getRecentJobs, getJobStats, closeJobDb } from '../../mcp/job-state-db.js';
+import { initJobDb, getActiveJobs, getRecentJobs, getJobStats } from '../../mcp/job-state-db.js';
 
 // ============================================================================
 // Types
@@ -44,7 +44,6 @@ export interface CompactCheckpoint {
     ultrawork?: { original_prompt: string };
     swarm?: { session_id: string; task_count: number };
     ultrapilot?: { session_id: string; worker_count: number };
-    ecomode?: { original_prompt: string };
     pipeline?: { preset: string; current_stage: number };
     ultraqa?: { cycle: number; prompt: string };
   };
@@ -221,14 +220,6 @@ export async function saveModeSummary(
           : null,
     },
     {
-      file: "ecomode-state.json",
-      key: "ecomode",
-      extract: (s: any) =>
-        s.active
-          ? { original_prompt: s.original_prompt || s.prompt || "" }
-          : null,
-    },
-    {
       file: "pipeline-state.json",
       key: "pipeline",
       extract: (s: any) =>
@@ -328,13 +319,13 @@ async function getActiveJobsSummary(directory: string): Promise<{
       return { activeJobs: [], recentJobs: [], stats: null };
     }
 
-    const active = getActiveJobs();
-    const recent = getRecentJobs(undefined, 5 * 60 * 1000); // Last 5 minutes
+    const active = getActiveJobs(undefined, directory);
+    const recent = getRecentJobs(undefined, 5 * 60 * 1000, directory); // Last 5 minutes
 
     // Filter recent to only completed/failed (not active ones which are already listed)
     const recentCompleted = recent.filter(j => j.status === 'completed' || j.status === 'failed');
 
-    const stats = getJobStats();
+    const stats = getJobStats(directory);
 
     return {
       activeJobs: active.map(j => ({
@@ -430,12 +421,6 @@ export function formatCompactSummary(checkpoint: CompactCheckpoint): string {
     if (checkpoint.active_modes.ultrapilot) {
       const up = checkpoint.active_modes.ultrapilot;
       lines.push(`- **Ultrapilot** (Workers: ${up.worker_count})`);
-    }
-
-    if (checkpoint.active_modes.ecomode) {
-      const eco = checkpoint.active_modes.ecomode;
-      lines.push(`- **Ecomode**`);
-      lines.push(`  Prompt: ${eco.original_prompt.substring(0, 50)}...`);
     }
 
     if (checkpoint.active_modes.pipeline) {

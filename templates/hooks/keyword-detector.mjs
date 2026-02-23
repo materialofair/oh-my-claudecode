@@ -11,29 +11,28 @@
  * 3. autopilot: Full autonomous execution
  * 4. team: Coordinated team execution
  * 5. ultrawork/ulw: Maximum parallel execution
- * 6. ecomode/eco: Token-efficient execution
- * 7. pipeline: Sequential agent chaining
- * 8. ralplan: Iterative planning with consensus
- * 9. plan: Planning interview mode
- * 10. tdd: Test-driven development
- * 11. research: Research orchestration
- * 12. ultrathink/think: Extended reasoning
- * 13. deepsearch: Codebase search (restricted patterns)
- * 14. analyze: Analysis mode (restricted patterns)
- * 15. codex/gpt: Delegate to Codex MCP (ask_codex)
- * 16. gemini: Delegate to Gemini MCP (ask_gemini)
+* 6. pipeline: Sequential agent chaining
+ * 7. ralplan: Iterative planning with consensus
+ * 8. plan: Planning interview mode
+ * 9. tdd: Test-driven development
+ * 10. ultrathink: Extended reasoning
+ * 11. deepsearch: Codebase search (restricted patterns)
+ * 12. analyze: Analysis mode (restricted patterns)
+ * 13. codex/gpt: Delegate to Codex MCP (ask_codex)
+ * 14. gemini: Delegate to Gemini MCP (ask_gemini)
+ * 8. ccg: Claude-Codex-Gemini tri-model orchestration
  */
 
 import { writeFileSync, mkdirSync, existsSync, unlinkSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Dynamic import for the shared stdin module
-const { readStdin } = await import(join(__dirname, 'lib', 'stdin.mjs'));
+// Dynamic import for the shared stdin module (use pathToFileURL for Windows compatibility, #524)
+const { readStdin } = await import(pathToFileURL(join(__dirname, 'lib', 'stdin.mjs')).href);
 
 const ULTRATHINK_MESSAGE = `<think-mode>
 
@@ -66,9 +65,8 @@ function extractPrompt(input) {
     }
     return '';
   } catch {
-    // Fallback: try to extract with regex
-    const match = input.match(/"(?:prompt|content|text)"\s*:\s*"([^"]+)"/);
-    return match ? match[1] : '';
+    // Fail closed: don't risk false-positive keyword detection from malformed input
+    return '';
   }
 }
 
@@ -126,6 +124,39 @@ function clearStateFiles(directory, modeNames) {
     try { if (existsSync(localPath)) unlinkSync(localPath); } catch {}
     try { if (existsSync(globalPath)) unlinkSync(globalPath); } catch {}
   }
+}
+
+/**
+ * Link ralph and team state files for composition.
+ * Updates both state files to reference each other.
+ */
+function linkRalphTeam(directory, sessionId) {
+  const getStatePath = (modeName) => {
+    if (sessionId && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/.test(sessionId)) {
+      return join(directory, '.omc', 'state', 'sessions', sessionId, `${modeName}-state.json`);
+    }
+    return join(directory, '.omc', 'state', `${modeName}-state.json`);
+  };
+
+  // Update ralph state with linked_team
+  try {
+    const ralphPath = getStatePath('ralph');
+    if (existsSync(ralphPath)) {
+      const state = JSON.parse(readFileSync(ralphPath, 'utf-8'));
+      state.linked_team = true;
+      writeFileSync(ralphPath, JSON.stringify(state, null, 2), { mode: 0o600 });
+    }
+  } catch { /* silent */ }
+
+  // Update team state with linked_ralph
+  try {
+    const teamPath = getStatePath('team');
+    if (existsSync(teamPath)) {
+      const state = JSON.parse(readFileSync(teamPath, 'utf-8'));
+      state.linked_ralph = true;
+      writeFileSync(teamPath, JSON.stringify(state, null, 2), { mode: 0o600 });
+    }
+  } catch { /* silent */ }
 }
 
 /**
@@ -245,19 +276,23 @@ function resolveConflicts(matches) {
 
   let resolved = [...matches];
 
-  // Ecomode beats ultrawork
-  if (names.includes('ecomode') && names.includes('ultrawork')) {
-    resolved = resolved.filter(m => m.name !== 'ultrawork');
-  }
-
   // Team beats autopilot (legacy ultrapilot semantics)
   if (names.includes('team') && names.includes('autopilot')) {
     resolved = resolved.filter(m => m.name !== 'autopilot');
   }
 
+  // Team beats ultrapilot (team is the canonical implementation)
+  if (names.includes('team') && names.includes('ultrapilot')) {
+    resolved = resolved.filter(m => m.name !== 'ultrapilot');
+  }
+
+  // Ralph + Team coexist (team-ralph linked mode)
+  // Both keywords are preserved so the skill can detect the composition.
+
   // Sort by priority order
-  const priorityOrder = ['cancel','ralph','autopilot','team','ultrawork','ecomode',
-    'pipeline','ralplan','plan','tdd','research','ultrathink','deepsearch','analyze',
+const priorityOrder = ['cancel','ralph','autopilot','team','ultrawork',
+    'pipeline','ralplan','plan','tdd','ultrathink','deepsearch','analyze',
+    'pipeline','ccg','ralplan','plan','tdd','research','ultrathink','deepsearch','analyze',
     'codex','gemini'];
   resolved.sort((a, b) => priorityOrder.indexOf(a.name) - priorityOrder.indexOf(b.name));
 
@@ -286,42 +321,19 @@ function createHookOutput(additionalContext) {
 function isTeamEnabled() {
   try {
     const settingsPath = join(homedir(), '.claude', 'settings.json');
-    if (!existsSync(settingsPath)) {
-      return false;
+    if (existsSync(settingsPath)) {
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+      if (settings.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === '1' ||
+          settings.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === 'true') {
+        return true;
+      }
     }
-    const content = readFileSync(settingsPath, 'utf-8');
-    const settings = JSON.parse(content);
-    const envValue = settings?.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS;
-    if (typeof envValue === 'string') {
-      const normalized = envValue.toLowerCase().trim();
-      return normalized === '1' || normalized === 'true' || normalized === 'yes';
+    if (process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === '1' ||
+        process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === 'true') {
+      return true;
     }
     return false;
-  } catch {
-    // Best effort: if we can't read settings, assume disabled
-    return false;
-  }
-}
-
-/**
- * Create a warning message for when team skill is invoked but feature is not enabled
- */
-function createTeamWarning() {
-  return `⚠️ **TEAM FEATURE NOT ENABLED**
-
-The team skill requires the experimental agent teams feature to be enabled in Claude Code.
-
-To enable teams, add the following to your ~/.claude/settings.json:
-
-\`\`\`json
-{
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  }
-}
-\`\`\`
-
-Then restart Claude Code. The team skill will proceed, but may not function correctly without this setting.`;
+  } catch { return false; }
 }
 
 // Main
@@ -329,7 +341,7 @@ async function main() {
   try {
     const input = await readStdin();
     if (!input.trim()) {
-      console.log(JSON.stringify({ continue: true }));
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
       return;
     }
 
@@ -339,7 +351,7 @@ async function main() {
 
     const prompt = extractPrompt(input);
     if (!prompt) {
-      console.log(JSON.stringify({ continue: true }));
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
       return;
     }
 
@@ -354,48 +366,36 @@ async function main() {
     }
 
     // Ralph keywords
-    if (/\b(ralph|don't stop|must complete|until done)\b/i.test(cleanPrompt)) {
+    if (/\b(ralph)\b/i.test(cleanPrompt)) {
       matches.push({ name: 'ralph', args: '' });
     }
 
     // Autopilot keywords
-    if (/\b(autopilot|auto pilot|auto-pilot|autonomous|full auto|fullsend)\b/i.test(cleanPrompt) ||
-        /\bbuild\s+me\s+/i.test(cleanPrompt) ||
-        /\bcreate\s+me\s+/i.test(cleanPrompt) ||
-        /\bmake\s+me\s+/i.test(cleanPrompt) ||
-        /\bi\s+want\s+a\s+/i.test(cleanPrompt) ||
-        /\bi\s+want\s+an\s+/i.test(cleanPrompt) ||
-        /\bhandle\s+it\s+all\b/i.test(cleanPrompt) ||
-        /\bend\s+to\s+end\b/i.test(cleanPrompt) ||
-        /\be2e\s+this\b/i.test(cleanPrompt)) {
+    if (/\b(autopilot|auto[\s-]?pilot|fullsend|full\s+auto)\b/i.test(cleanPrompt)) {
       matches.push({ name: 'autopilot', args: '' });
     }
 
-    // Team keywords (including legacy ultrapilot/swarm phrases)
-    const swarmMatch = cleanPrompt.match(/\bswarm\s+(\d+)\s+agents?\b/i);
-    const hasTeamKeyword = /\b(team)\b/i.test(cleanPrompt) || /\bcoordinated\s+team\b/i.test(cleanPrompt);
-    const hasLegacyTeamKeyword = /\b(ultrapilot|ultra-pilot)\b/i.test(cleanPrompt) ||
-      /\bparallel\s+build\b/i.test(cleanPrompt) ||
-      /\bswarm\s+build\b/i.test(cleanPrompt) ||
-      !!swarmMatch ||
-      /\bcoordinated\s+agents\b/i.test(cleanPrompt);
-    if (hasTeamKeyword || hasLegacyTeamKeyword) {
-      matches.push({ name: 'team', args: swarmMatch ? swarmMatch[1] : '' });
+    // Team keywords (intent-gated to prevent false positives on bare "team")
+    // Uses negative lookbehind to exclude possessive/article contexts like "my team", "the team"
+    const hasTeamKeyword = /(?<!\b(?:my|the|our|a|his|her|their|its)\s)\bteam\b/i.test(cleanPrompt) ||
+      /\bcoordinated\s+team\b/i.test(cleanPrompt);
+    if (hasTeamKeyword && isTeamEnabled()) {
+      matches.push({ name: 'team', args: '' });
     }
 
     // Ultrawork keywords
-    if (/\b(ultrawork|ulw|uw)\b/i.test(cleanPrompt)) {
+    if (/\b(ultrawork|ulw)\b/i.test(cleanPrompt)) {
       matches.push({ name: 'ultrawork', args: '' });
     }
 
-    // Ecomode keywords
-    if (/\b(eco|ecomode|eco-mode|efficient|save-tokens|budget)\b/i.test(cleanPrompt)) {
-      matches.push({ name: 'ecomode', args: '' });
+    // Pipeline keywords
+    if (/\bagent\s+pipeline\b/i.test(cleanPrompt) || /\bchain\s+agents\b/i.test(cleanPrompt)) {
+      matches.push({ name: 'pipeline', args: '' });
     }
 
-    // Pipeline keywords
-    if (/\b(pipeline)\b/i.test(cleanPrompt) || /\bchain\s+agents\b/i.test(cleanPrompt)) {
-      matches.push({ name: 'pipeline', args: '' });
+    // CCG keywords (Claude-Codex-Gemini tri-model orchestration)
+    if (/\b(ccg|claude-codex-gemini)\b/i.test(cleanPrompt)) {
+      matches.push({ name: 'ccg', args: '' });
     }
 
     // Ralplan keyword
@@ -403,41 +403,26 @@ async function main() {
       matches.push({ name: 'ralplan', args: '' });
     }
 
-    // Plan keywords
-    if (/\b(plan this|plan the)\b/i.test(cleanPrompt)) {
-      matches.push({ name: 'plan', args: '' });
-    }
-
     // TDD keywords
     if (/\b(tdd)\b/i.test(cleanPrompt) ||
-        /\btest\s+first\b/i.test(cleanPrompt) ||
-        /\bred\s+green\b/i.test(cleanPrompt)) {
+        /\btest\s+first\b/i.test(cleanPrompt)) {
       matches.push({ name: 'tdd', args: '' });
     }
 
-    // Research keywords
-    if (/\b(research)\b/i.test(cleanPrompt) ||
-        /\banalyze\s+data\b/i.test(cleanPrompt) ||
-        /\bstatistics\b/i.test(cleanPrompt)) {
-      matches.push({ name: 'research', args: '' });
-    }
-
     // Ultrathink keywords
-    if (/\b(ultrathink|think hard|think deeply)\b/i.test(cleanPrompt)) {
+    if (/\b(ultrathink)\b/i.test(cleanPrompt)) {
       matches.push({ name: 'ultrathink', args: '' });
     }
 
     // Deepsearch keywords
     if (/\b(deepsearch)\b/i.test(cleanPrompt) ||
-        /\bsearch\s+(the\s+)?(codebase|code|files?|project)\b/i.test(cleanPrompt) ||
-        /\bfind\s+(in\s+)?(codebase|code|all\s+files?)\b/i.test(cleanPrompt)) {
+        /\bsearch\s+the\s+codebase\b/i.test(cleanPrompt) ||
+        /\bfind\s+in\s+(the\s+)?codebase\b/i.test(cleanPrompt)) {
       matches.push({ name: 'deepsearch', args: '' });
     }
 
     // Analyze keywords
-    if (/\b(deep\s*analyze)\b/i.test(cleanPrompt) ||
-        /\binvestigate\s+(the|this|why)\b/i.test(cleanPrompt) ||
-        /\bdebug\s+(the|this|why)\b/i.test(cleanPrompt)) {
+    if (/\b(deep[\s-]?analyze|deepanalyze)\b/i.test(cleanPrompt)) {
       matches.push({ name: 'analyze', args: '' });
     }
 
@@ -453,33 +438,48 @@ async function main() {
 
     // No matches - pass through
     if (matches.length === 0) {
-      console.log(JSON.stringify({ continue: true }));
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
       return;
     }
 
+    // Deduplicate matches by keyword name before conflict resolution
+    const seen = new Set();
+    const uniqueMatches = [];
+    for (const m of matches) {
+      if (!seen.has(m.name)) {
+        seen.add(m.name);
+        uniqueMatches.push(m);
+      }
+    }
+
     // Resolve conflicts
-    const resolved = resolveConflicts(matches);
+    const resolved = resolveConflicts(uniqueMatches);
 
     // Handle cancel specially - clear states and emit
     if (resolved.length > 0 && resolved[0].name === 'cancel') {
-      clearStateFiles(directory, ['ralph', 'autopilot', 'team', 'ultrawork', 'ecomode', 'pipeline']);
+      clearStateFiles(directory, ['ralph', 'autopilot', 'team', 'ultrawork', 'pipeline']);
       console.log(JSON.stringify(createHookOutput(createSkillInvocation('cancel', prompt))));
       return;
     }
 
     // Activate states for modes that need them
     const sessionId = data.sessionId || data.session_id || data.sessionid || '';
-    const stateModes = resolved.filter(m => ['ralph', 'autopilot', 'team', 'ultrawork', 'ecomode'].includes(m.name));
+    const stateModes = resolved.filter(m => ['ralph', 'autopilot', 'team', 'ultrawork'].includes(m.name));
     for (const mode of stateModes) {
       activateState(directory, prompt, mode.name, sessionId);
     }
 
-    // Special: Ralph with ultrawork (only if ecomode NOT present)
+    // Special: Ralph with ultrawork (ralph always includes ultrawork)
     const hasRalph = resolved.some(m => m.name === 'ralph');
-    const hasEcomode = resolved.some(m => m.name === 'ecomode');
     const hasUltrawork = resolved.some(m => m.name === 'ultrawork');
-    if (hasRalph && !hasEcomode && !hasUltrawork) {
+    const hasTeam = resolved.some(m => m.name === 'team');
+    if (hasRalph && !hasUltrawork) {
       activateState(directory, prompt, 'ultrawork', sessionId);
+    }
+
+    // Link ralph + team if both detected (team-ralph composition)
+    if (hasRalph && hasTeam) {
+      linkRalphTeam(directory, sessionId);
     }
 
     // Handle ultrathink specially - prepend message instead of skill invocation
@@ -505,26 +505,20 @@ async function main() {
     const skillMatches = resolved.filter(m => !MCP_KEYWORDS.includes(m.name));
     const delegationMatches = resolved.filter(m => MCP_KEYWORDS.includes(m.name));
 
-    // Check if team skill is being invoked and add warning if feature not enabled
-    const hasTeamSkill = skillMatches.some(m => m.name === 'team');
-    const teamWarning = hasTeamSkill && !isTeamEnabled() ? createTeamWarning() + '\n\n---\n\n' : '';
-
     if (skillMatches.length > 0 && delegationMatches.length > 0) {
       // Combined: skills + MCP delegations
-      const output = teamWarning + createCombinedOutput(skillMatches, delegationMatches, prompt);
-      console.log(JSON.stringify(createHookOutput(output)));
+      console.log(JSON.stringify(createHookOutput(createCombinedOutput(skillMatches, delegationMatches, prompt))));
     } else if (delegationMatches.length > 0) {
       // MCP delegation only
       const delegationParts = delegationMatches.map(d => createMcpDelegation(d.name, prompt));
       console.log(JSON.stringify(createHookOutput(delegationParts.join('\n\n---\n\n'))));
     } else {
       // Skills only (existing behavior)
-      const output = teamWarning + createMultiSkillInvocation(skillMatches, prompt);
-      console.log(JSON.stringify(createHookOutput(output)));
+      console.log(JSON.stringify(createHookOutput(createMultiSkillInvocation(skillMatches, prompt))));
     }
   } catch (error) {
     // On any error, allow continuation
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
   }
 }
 

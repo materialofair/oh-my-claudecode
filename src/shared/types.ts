@@ -1,5 +1,5 @@
 /**
- * Shared types for Oh-My-Claude-Sisyphus
+ * Shared types for Oh-My-ClaudeCode
  */
 
 export type ModelType = 'sonnet' | 'opus' | 'haiku' | 'inherit';
@@ -22,6 +22,7 @@ export interface PluginConfig {
     omc?: { model?: string };
     architect?: { model?: string; enabled?: boolean };
     researcher?: { model?: string };
+    'document-specialist'?: { model?: string };
     explore?: { model?: string };
     frontendEngineer?: { model?: string; enabled?: boolean };
     documentWriter?: { model?: string; enabled?: boolean };
@@ -29,8 +30,8 @@ export interface PluginConfig {
     // New agents from oh-my-opencode
     critic?: { model?: string; enabled?: boolean };
     analyst?: { model?: string; enabled?: boolean };
-    orchestratorSisyphus?: { model?: string; enabled?: boolean };
-    sisyphusJunior?: { model?: string; enabled?: boolean };
+    coordinator?: { model?: string; enabled?: boolean };
+    executor?: { model?: string; enabled?: boolean };
     planner?: { model?: string; enabled?: boolean };
   };
 
@@ -97,6 +98,28 @@ export interface PluginConfig {
 
   // Delegation routing configuration
   delegationRouting?: DelegationRoutingConfig;
+
+  // Startup codebase map injection (issue #804)
+  startupCodebaseMap?: {
+    /** Enable codebase map injection on session start. Default: true */
+    enabled?: boolean;
+    /** Maximum files to include in the map. Default: 200 */
+    maxFiles?: number;
+    /** Maximum directory depth to scan. Default: 4 */
+    maxDepth?: number;
+  };
+
+  // Task size detection configuration (issue #790)
+  taskSizeDetection?: {
+    /** Enable task-size detection to prevent over-orchestration for small tasks. Default: true */
+    enabled?: boolean;
+    /** Word count threshold below which a task is classified as "small". Default: 50 */
+    smallWordLimit?: number;
+    /** Word count threshold above which a task is classified as "large". Default: 200 */
+    largeWordLimit?: number;
+    /** Suppress heavy orchestration modes (ralph/autopilot/team/ultrawork) for small tasks. Default: true */
+    suppressHeavyModesForSmallTasks?: boolean;
+  };
 }
 
 export interface SessionState {

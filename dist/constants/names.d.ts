@@ -10,7 +10,6 @@ export declare const MODES: {
     readonly ULTRAWORK: "ultrawork";
     readonly ULTRAPILOT: "ultrapilot";
     readonly ULTRAQA: "ultraqa";
-    readonly ECOMODE: "ecomode";
     readonly TEAM: "team";
     readonly PIPELINE: "pipeline";
 };
@@ -24,6 +23,7 @@ export declare const TOOL_CATEGORIES: {
     readonly MEMORY: "memory";
     readonly TRACE: "trace";
     readonly SKILLS: "skills";
+    readonly INTEROP: "interop";
     readonly CODEX: "codex";
     readonly GEMINI: "gemini";
 };

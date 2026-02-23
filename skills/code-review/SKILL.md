@@ -327,8 +327,9 @@ If MODE == "deep":
     已发现的高置信度问题：
     {filtered_issues}
 
-    代码变更：
-    {diff_content}
+### Tool Usage
+Before first MCP tool use, run the 3-step discovery: (1) `ToolSearch("mcp")`, (2) look for `mcp__x__ask_codex` in the results, (3) fall back to the `code-reviewer` Claude agent only if step 1 returns empty. Never use `ToolSearch("ask_codex")` as the primary search -- it can return false negatives even when MCP tools are present.
+Use `mcp__x__ask_codex` with `agent_role: "code-reviewer"`.
 
     任务：
     1. 验证已发现的架构问题

@@ -40,7 +40,7 @@ export interface RalphLoopOptions {
     disableUltrawork?: boolean;
 }
 export interface RalphLoopHook {
-    startLoop: (sessionId: string, prompt: string, options?: RalphLoopOptions) => boolean;
+    startLoop: (sessionId: string | undefined, prompt: string, options?: RalphLoopOptions) => boolean;
     cancelLoop: (sessionId: string) => boolean;
     getState: () => RalphLoopState | null;
 }
@@ -102,6 +102,14 @@ export declare function recordStoryProgress(directory: string, storyId: string, 
  * Add a codebase pattern discovered during work
  */
 export declare function recordPattern(directory: string, pattern: string): boolean;
+/**
+ * Check if an active team pipeline should influence ralph loop continuation.
+ * Returns:
+ *  - 'continue' if team is in a phase where ralph should keep looping (team-verify, team-fix, team-exec)
+ *  - 'complete' if team reached a terminal state (complete, failed)
+ *  - null if no team state is active (ralph operates independently)
+ */
+export declare function getTeamPhaseDirective(directory: string, sessionId?: string): 'continue' | 'complete' | null;
 /**
  * Check if ralph should complete based on PRD status
  */

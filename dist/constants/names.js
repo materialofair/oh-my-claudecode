@@ -11,7 +11,6 @@ export const MODES = {
     ULTRAWORK: 'ultrawork',
     ULTRAPILOT: 'ultrapilot',
     ULTRAQA: 'ultraqa',
-    ECOMODE: 'ecomode',
     TEAM: 'team',
     PIPELINE: 'pipeline',
 };
@@ -25,6 +24,7 @@ export const TOOL_CATEGORIES = {
     MEMORY: 'memory',
     TRACE: 'trace',
     SKILLS: 'skills',
+    INTEROP: 'interop',
     CODEX: 'codex',
     GEMINI: 'gemini',
 };

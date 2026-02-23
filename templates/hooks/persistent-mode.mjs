@@ -5,7 +5,7 @@
  * Minimal continuation enforcer for all OMC modes.
  * Stripped down for reliability — no optional imports, no PRD, no notepad pruning.
  *
- * Supported modes: ralph, autopilot, ultrapilot, swarm, ultrawork, ecomode, ultraqa, pipeline
+ * Supported modes: ralph, autopilot, ultrapilot, swarm, ultrawork, ultraqa, pipeline
  */
 
 import {
@@ -405,7 +405,7 @@ async function main() {
       data = JSON.parse(input);
     } catch {
       // Invalid JSON - allow stop to prevent hanging
-      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+      process.stdout.write(JSON.stringify({ continue: true, suppressOutput: true }) + "\n");
       return;
     }
 
@@ -420,13 +420,13 @@ async function main() {
     // Blocking these causes a deadlock where Claude Code cannot compact.
     // See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/213
     if (isContextLimitStop(data)) {
-      console.log(JSON.stringify({ continue: true }));
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
       return;
     }
 
     // Respect user abort (Ctrl+C, cancel)
     if (isUserAbort(data)) {
-      console.log(JSON.stringify({ continue: true }));
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
       return;
     }
 
@@ -453,12 +453,6 @@ async function main() {
       stateDir,
       globalStateDir,
       "ultrawork-state.json",
-      sessionId,
-    );
-    const ecomode = readStateFileWithSession(
-      stateDir,
-      globalStateDir,
-      "ecomode-state.json",
       sessionId,
     );
     const ultraqa = readStateFileWithSession(
@@ -518,6 +512,20 @@ async function main() {
           );
           return;
         }
+
+        // Do not silently stop Ralph once it hits max iterations; extend and keep going.
+        // This prevents abrupt stops in long-running loops where the model hasn't finished.
+        ralph.state.max_iterations = maxIter + 10;
+        ralph.state.last_checked_at = new Date().toISOString();
+        writeJsonFile(ralph.path, ralph.state);
+
+        console.log(
+          JSON.stringify({
+            decision: "block",
+            reason: `[RALPH LOOP - EXTENDED] Max iterations reached; extending to ${ralph.state.max_iterations} and continuing. When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel (or --force).`,
+          }),
+        );
+        return;
       }
     }
 
@@ -722,7 +730,7 @@ async function main() {
 
       if (newCount > maxReinforcements) {
         // Max reinforcements reached - allow stop
-        console.log(JSON.stringify({ continue: true }));
+        console.log(JSON.stringify({ continue: true, suppressOutput: true }));
         return;
       }
 
@@ -758,54 +766,8 @@ async function main() {
       return;
     }
 
-    // Priority 8: Ecomode - ALWAYS continue while active
-    if (
-      ecomode.state?.active &&
-      !isStaleState(ecomode.state) &&
-      (hasValidSessionId
-        ? ecomode.state.session_id === sessionId
-        : !ecomode.state.session_id || ecomode.state.session_id === sessionId) &&
-      isStateForCurrentProject(ecomode.state, directory, ecomode.isGlobal)
-    ) {
-      const newCount = (ecomode.state.reinforcement_count || 0) + 1;
-      const maxReinforcements = ecomode.state.max_reinforcements || 50;
-
-      if (newCount > maxReinforcements) {
-        // Max reinforcements reached - allow stop
-        console.log(JSON.stringify({ continue: true }));
-        return;
-      }
-
-      const toolError = readLastToolError(stateDir);
-      const errorGuidance = getToolErrorRetryGuidance(toolError);
-
-      ecomode.state.reinforcement_count = newCount;
-      ecomode.state.last_checked_at = new Date().toISOString();
-      writeJsonFile(ecomode.path, ecomode.state);
-
-      let reason = `[ECOMODE #${newCount}/${maxReinforcements}] Mode active.`;
-
-      if (totalIncomplete > 0) {
-        const itemType = taskCount > 0 ? "Tasks" : "todos";
-        reason += ` ${totalIncomplete} incomplete ${itemType} remain. Continue working.`;
-      } else if (newCount >= 3) {
-        // Only suggest cancel after minimum iterations (guard against no-tasks-created scenario)
-        reason += ` If all work is complete, run /oh-my-claudecode:cancel to cleanly exit ecomode and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force. Otherwise, continue working.`;
-      } else {
-        // Early iterations with no tasks yet - just tell LLM to continue
-        reason += ` Continue working - create Tasks to track your progress.`;
-      }
-
-      if (errorGuidance) {
-        reason = errorGuidance + reason;
-      }
-
-      console.log(JSON.stringify({ decision: "block", reason }));
-      return;
-    }
-
     // No blocking needed
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
   } catch (error) {
     // On any error, allow stop rather than blocking forever
     // CRITICAL: Use process.stdout.write instead of console.log to avoid
@@ -819,7 +781,7 @@ async function main() {
       // Ignore stderr errors - we just need to return valid JSON
     }
     try {
-      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+      process.stdout.write(JSON.stringify({ continue: true, suppressOutput: true }) + "\n");
     } catch {
       // If stdout write fails, the hook will timeout and Claude Code will proceed
       // This is better than hanging forever
@@ -838,7 +800,7 @@ process.on("uncaughtException", (error) => {
     // Ignore
   }
   try {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.stdout.write(JSON.stringify({ continue: true, suppressOutput: true }) + "\n");
   } catch {
     // If we can't write, just exit
   }
@@ -854,7 +816,7 @@ process.on("unhandledRejection", (error) => {
     // Ignore
   }
   try {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.stdout.write(JSON.stringify({ continue: true, suppressOutput: true }) + "\n");
   } catch {
     // If we can't write, just exit
   }
@@ -872,7 +834,7 @@ const safetyTimeout = setTimeout(() => {
     // Ignore
   }
   try {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.stdout.write(JSON.stringify({ continue: true, suppressOutput: true }) + "\n");
   } catch {
     // If we can't write, just exit
   }

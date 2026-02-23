@@ -13,10 +13,24 @@ export declare function isSpawnedPid(pid: number): boolean;
 export declare function clearSpawnedPids(): void;
 export declare const CODEX_DEFAULT_MODEL: string;
 export declare const CODEX_TIMEOUT: number;
+export declare const RATE_LIMIT_RETRY_COUNT: number;
+export declare const RATE_LIMIT_INITIAL_DELAY: number;
+export declare const RATE_LIMIT_MAX_DELAY: number;
 export { CODEX_MODEL_FALLBACKS };
-export declare const CODEX_RECOMMENDED_ROLES: readonly ["architect", "planner", "critic", "analyst", "code-reviewer", "security-reviewer", "tdd-guide"];
+export declare const CODEX_RECOMMENDED_ROLES: readonly ["architect", "planner", "critic", "analyst", "code-reviewer", "security-reviewer", "test-engineer"];
+export declare const VALID_REASONING_EFFORTS: readonly ["minimal", "low", "medium", "high", "xhigh"];
+export type ReasoningEffort = typeof VALID_REASONING_EFFORTS[number];
 export declare const MAX_FILE_SIZE: number;
 export declare const MAX_STDOUT_BYTES: number;
+/**
+ * Compute exponential backoff delay with jitter for rate limit retries.
+ * Returns delay in ms: min(initialDelay * 2^attempt, maxDelay) * random(0.5, 1.0)
+ */
+export declare function computeBackoffDelay(attempt: number, initialDelay?: number, maxDelay?: number): number;
+/**
+ * Sleep for the specified duration. Exported for test mockability.
+ */
+export declare function sleep(ms: number): Promise<void>;
 /**
  * Check if Codex JSONL output contains a model-not-found error
  */
@@ -55,12 +69,18 @@ export declare function parseCodexOutput(output: string): string;
 /**
  * Execute Codex CLI command and return the response
  */
-export declare function executeCodex(prompt: string, model: string, cwd?: string): Promise<string>;
+export declare function executeCodex(prompt: string, model: string, cwd?: string, reasoningEffort?: ReasoningEffort): Promise<string>;
 /**
- * Execute Codex CLI with model fallback chain
- * Only falls back on model_not_found errors when model was not explicitly provided
+ * Execute Codex CLI with model fallback chain and exponential backoff on rate limits.
+ * Falls back on model_not_found or rate limit errors when model was not explicitly provided.
+ * When model IS explicit, retries the same model with backoff on rate limit.
  */
-export declare function executeCodexWithFallback(prompt: string, model: string | undefined, cwd?: string, fallbackChain?: string[]): Promise<{
+export declare function executeCodexWithFallback(prompt: string, model: string | undefined, cwd?: string, fallbackChain?: string[], 
+/** @internal Testing overrides */
+overrides?: {
+    executor?: typeof executeCodex;
+    sleepFn?: typeof sleep;
+}, reasoningEffort?: ReasoningEffort): Promise<{
     response: string;
     usedFallback: boolean;
     actualModel: string;
@@ -68,15 +88,11 @@ export declare function executeCodexWithFallback(prompt: string, model: string |
 /**
  * Execute Codex CLI in background with fallback chain, writing status and response files upon completion
  */
-export declare function executeCodexBackground(fullPrompt: string, modelInput: string | undefined, jobMeta: BackgroundJobMeta, workingDirectory?: string): {
+export declare function executeCodexBackground(fullPrompt: string, modelInput: string | undefined, jobMeta: BackgroundJobMeta, workingDirectory?: string, reasoningEffort?: ReasoningEffort): {
     pid: number;
 } | {
     error: string;
 };
-/**
- * Validate and read a file for context inclusion
- */
-export declare function validateAndReadFile(filePath: string, baseDir?: string): string;
 /**
  * Handle ask_codex tool invocation with all business logic
  *
@@ -84,10 +100,12 @@ export declare function validateAndReadFile(filePath: string, baseDir?: string):
  * the SDK server and the standalone stdio server.
  */
 export declare function handleAskCodex(args: {
-    prompt_file: string;
-    output_file: string;
+    prompt?: string;
+    prompt_file?: string;
+    output_file?: string;
     agent_role: string;
     model?: string;
+    reasoning_effort?: string;
     context_files?: string[];
     background?: boolean;
     working_directory?: string;

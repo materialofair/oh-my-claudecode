@@ -12,6 +12,7 @@ import {
   readHudState,
   readHudConfig,
   getRunningTasks,
+  writeHudState,
   initializeHUDState,
 } from "./state.js";
 import {
@@ -21,6 +22,7 @@ import {
   readAutopilotStateForHud,
 } from "./omc-state.js";
 import { getUsage } from "./usage-api.js";
+import { executeCustomProvider } from "./custom-rate-provider.js";
 import { render } from "./render.js";
 import { sanitizeOutput } from "./sanitize.js";
 import type {
@@ -35,6 +37,12 @@ import {
 } from "../analytics/token-extractor.js";
 import { extractSessionId } from "../analytics/output-estimator.js";
 import { getTokenTracker } from "../analytics/token-tracker.js";
+import { getRuntimePackageVersion } from "../lib/version.js";
+import { compareVersions } from "../features/auto-update.js";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
+import { fileURLToPath } from "url";
 
 // Persistent token snapshot for delta calculations
 let previousSnapshot: TokenSnapshot | null = null;
@@ -146,7 +154,7 @@ async function recordTokenUsage(
  *
  * @returns Analytics fields or null if no token data available
  */
-async function getTokenTrackerFallback(
+async function _getTokenTrackerFallback(
   sessionId: string,
   durationMs: number,
 ): Promise<{
@@ -196,6 +204,7 @@ async function calculateSessionHealth(
   sessionStart: Date | undefined,
   contextPercent: number,
   stdin: StatuslineStdin,
+  thresholds?: { budgetWarning: number; budgetCritical: number },
 ): Promise<SessionHealth | null> {
   // Calculate duration (use 0 if no session start)
   const durationMs = sessionStart ? Date.now() - sessionStart.getTime() : 0;
@@ -243,7 +252,7 @@ async function calculateSessionHealth(
       await import("../analytics/output-estimator.js");
 
     const modelName =
-      stdin.model?.id ?? stdin.model?.display_name ?? "claude-sonnet-4.5";
+      stdin.model?.id ?? stdin.model?.display_name ?? "claude-sonnet-4.6";
     const estimatedOutput = estimateOutputTokens(inputTokens, modelName);
 
     const costResult = calculateCost({
@@ -261,9 +270,11 @@ async function calculateSessionHealth(
     costPerHour = hours > 0 ? sessionCost / hours : 0;
 
     // Adjust health based on cost (Budget warnings)
-    if (sessionCost > 5.0) {
+    const budgetCritical = thresholds?.budgetCritical ?? 5.0;
+    const budgetWarning = thresholds?.budgetWarning ?? 2.0;
+    if (sessionCost > budgetCritical) {
       health = "critical";
-    } else if (sessionCost > 2.0 && health !== "critical") {
+    } else if (sessionCost > budgetWarning && health !== "critical") {
       health = "warning";
     }
   } catch (error) {
@@ -340,11 +351,62 @@ async function main(): Promise<void> {
 
     // Read HUD state for background tasks
     const hudState = readHudState(cwd);
-    const backgroundTasks = hudState?.backgroundTasks || [];
+    const _backgroundTasks = hudState?.backgroundTasks || [];
+
+    // Persist session start time to survive tail-parsing resets (#528)
+    // When tail parsing kicks in for large transcripts, sessionStart comes from
+    // the first entry in the tail chunk rather than the actual session start.
+    // We persist the real start time in HUD state on first observation.
+    // Scoped per session ID so a new session in the same cwd resets the timestamp.
+    let sessionStart = transcriptData.sessionStart;
+    const currentSessionId = extractSessionId(stdin.transcript_path);
+    const sameSession = hudState?.sessionId === currentSessionId;
+    if (sameSession && hudState?.sessionStartTimestamp) {
+      // Use persisted value (the real session start) - but validate first
+      const persisted = new Date(hudState.sessionStartTimestamp);
+      if (!isNaN(persisted.getTime())) {
+        sessionStart = persisted;
+      }
+      // If invalid, fall through to transcript-derived sessionStart
+    } else if (sessionStart) {
+      // First time seeing session start (or new session) - persist it
+      const stateToWrite = hudState || { timestamp: new Date().toISOString(), backgroundTasks: [] };
+      stateToWrite.sessionStartTimestamp = sessionStart.toISOString();
+      stateToWrite.sessionId = currentSessionId;
+      stateToWrite.timestamp = new Date().toISOString();
+      writeHudState(stateToWrite, cwd);
+    }
 
     // Fetch rate limits from OAuth API (if available)
     const rateLimits =
       config.elements.rateLimits !== false ? await getUsage() : null;
+
+    // Fetch custom rate limit buckets (if configured)
+    const customBuckets =
+      config.rateLimitsProvider?.type === 'custom'
+        ? await executeCustomProvider(config.rateLimitsProvider)
+        : null;
+
+    // Read OMC version and update check cache
+    let omcVersion: string | null = null;
+    let updateAvailable: string | null = null;
+    try {
+      omcVersion = getRuntimePackageVersion();
+      if (omcVersion === 'unknown') omcVersion = null;
+    } catch {
+      // Ignore version detection errors
+    }
+    try {
+      const updateCacheFile = join(homedir(), '.omc', 'update-check.json');
+      if (existsSync(updateCacheFile)) {
+        const cached = JSON.parse(readFileSync(updateCacheFile, 'utf-8'));
+        if (cached?.latestVersion && omcVersion && compareVersions(omcVersion, cached.latestVersion) < 0) {
+          updateAvailable = cached.latestVersion;
+        }
+      }
+    } catch {
+      // Ignore update cache read errors
+    }
 
     // Build render context
     const context: HudRenderContext = {
@@ -360,13 +422,20 @@ async function main(): Promise<void> {
       cwd,
       lastSkill: transcriptData.lastActivatedSkill || null,
       rateLimits,
+      customBuckets,
       pendingPermission: transcriptData.pendingPermission || null,
       thinkingState: transcriptData.thinkingState || null,
       sessionHealth: await calculateSessionHealth(
-        transcriptData.sessionStart,
+        sessionStart,
         getContextPercent(stdin),
         stdin,
+        config.thresholds,
       ),
+      omcVersion,
+      updateAvailable,
+      toolCallCount: transcriptData.toolCallCount,
+      agentCallCount: transcriptData.agentCallCount,
+      skillCallCount: transcriptData.skillCallCount,
     };
 
     // Debug: log data if OMC_DEBUG is set
@@ -381,13 +450,42 @@ async function main(): Promise<void> {
       );
     }
 
+    // autoCompact: write trigger file when context exceeds threshold
+    // A companion hook can read this file to inject a /compact suggestion.
+    if (
+      config.contextLimitWarning.autoCompact &&
+      context.contextPercent >= config.contextLimitWarning.threshold
+    ) {
+      try {
+        const omcStateDir = join(cwd, '.omc', 'state');
+        if (!existsSync(omcStateDir)) {
+          mkdirSync(omcStateDir, { recursive: true });
+        }
+        const triggerFile = join(omcStateDir, 'compact-requested.json');
+        writeFileSync(
+          triggerFile,
+          JSON.stringify({
+            requestedAt: new Date().toISOString(),
+            contextPercent: context.contextPercent,
+            threshold: config.contextLimitWarning.threshold,
+          }),
+        );
+      } catch {
+        // Silent failure — don't break HUD rendering
+      }
+    }
+
     // Render and output
     let output = await render(context, config);
 
     // Apply safe mode sanitization if enabled (Issue #346)
     // This strips ANSI codes and uses ASCII-only output to prevent
     // terminal rendering corruption during concurrent updates
-    if (config.elements.safeMode) {
+    // On Windows, always use safe mode to prevent terminal rendering issues
+    // with non-breaking spaces and ANSI escape sequences
+    const useSafeMode = config.elements.safeMode || process.platform === 'win32';
+
+    if (useSafeMode) {
       output = sanitizeOutput(output);
       // In safe mode, use regular spaces (don't convert to non-breaking)
       console.log(output);
@@ -418,5 +516,10 @@ async function main(): Promise<void> {
   }
 }
 
-// Run main
-main();
+// Export for programmatic use (e.g., omc hud --watch loop)
+export { main };
+
+// Auto-run when executed directly
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main();
+}

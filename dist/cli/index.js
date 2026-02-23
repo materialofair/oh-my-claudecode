@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * Oh-My-Claude-Sisyphus CLI
+ * Oh-My-ClaudeCode CLI
  *
- * Command-line interface for the Sisyphus multi-agent system.
+ * Command-line interface for the OMC multi-agent system.
  *
  * Commands:
  * - run: Start an interactive session
  * - init: Initialize configuration in current directory
  * - config: Show or edit configuration
+ * - setup: Sync all OMC components (hooks, agents, skills)
  */
 import { Command } from 'commander';
 import chalk from 'chalk';
@@ -17,9 +18,9 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { loadConfig, getConfigPaths, generateConfigSchema } from '../config/loader.js';
-import { createSisyphusSession } from '../index.js';
-import { checkForUpdates, performUpdate, formatUpdateNotification, getInstalledVersion, getSisyphusConfig, CONFIG_FILE, } from '../features/auto-update.js';
-import { install as installSisyphus, isInstalled, getInstallInfo } from '../installer/index.js';
+import { createOmcSession } from '../index.js';
+import { checkForUpdates, performUpdate, formatUpdateNotification, getInstalledVersion, getOMCConfig, reconcileUpdateRuntime, CONFIG_FILE, } from '../features/auto-update.js';
+import { install as installOmc, isInstalled, getInstallInfo } from '../installer/index.js';
 import { statsCommand } from './commands/stats.js';
 import { costCommand } from './commands/cost.js';
 import { sessionsCommand } from './commands/sessions.js';
@@ -32,6 +33,8 @@ import { waitCommand, waitStatusCommand, waitDaemonCommand, waitDetectCommand } 
 import { doctorConflictsCommand } from './commands/doctor-conflicts.js';
 import { teleportCommand, teleportListCommand, teleportRemoveCommand } from './commands/teleport.js';
 import { getRuntimePackageVersion } from '../lib/version.js';
+import { launchCommand } from './launch.js';
+import { interopCommand } from './interop.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const version = getRuntimePackageVersion();
 const program = new Command();
@@ -77,7 +80,7 @@ async function displayAnalyticsBanner() {
         console.log(banner);
         console.log('');
     }
-    catch (error) {
+    catch (_error) {
         // Fallback if gradient-string not installed
         console.log('╔═══════════════════════════════════════╗');
         console.log('║   Oh-My-ClaudeCode - Analytics Dashboard   ║');
@@ -85,8 +88,21 @@ async function displayAnalyticsBanner() {
         console.log('');
     }
 }
-// Default action when running 'omc' with no args - show everything
+// Default action when running 'omc' with no subcommand
+// Forwards all args to launchCommand so 'omc --notify false --madmax' etc. work directly
 async function defaultAction() {
+    const defaultActionMode = process.env.OMC_DEFAULT_ACTION || 'launch';
+    if (defaultActionMode === 'dashboard') {
+        await displayAnalyticsDashboard();
+    }
+    else {
+        // Pass all CLI args through to launch (strip node + script path)
+        const args = process.argv.slice(2);
+        await launchCommand(args);
+    }
+}
+// Analytics dashboard - moved from defaultAction
+async function displayAnalyticsDashboard() {
     await displayAnalyticsBanner();
     // Check if we need to backfill for agent data
     const shouldAutoBackfill = await checkIfBackfillNeeded();
@@ -121,7 +137,61 @@ program
     .name('omc')
     .description('Multi-agent orchestration system for Claude Agent SDK with analytics')
     .version(version)
+    .allowUnknownOption()
     .action(defaultAction);
+/**
+ * Launch command - Native tmux shell launch for Claude Code
+ */
+program
+    .command('launch [args...]')
+    .description('Launch Claude Code with native tmux shell integration')
+    .allowUnknownOption()
+    .addHelpText('after', `
+Examples:
+  $ omc                                Launch Claude Code
+  $ omc --madmax                       Launch with permissions bypass
+  $ omc --yolo                         Launch with permissions bypass (alias)
+  $ omc --notify false                 Launch without CCNotifier events
+  $ omc launch                         Explicit launch subcommand (same as bare omc)
+  $ omc launch --madmax                Explicit launch with flags
+
+Options:
+  --notify <bool>   Enable/disable CCNotifier events. false sets OMC_NOTIFY=0
+                    and suppresses all stop/session-start/session-idle notifications.
+                    Default: true
+
+Environment:
+  OMC_NOTIFY=0              Suppress all notifications (set by --notify false)
+  OMC_DEFAULT_ACTION=dashboard  Show analytics dashboard when running 'omc' with no args`)
+    .action(async (args) => {
+    await launchCommand(args);
+});
+/**
+ * Dashboard command - Show analytics dashboard
+ */
+program
+    .command('dashboard')
+    .description('Show analytics dashboard (aggregate stats, costs, agents)')
+    .addHelpText('after', `
+Note: This was the default 'omc' behavior. Now 'omc' launches Claude Code by default.
+Set OMC_DEFAULT_ACTION=dashboard to restore the old behavior.`)
+    .action(async () => {
+    await displayAnalyticsDashboard();
+});
+/**
+ * Interop command - Split-pane tmux session with OMC and OMX
+ */
+program
+    .command('interop')
+    .description('Launch split-pane tmux session with Claude Code (OMC) and Codex (OMX)')
+    .addHelpText('after', `
+Requirements:
+  - Must be running inside a tmux session
+  - Claude CLI must be installed
+  - Codex CLI recommended (graceful fallback if missing)`)
+    .action(() => {
+    interopCommand();
+});
 /**
  * Analytics Commands
  */
@@ -287,7 +357,7 @@ Examples:
  */
 program
     .command('init')
-    .description('Initialize Sisyphus configuration in the current directory')
+    .description('Initialize OMC configuration in the current directory')
     .option('-g, --global', 'Initialize global user configuration')
     .option('-f, --force', 'Overwrite existing configuration')
     .addHelpText('after', `
@@ -317,11 +387,11 @@ Examples:
     const configContent = `// Oh-My-ClaudeCode Configuration
 // See: https://github.com/Yeachan-Heo/oh-my-claudecode for documentation
 {
-  "$schema": "./sisyphus-schema.json",
+  "$schema": "./omc-schema.json",
 
   // Agent model configurations
   "agents": {
-    "sisyphus": {
+    "omc": {
       // Main orchestrator - uses the most capable model
       "model": "claude-opus-4-6-20260205"
     },
@@ -332,14 +402,14 @@ Examples:
     },
     "researcher": {
       // Documentation and codebase analysis
-      "model": "claude-sonnet-4-5-20250514"
+      "model": "claude-sonnet-4-6-20260217"
     },
     "explore": {
       // Fast pattern matching - uses fastest model
       "model": "claude-3-5-haiku-20241022"
     },
     "frontendEngineer": {
-      "model": "claude-sonnet-4-5-20250514",
+      "model": "claude-sonnet-4-6-20260217",
       "enabled": true
     },
     "documentWriter": {
@@ -347,7 +417,7 @@ Examples:
       "enabled": true
     },
     "multimodalLooker": {
-      "model": "claude-sonnet-4-5-20250514",
+      "model": "claude-sonnet-4-6-20260217",
       "enabled": true
     }
   },
@@ -391,7 +461,7 @@ Examples:
     writeFileSync(targetPath, configContent);
     console.log(chalk.green(`Created configuration: ${targetPath}`));
     // Also create the JSON schema for editor support
-    const schemaPath = join(targetDir, 'sisyphus-schema.json');
+    const schemaPath = join(targetDir, 'omc-schema.json');
     writeFileSync(schemaPath, JSON.stringify(generateConfigSchema(), null, 2));
     console.log(chalk.green(`Created JSON schema: ${schemaPath}`));
     console.log(chalk.blue('\nSetup complete!'));
@@ -439,7 +509,9 @@ program
 Examples:
   $ omc config                   Show current configuration
   $ omc config --validate        Validate configuration files
-  $ omc config --paths           Show config file locations`)
+  $ omc config --paths           Show config file locations
+
+  }`)
     .action(async (options) => {
     if (options.paths) {
         const paths = getConfigPaths();
@@ -482,37 +554,187 @@ Examples:
 /**
  * Config stop-callback subcommand - Configure stop hook callbacks
  */
-const configStopCallback = program
+const _configStopCallback = program
     .command('config-stop-callback <type>')
-    .description('Configure stop hook callbacks (file/telegram/discord)')
+    .description('Configure stop hook callbacks (file/telegram/discord/slack)')
     .option('--enable', 'Enable callback')
     .option('--disable', 'Disable callback')
     .option('--path <path>', 'File path (supports {session_id}, {date}, {time})')
     .option('--format <format>', 'File format: markdown | json')
-    .option('--token <token>', 'Telegram bot token')
+    .option('--token <token>', 'Bot token (telegram or discord-bot)')
     .option('--chat <id>', 'Telegram chat ID')
     .option('--webhook <url>', 'Discord webhook URL')
+    .option('--channel-id <id>', 'Discord bot channel ID (used with --profile)')
+    .option('--tag-list <csv>', 'Replace tag list (comma-separated, telegram/discord only)')
+    .option('--add-tag <tag>', 'Append one tag (telegram/discord only)')
+    .option('--remove-tag <tag>', 'Remove one tag (telegram/discord only)')
+    .option('--clear-tags', 'Clear all tags (telegram/discord only)')
+    .option('--profile <name>', 'Named notification profile to configure')
     .option('--show', 'Show current configuration')
     .addHelpText('after', `
 Types:
   file       File system callback (saves session summary to disk)
   telegram   Telegram bot notification
   discord    Discord webhook notification
+  slack      Slack incoming webhook notification
+
+Profile types (use with --profile):
+  discord-bot  Discord Bot API (token + channel ID)
+  slack        Slack incoming webhook
+  webhook      Generic webhook (POST with JSON body)
 
 Examples:
   $ omc config-stop-callback file --enable --path ~/.claude/logs/{date}.md
   $ omc config-stop-callback telegram --enable --token <token> --chat <id>
   $ omc config-stop-callback discord --enable --webhook <url>
   $ omc config-stop-callback file --disable
-  $ omc config-stop-callback file --show`)
+  $ omc config-stop-callback file --show
+
+  # Named profiles (stored in notificationProfiles):
+  $ omc config-stop-callback discord --profile work --enable --webhook <url>
+  $ omc config-stop-callback telegram --profile work --enable --token <tk> --chat <id>
+  $ omc config-stop-callback discord-bot --profile ops --enable --token <tk> --channel-id <id>
+
+  # Select profile at launch:
+  $ OMC_NOTIFY_PROFILE=work claude`)
     .action(async (type, options) => {
-    const validTypes = ['file', 'telegram', 'discord'];
+    // When --profile is used, route to profile-based config
+    if (options.profile) {
+        const profileValidTypes = ['file', 'telegram', 'discord', 'discord-bot', 'slack', 'webhook'];
+        if (!profileValidTypes.includes(type)) {
+            console.error(chalk.red(`Invalid type for profile: ${type}`));
+            console.error(chalk.gray(`Valid types: ${profileValidTypes.join(', ')}`));
+            process.exit(1);
+        }
+        const config = getOMCConfig();
+        config.notificationProfiles = config.notificationProfiles || {};
+        const profileName = options.profile;
+        const profile = config.notificationProfiles[profileName] || { enabled: true };
+        // Show current profile config
+        if (options.show) {
+            if (config.notificationProfiles[profileName]) {
+                console.log(chalk.blue(`Profile "${profileName}" — ${type} configuration:`));
+                const platformConfig = profile[type];
+                if (platformConfig) {
+                    console.log(JSON.stringify(platformConfig, null, 2));
+                }
+                else {
+                    console.log(chalk.yellow(`No ${type} platform configured in profile "${profileName}".`));
+                }
+            }
+            else {
+                console.log(chalk.yellow(`Profile "${profileName}" not found.`));
+            }
+            return;
+        }
+        let enabled;
+        if (options.enable)
+            enabled = true;
+        else if (options.disable)
+            enabled = false;
+        switch (type) {
+            case 'discord': {
+                const current = profile.discord;
+                if (enabled === true && (!options.webhook && !current?.webhookUrl)) {
+                    console.error(chalk.red('Discord requires --webhook <webhook_url>'));
+                    process.exit(1);
+                }
+                profile.discord = {
+                    ...current,
+                    enabled: enabled ?? current?.enabled ?? false,
+                    webhookUrl: options.webhook ?? current?.webhookUrl,
+                };
+                break;
+            }
+            case 'discord-bot': {
+                const current = profile['discord-bot'];
+                if (enabled === true && (!options.token && !current?.botToken)) {
+                    console.error(chalk.red('Discord bot requires --token <bot_token>'));
+                    process.exit(1);
+                }
+                if (enabled === true && (!options.channelId && !current?.channelId)) {
+                    console.error(chalk.red('Discord bot requires --channel-id <channel_id>'));
+                    process.exit(1);
+                }
+                profile['discord-bot'] = {
+                    ...current,
+                    enabled: enabled ?? current?.enabled ?? false,
+                    botToken: options.token ?? current?.botToken,
+                    channelId: options.channelId ?? current?.channelId,
+                };
+                break;
+            }
+            case 'telegram': {
+                const current = profile.telegram;
+                if (enabled === true && (!options.token && !current?.botToken)) {
+                    console.error(chalk.red('Telegram requires --token <bot_token>'));
+                    process.exit(1);
+                }
+                if (enabled === true && (!options.chat && !current?.chatId)) {
+                    console.error(chalk.red('Telegram requires --chat <chat_id>'));
+                    process.exit(1);
+                }
+                profile.telegram = {
+                    ...current,
+                    enabled: enabled ?? current?.enabled ?? false,
+                    botToken: options.token ?? current?.botToken,
+                    chatId: options.chat ?? current?.chatId,
+                };
+                break;
+            }
+            case 'slack': {
+                const current = profile.slack;
+                if (enabled === true && (!options.webhook && !current?.webhookUrl)) {
+                    console.error(chalk.red('Slack requires --webhook <webhook_url>'));
+                    process.exit(1);
+                }
+                profile.slack = {
+                    ...current,
+                    enabled: enabled ?? current?.enabled ?? false,
+                    webhookUrl: options.webhook ?? current?.webhookUrl,
+                };
+                break;
+            }
+            case 'webhook': {
+                const current = profile.webhook;
+                if (enabled === true && (!options.webhook && !current?.url)) {
+                    console.error(chalk.red('Webhook requires --webhook <url>'));
+                    process.exit(1);
+                }
+                profile.webhook = {
+                    ...current,
+                    enabled: enabled ?? current?.enabled ?? false,
+                    url: options.webhook ?? current?.url,
+                };
+                break;
+            }
+            case 'file': {
+                console.error(chalk.yellow('File callbacks are not supported in notification profiles.'));
+                console.error(chalk.gray('Use without --profile for file callbacks.'));
+                process.exit(1);
+                break;
+            }
+        }
+        config.notificationProfiles[profileName] = profile;
+        try {
+            writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+            console.log(chalk.green(`\u2713 Profile "${profileName}" — ${type} configured`));
+            console.log(JSON.stringify(profile[type], null, 2));
+        }
+        catch (error) {
+            console.error(chalk.red('Failed to write configuration:'), error);
+            process.exit(1);
+        }
+        return;
+    }
+    // Legacy (non-profile) path
+    const validTypes = ['file', 'telegram', 'discord', 'slack'];
     if (!validTypes.includes(type)) {
         console.error(chalk.red(`Invalid callback type: ${type}`));
         console.error(chalk.gray(`Valid types: ${validTypes.join(', ')}`));
         process.exit(1);
     }
-    const config = getSisyphusConfig();
+    const config = getOMCConfig();
     config.stopHookCallbacks = config.stopHookCallbacks || {};
     // Show current config
     if (options.show) {
@@ -534,6 +756,35 @@ Examples:
     else if (options.disable) {
         enabled = false;
     }
+    const hasTagListChanges = options.tagList !== undefined
+        || options.addTag !== undefined
+        || options.removeTag !== undefined
+        || options.clearTags;
+    const parseTagList = (value) => value
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+    const resolveTagList = (currentTagList) => {
+        let next = options.tagList !== undefined
+            ? parseTagList(options.tagList)
+            : [...(currentTagList ?? [])];
+        if (options.clearTags) {
+            next = [];
+        }
+        if (options.addTag !== undefined) {
+            const tagToAdd = String(options.addTag).trim();
+            if (tagToAdd && !next.includes(tagToAdd)) {
+                next.push(tagToAdd);
+            }
+        }
+        if (options.removeTag !== undefined) {
+            const tagToRemove = String(options.removeTag).trim();
+            if (tagToRemove) {
+                next = next.filter((tag) => tag !== tagToRemove);
+            }
+        }
+        return next;
+    };
     // Update config based on type
     switch (type) {
         case 'file': {
@@ -556,9 +807,11 @@ Examples:
                 process.exit(1);
             }
             config.stopHookCallbacks.telegram = {
+                ...current,
                 enabled: enabled ?? current?.enabled ?? false,
                 botToken: options.token ?? current?.botToken,
                 chatId: options.chat ?? current?.chatId,
+                tagList: hasTagListChanges ? resolveTagList(current?.tagList) : current?.tagList,
             };
             break;
         }
@@ -569,8 +822,24 @@ Examples:
                 process.exit(1);
             }
             config.stopHookCallbacks.discord = {
+                ...current,
                 enabled: enabled ?? current?.enabled ?? false,
                 webhookUrl: options.webhook ?? current?.webhookUrl,
+                tagList: hasTagListChanges ? resolveTagList(current?.tagList) : current?.tagList,
+            };
+            break;
+        }
+        case 'slack': {
+            const current = config.stopHookCallbacks.slack;
+            if (enabled === true && (!options.webhook && !current?.webhookUrl)) {
+                console.error(chalk.red('Slack requires --webhook <webhook_url>'));
+                process.exit(1);
+            }
+            config.stopHookCallbacks.slack = {
+                ...current,
+                enabled: enabled ?? current?.enabled ?? false,
+                webhookUrl: options.webhook ?? current?.webhookUrl,
+                tagList: hasTagListChanges ? resolveTagList(current?.tagList) : current?.tagList,
             };
             break;
         }
@@ -587,6 +856,92 @@ Examples:
     }
 });
 /**
+ * Config notify-profile subcommand - List, show, and delete notification profiles
+ */
+program
+    .command('config-notify-profile [name]')
+    .description('Manage notification profiles')
+    .option('--list', 'List all profiles')
+    .option('--show', 'Show profile configuration')
+    .option('--delete', 'Delete a profile')
+    .addHelpText('after', `
+Examples:
+  $ omc config-notify-profile --list
+  $ omc config-notify-profile work --show
+  $ omc config-notify-profile work --delete
+
+  # Create/update profiles via config-stop-callback --profile:
+  $ omc config-stop-callback discord --profile work --enable --webhook <url>
+
+  # Select profile at launch:
+  $ OMC_NOTIFY_PROFILE=work claude`)
+    .action(async (name, options) => {
+    const config = getOMCConfig();
+    const profiles = config.notificationProfiles || {};
+    if (options.list || !name) {
+        const names = Object.keys(profiles);
+        if (names.length === 0) {
+            console.log(chalk.yellow('No notification profiles configured.'));
+            console.log(chalk.gray('Create one with: omc config-stop-callback <type> --profile <name> --enable ...'));
+        }
+        else {
+            console.log(chalk.blue('Notification profiles:'));
+            for (const pName of names) {
+                const p = profiles[pName];
+                const platforms = ['discord', 'discord-bot', 'telegram', 'slack', 'webhook']
+                    .filter((plat) => p[plat]?.enabled)
+                    .join(', ');
+                const status = p.enabled !== false ? chalk.green('enabled') : chalk.red('disabled');
+                console.log(`  ${chalk.bold(pName)} [${status}] — ${platforms || 'no platforms'}`);
+            }
+        }
+        const activeProfile = process.env.OMC_NOTIFY_PROFILE;
+        if (activeProfile) {
+            console.log(chalk.gray(`\nActive profile (OMC_NOTIFY_PROFILE): ${activeProfile}`));
+        }
+        return;
+    }
+    if (options.show) {
+        if (profiles[name]) {
+            console.log(chalk.blue(`Profile "${name}":`));
+            console.log(JSON.stringify(profiles[name], null, 2));
+        }
+        else {
+            console.log(chalk.yellow(`Profile "${name}" not found.`));
+        }
+        return;
+    }
+    if (options.delete) {
+        if (!profiles[name]) {
+            console.log(chalk.yellow(`Profile "${name}" not found.`));
+            return;
+        }
+        delete profiles[name];
+        config.notificationProfiles = profiles;
+        if (Object.keys(profiles).length === 0) {
+            delete config.notificationProfiles;
+        }
+        try {
+            writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+            console.log(chalk.green(`\u2713 Profile "${name}" deleted`));
+        }
+        catch (error) {
+            console.error(chalk.red('Failed to write configuration:'), error);
+            process.exit(1);
+        }
+        return;
+    }
+    // Default: show the named profile
+    if (profiles[name]) {
+        console.log(chalk.blue(`Profile "${name}":`));
+        console.log(JSON.stringify(profiles[name], null, 2));
+    }
+    else {
+        console.log(chalk.yellow(`Profile "${name}" not found.`));
+        console.log(chalk.gray('Create it with: omc config-stop-callback <type> --profile ' + name + ' --enable ...'));
+    }
+});
+/**
  * Info command - Show system information
  */
 program
@@ -596,7 +951,7 @@ program
 Examples:
   $ omc info                     Show agents, features, and MCP servers`)
     .action(async () => {
-    const session = createSisyphusSession();
+    const session = createOmcSession();
     console.log(chalk.blue.bold('\nOh-My-ClaudeCode System Information\n'));
     console.log(chalk.gray('━'.repeat(50)));
     console.log(chalk.blue('\nAvailable Agents:'));
@@ -637,7 +992,7 @@ Examples:
   $ omc test-prompt "ultrawork fix bugs"    See how magic keywords are detected
   $ omc test-prompt "analyze this code"     Test prompt enhancement`)
     .action(async (prompt) => {
-    const session = createSisyphusSession();
+    const session = createOmcSession();
     console.log(chalk.blue('Original prompt:'));
     console.log(chalk.gray(prompt));
     const keywords = session.detectKeywords(prompt);
@@ -724,6 +1079,34 @@ Examples:
     }
 });
 /**
+ * Update reconcile command - Internal command for post-update reconciliation
+ * Called automatically after npm install to ensure hooks/settings are updated with NEW code
+ */
+program
+    .command('update-reconcile')
+    .description('Internal: Reconcile runtime state after update (called by update command)')
+    .option('-v, --verbose', 'Show detailed output')
+    .action(async (options) => {
+    try {
+        const reconcileResult = reconcileUpdateRuntime({ verbose: options.verbose });
+        if (!reconcileResult.success) {
+            console.error(chalk.red('Reconciliation failed:'));
+            if (reconcileResult.errors) {
+                reconcileResult.errors.forEach(err => console.error(chalk.red(`  - ${err}`)));
+            }
+            process.exit(1);
+        }
+        if (options.verbose) {
+            console.log(chalk.green(reconcileResult.message));
+        }
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red(`Reconciliation error: ${message}`));
+        process.exit(1);
+    }
+});
+/**
  * Version command - Show version information
  */
 program
@@ -760,7 +1143,7 @@ Examples:
  */
 program
     .command('install')
-    .description('Install Sisyphus agents and commands to Claude Code config (~/.claude/)')
+    .description('Install OMC agents and commands to Claude Code config (~/.claude/)')
     .option('-f, --force', 'Overwrite existing files')
     .option('-q, --quiet', 'Suppress output except for errors')
     .option('--skip-claude-check', 'Skip checking if Claude Code is installed')
@@ -781,7 +1164,7 @@ Examples:
     if (isInstalled() && !options.force) {
         const info = getInstallInfo();
         if (!options.quiet) {
-            console.log(chalk.yellow('Sisyphus is already installed.'));
+            console.log(chalk.yellow('OMC is already installed.'));
             if (info) {
                 console.log(chalk.gray(`  Version: ${info.version}`));
                 console.log(chalk.gray(`  Installed: ${info.installedAt}`));
@@ -791,7 +1174,7 @@ Examples:
         return;
     }
     // Run installation
-    const result = installSisyphus({
+    const result = installOmc({
         force: options.force,
         verbose: !options.quiet,
         skipClaudeCheck: options.skipClaudeCheck
@@ -809,9 +1192,9 @@ Examples:
             console.log('  claude                        # Start Claude Code normally');
             console.log('');
             console.log(chalk.yellow('Slash Commands:'));
-            console.log('  /sisyphus <task>              # Activate Sisyphus orchestration mode');
-            console.log('  /sisyphus-default             # Configure for current project');
-            console.log('  /sisyphus-default-global      # Configure globally');
+            console.log('  /omc <task>              # Activate OMC orchestration mode');
+            console.log('  /omc-default             # Configure for current project');
+            console.log('  /omc-default-global      # Configure globally');
             console.log('  /ultrawork <task>             # Maximum performance mode');
             console.log('  /deepsearch <query>           # Thorough codebase search');
             console.log('  /analyze <target>             # Deep analysis mode');
@@ -821,14 +1204,14 @@ Examples:
             console.log(chalk.yellow('Available Agents (via Task tool):'));
             console.log(chalk.gray('  Base Agents:'));
             console.log('    architect              - Architecture & debugging (Opus)');
-            console.log('    researcher           - Documentation & research (Sonnet)');
+            console.log('    document-specialist   - External docs & reference lookup (Sonnet)');
             console.log('    explore             - Fast pattern matching (Haiku)');
             console.log('    designer            - UI/UX specialist (Sonnet)');
             console.log('    writer              - Technical writing (Haiku)');
             console.log('    vision              - Visual analysis (Sonnet)');
             console.log('    critic               - Plan review (Opus)');
             console.log('    analyst               - Pre-planning analysis (Opus)');
-            console.log('    orchestrator-sisyphus - Todo coordination (Opus)');
+            console.log('    debugger            - Root-cause diagnosis (Sonnet)');
             console.log('    executor            - Focused execution (Sonnet)');
             console.log('    planner          - Strategic planning (Opus)');
             console.log('    qa-tester           - Interactive CLI testing (Sonnet)');
@@ -841,14 +1224,14 @@ Examples:
             console.log('    designer-low        - Simple styling (Haiku)');
             console.log('');
             console.log(chalk.yellow('After Updates:'));
-            console.log('  Run \'/sisyphus-default\' (project) or \'/sisyphus-default-global\' (global)');
+            console.log('  Run \'/omc-default\' (project) or \'/omc-default-global\' (global)');
             console.log('  to download the latest CLAUDE.md configuration.');
             console.log('  This ensures you get the newest features and agent behaviors.');
             console.log('');
             console.log(chalk.blue('Quick Start:'));
             console.log('  1. Run \'claude\' to start Claude Code');
-            console.log('  2. Type \'/sisyphus-default\' for project or \'/sisyphus-default-global\' for global');
-            console.log('  3. Or use \'/sisyphus <task>\' for one-time activation');
+            console.log('  2. Type \'/omc-default\' for project or \'/omc-default-global\' for global');
+            console.log('  3. Or use \'/omc <task>\' for one-time activation');
         }
     }
     else {
@@ -1015,6 +1398,78 @@ Examples:
     process.exit(exitCode);
 });
 /**
+ * Setup command - Official CLI entry point for omc-setup
+ *
+ * User-friendly command that syncs all OMC components:
+ * - Installs/updates hooks, agents, and skills
+ * - Reconciles runtime state after updates
+ * - Shows clear summary of what was installed/updated
+ */
+program
+    .command('setup')
+    .description('Run OMC setup to sync all components (hooks, agents, skills)')
+    .option('-f, --force', 'Force reinstall even if already up to date')
+    .option('-q, --quiet', 'Suppress output except for errors')
+    .option('--skip-hooks', 'Skip hook installation')
+    .option('--force-hooks', 'Force reinstall hooks even if unchanged')
+    .addHelpText('after', `
+Examples:
+  $ omc setup                     Sync all OMC components
+  $ omc setup --force             Force reinstall everything
+  $ omc setup --quiet             Silent setup for scripts
+  $ omc setup --skip-hooks        Install without hooks
+  $ omc setup --force-hooks       Force reinstall hooks`)
+    .action(async (options) => {
+    if (!options.quiet) {
+        console.log(chalk.blue('Oh-My-ClaudeCode Setup\n'));
+    }
+    // Step 1: Run installation (which handles hooks, agents, skills)
+    if (!options.quiet) {
+        console.log(chalk.gray('Syncing OMC components...'));
+    }
+    const result = installOmc({
+        force: !!options.force,
+        verbose: !options.quiet,
+        skipClaudeCheck: true,
+        forceHooks: !!options.forceHooks,
+    });
+    if (!result.success) {
+        console.error(chalk.red(`Setup failed: ${result.message}`));
+        if (result.errors.length > 0) {
+            result.errors.forEach(err => console.error(chalk.red(`  - ${err}`)));
+        }
+        process.exit(1);
+    }
+    // Step 2: Show summary
+    if (!options.quiet) {
+        console.log('');
+        console.log(chalk.green('Setup complete!'));
+        console.log('');
+        if (result.installedAgents.length > 0) {
+            console.log(chalk.gray(`  Agents:   ${result.installedAgents.length} synced`));
+        }
+        if (result.installedCommands.length > 0) {
+            console.log(chalk.gray(`  Commands: ${result.installedCommands.length} synced`));
+        }
+        if (result.installedSkills.length > 0) {
+            console.log(chalk.gray(`  Skills:   ${result.installedSkills.length} synced`));
+        }
+        if (result.hooksConfigured) {
+            console.log(chalk.gray('  Hooks:    configured'));
+        }
+        if (result.hookConflicts.length > 0) {
+            console.log('');
+            console.log(chalk.yellow('  Hook conflicts detected:'));
+            result.hookConflicts.forEach(c => {
+                console.log(chalk.yellow(`    - ${c.eventType}: ${c.existingCommand}`));
+            });
+        }
+        console.log('');
+        console.log(chalk.gray(`Version: ${version}`));
+        console.log(chalk.gray('Start Claude Code and use /oh-my-claudecode:omc-setup for interactive setup.'));
+    }
+});
+/**
  * Postinstall command - Silent install for npm postinstall hook
  */
 program
@@ -1022,7 +1477,7 @@ program
     .description('Run post-install setup (called automatically by npm)')
     .action(async () => {
     // Silent install - only show errors
-    const result = installSisyphus({
+    const result = installOmc({
         force: false,
         verbose: false,
         skipClaudeCheck: true
@@ -1030,11 +1485,11 @@ program
     if (result.success) {
         console.log(chalk.green('✓ Oh-My-ClaudeCode installed successfully!'));
         console.log(chalk.gray('  Run "oh-my-claudecode info" to see available agents.'));
-        console.log(chalk.yellow('  Run "/sisyphus-default" (project) or "/sisyphus-default-global" (global) in Claude Code.'));
+        console.log(chalk.yellow('  Run "/omc-default" (project) or "/omc-default-global" (global) in Claude Code.'));
     }
     else {
         // Don't fail the npm install, just warn
-        console.warn(chalk.yellow('⚠ Could not complete Sisyphus setup:'), result.message);
+        console.warn(chalk.yellow('⚠ Could not complete OMC setup:'), result.message);
         console.warn(chalk.gray('  Run "oh-my-claudecode install" manually to complete setup.'));
     }
 });

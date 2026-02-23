@@ -8,7 +8,7 @@
 ## Purpose
 
 Hooks intercept Claude Code events to enable:
-- **Execution modes**: autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline (ecomode via mode-registry)
+- **Execution modes**: autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline (mode-registry)
 - **Validation**: thinking blocks, empty messages, comments
 - **Recovery**: edit errors, session recovery, context window
 - **Enhancement**: rules injection, directory READMEs, notepad
@@ -33,7 +33,7 @@ Hooks intercept Claude Code events to enable:
 | `ultrapilot/` | Parallel autopilot with file ownership | "ultrapilot" |
 | `swarm/` | N coordinated agents with task claiming | "swarm N agents" |
 | `ultraqa/` | QA cycling until goal met | test failures |
-| `mode-registry/` | Tracks active execution mode (incl. ecomode) | internal |
+| `mode-registry/` | Tracks active execution mode  | internal |
 | `persistent-mode/` | Maintains mode state across sessions | internal |
 
 ### Validation Hooks
@@ -242,7 +242,6 @@ return {
 5. Pipeline (sequential stages)
 6. UltraQA (test cycling)
 7. Ultrawork (parallel execution)
-8. Ecomode (token-efficient)
 
 **Session isolation**: Hooks only enforce for matching `session_id`. Stale states (>2 hours) are ignored.
 

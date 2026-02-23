@@ -18,6 +18,10 @@ export interface BackgroundTask {
 export interface OmcHudState {
     timestamp: string;
     backgroundTasks: BackgroundTask[];
+    /** Persisted session start time to survive tail-parsing resets */
+    sessionStartTimestamp?: string;
+    /** Session ID that owns the persisted sessionStartTimestamp */
+    sessionId?: string;
 }
 export interface StatuslineStdin {
     /** Transcript path for parsing conversation history */
@@ -89,6 +93,9 @@ export interface TranscriptData {
     lastActivatedSkill?: SkillInvocation;
     pendingPermission?: PendingPermission;
     thinkingState?: ThinkingState;
+    toolCallCount: number;
+    agentCallCount: number;
+    skillCallCount: number;
 }
 export interface RalphStateForHud {
     active: boolean;
@@ -109,8 +116,8 @@ export interface PrdStateForHud {
 export interface RateLimits {
     /** 5-hour rolling window usage percentage (0-100) - all models combined */
     fiveHourPercent: number;
-    /** Weekly usage percentage (0-100) - all models combined */
-    weeklyPercent: number;
+    /** Weekly usage percentage (0-100) - all models combined (undefined if not applicable) */
+    weeklyPercent?: number;
     /** When the 5-hour limit resets (null if unavailable) */
     fiveHourResetsAt?: Date | null;
     /** When the weekly limit resets (null if unavailable) */
@@ -119,6 +126,71 @@ export interface RateLimits {
     sonnetWeeklyPercent?: number;
     /** Sonnet weekly reset time */
     sonnetWeeklyResetsAt?: Date | null;
+    /** Opus-specific weekly usage percentage (0-100), if available from API */
+    opusWeeklyPercent?: number;
+    /** Opus weekly reset time */
+    opusWeeklyResetsAt?: Date | null;
+    /** Monthly usage percentage (0-100), if available from API */
+    monthlyPercent?: number;
+    /** When the monthly limit resets (null if unavailable) */
+    monthlyResetsAt?: Date | null;
+}
+/**
+ * Custom rate limit provider configuration.
+ * Set omcHud.rateLimitsProvider.type = 'custom' to enable.
+ */
+export interface RateLimitsProviderConfig {
+    type: 'custom';
+    /** Shell command string or argv array to execute */
+    command: string | string[];
+    /** Execution timeout in milliseconds (default: 800) */
+    timeoutMs?: number;
+    /** Optional bucket IDs to display; shows all buckets when omitted */
+    periods?: string[];
+    /** Percent usage threshold above which resetsAt is shown (default: 85) */
+    resetsAtDisplayThresholdPercent?: number;
+}
+/** Usage expressed as a 0-100 percent value */
+export interface BucketUsagePercent {
+    type: 'percent';
+    value: number;
+}
+/** Usage expressed as consumed credits vs. limit */
+export interface BucketUsageCredit {
+    type: 'credit';
+    used: number;
+    limit: number;
+}
+/** Usage expressed as a pre-formatted string (resetsAt always hidden) */
+export interface BucketUsageString {
+    type: 'string';
+    value: string;
+}
+export type CustomBucketUsage = BucketUsagePercent | BucketUsageCredit | BucketUsageString;
+/** A single rate limit bucket returned by the custom provider command */
+export interface CustomBucket {
+    id: string;
+    label: string;
+    usage: CustomBucketUsage;
+    /** ISO 8601 reset time; only shown when usage crosses resetsAtDisplayThresholdPercent */
+    resetsAt?: string;
+}
+/** The JSON object a custom provider command must print to stdout */
+export interface CustomProviderOutput {
+    version: 1;
+    generatedAt: string;
+    buckets: CustomBucket[];
+}
+/**
+ * Result of executing (or loading from cache) the custom rate limit provider.
+ * Passed directly to the HUD render context.
+ */
+export interface CustomProviderResult {
+    buckets: CustomBucket[];
+    /** True when using the last-known-good cached value after a command failure */
+    stale: boolean;
+    /** Error message when command failed and no cache is available */
+    error?: string;
 }
 export interface HudRenderContext {
     /** Context window percentage (0-100) */
@@ -143,14 +215,26 @@ export interface HudRenderContext {
     cwd: string;
     /** Last activated skill from transcript */
     lastSkill: SkillInvocation | null;
-    /** Rate limits (5h and weekly) */
+    /** Rate limits (5h and weekly) from built-in Anthropic/z.ai providers */
     rateLimits: RateLimits | null;
+    /** Custom rate limit buckets from rateLimitsProvider command (null when not configured) */
+    customBuckets: CustomProviderResult | null;
     /** Pending permission state (heuristic-based) */
     pendingPermission: PendingPermission | null;
     /** Extended thinking state */
     thinkingState: ThinkingState | null;
     /** Session health metrics */
     sessionHealth: SessionHealth | null;
+    /** Installed OMC version (e.g. "4.1.10") */
+    omcVersion: string | null;
+    /** Latest available version from npm registry (null if up to date or unknown) */
+    updateAvailable: string | null;
+    /** Total tool_use blocks seen in transcript */
+    toolCallCount: number;
+    /** Total Task/proxy_Task calls seen in transcript */
+    agentCallCount: number;
+    /** Total Skill/proxy_Skill calls seen in transcript */
+    skillCallCount: number;
 }
 export type HudPreset = 'minimal' | 'focused' | 'full' | 'opencode' | 'dense' | 'analytics';
 /**
@@ -179,12 +263,20 @@ export type ThinkingFormat = 'bubble' | 'brain' | 'face' | 'text';
  * - folder: dotfiles (folder name only)
  */
 export type CwdFormat = 'relative' | 'absolute' | 'folder';
+/**
+ * Model name format options:
+ * - short: 'Opus', 'Sonnet', 'Haiku'
+ * - versioned: 'Opus 4.6', 'Sonnet 4.5', 'Haiku 4.5'
+ * - full: raw model ID like 'claude-opus-4-6-20260205'
+ */
+export type ModelFormat = 'short' | 'versioned' | 'full';
 export interface HudElementConfig {
     cwd: boolean;
     cwdFormat: CwdFormat;
     gitRepo: boolean;
     gitBranch: boolean;
     model: boolean;
+    modelFormat: ModelFormat;
     omcLabel: boolean;
     rateLimits: boolean;
     ralph: boolean;
@@ -210,6 +302,7 @@ export interface HudElementConfig {
     useBars: boolean;
     showCache: boolean;
     showCost: boolean;
+    showCallCounts?: boolean;
     maxOutputLines: number;
     safeMode: boolean;
 }
@@ -222,12 +315,25 @@ export interface HudThresholds {
     contextCritical: number;
     /** Ralph iteration that triggers warning color (default: 7) */
     ralphWarning: number;
+    /** Session cost ($) that triggers budget warning (default: 2.0) */
+    budgetWarning: number;
+    /** Session cost ($) that triggers budget critical alert (default: 5.0) */
+    budgetCritical: number;
+}
+export interface ContextLimitWarningConfig {
+    /** Context percentage threshold that triggers the warning banner (default: 80) */
+    threshold: number;
+    /** Automatically queue /compact when threshold is exceeded (default: false) */
+    autoCompact: boolean;
 }
 export interface HudConfig {
     preset: HudPreset;
     elements: HudElementConfig;
     thresholds: HudThresholds;
     staleTaskThresholdMinutes: number;
+    contextLimitWarning: ContextLimitWarningConfig;
+    /** Optional custom rate limit provider; omit to use built-in Anthropic/z.ai */
+    rateLimitsProvider?: RateLimitsProviderConfig;
 }
 export declare const DEFAULT_HUD_CONFIG: HudConfig;
 export declare const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>>;

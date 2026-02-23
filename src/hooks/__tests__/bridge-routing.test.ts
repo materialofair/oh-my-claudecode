@@ -7,6 +7,11 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { execFileSync } from 'child_process';
+import * as autoUpdate from '../../features/auto-update.js';
 import {
   processHook,
   resetSkipHooksCache,
@@ -31,6 +36,7 @@ describe('processHook - Routing Matrix', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     process.env = originalEnv;
     resetSkipHooksCache();
   });
@@ -132,6 +138,39 @@ describe('processHook - Routing Matrix', () => {
 
       const result = await processHook('post-tool-use', input);
       expect(result.continue).toBe(true);
+    });
+
+    it('should activate ralph and linked ultrawork when Skill tool invokes ralph', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'bridge-routing-ralph-'));
+      try {
+        execFileSync('git', ['init'], { cwd: tempDir, stdio: 'pipe' });
+        const sessionId = 'test-session';
+        const input: HookInput = {
+          sessionId,
+          toolName: 'Skill',
+          toolInput: { skill: 'oh-my-claudecode:ralph' },
+          directory: tempDir,
+        };
+
+        const result = await processHook('post-tool-use', input);
+        expect(result.continue).toBe(true);
+
+        const ralphPath = join(tempDir, '.omc', 'state', 'sessions', sessionId, 'ralph-state.json');
+        const ultraworkPath = join(tempDir, '.omc', 'state', 'sessions', sessionId, 'ultrawork-state.json');
+
+        expect(existsSync(ralphPath)).toBe(true);
+        expect(existsSync(ultraworkPath)).toBe(true);
+
+        const ralphState = JSON.parse(readFileSync(ralphPath, 'utf-8')) as { active?: boolean; linked_ultrawork?: boolean };
+        const ultraworkState = JSON.parse(readFileSync(ultraworkPath, 'utf-8')) as { active?: boolean; linked_to_ralph?: boolean };
+
+        expect(ralphState.active).toBe(true);
+        expect(ralphState.linked_ultrawork).toBe(true);
+        expect(ultraworkState.active).toBe(true);
+        expect(ultraworkState.linked_to_ralph).toBe(true);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
     });
 
     it('should handle session-start and return continue:true', async () => {
@@ -609,6 +648,126 @@ describe('processHook - Routing Matrix', () => {
 
       const result = await processHook('totally-unknown-hook-xyz' as HookType, input);
       expect(result).toEqual({ continue: true });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Regression #858 — snake_case fields must reach handlers after normalization
+  //
+  // processHook() normalizes Claude Code's snake_case payload (session_id,
+  // cwd, tool_name, tool_input) to camelCase before routing.  The handlers
+  // for session-end, pre-compact, setup-init, setup-maintenance, and
+  // permission-request all expect the original snake_case field names, so
+  // processHook must de-normalize before calling them.
+  // --------------------------------------------------------------------------
+
+  describe('Regression #858 — snake_case fields reach handlers after normalization', () => {
+    it('permission-request: snake_case input auto-allows safe command (tool_name/tool_input reached handler)', async () => {
+      // "git status" is in SAFE_PATTERNS. If tool_name and tool_input are
+      // de-normalized correctly, the handler returns hookSpecificOutput with
+      // behavior:'allow'. Before the fix, tool_name was undefined so the
+      // handler returned { continue: true } with no hookSpecificOutput.
+      const rawInput = {
+        session_id: 'test-session-858',
+        cwd: '/tmp/test-routing',
+        tool_name: 'Bash',
+        tool_input: { command: 'git status' },
+        tool_use_id: 'tool-use-123',
+        transcript_path: '/tmp/transcript.jsonl',
+        permission_mode: 'default',
+        hook_event_name: 'PermissionRequest',
+      } as unknown as HookInput;
+
+      const result = await processHook('permission-request', rawInput);
+      expect(result.continue).toBe(true);
+      const out = result as unknown as Record<string, unknown>;
+      expect(out.hookSpecificOutput).toBeDefined();
+      const specific = out.hookSpecificOutput as Record<string, unknown>;
+      expect(specific.hookEventName).toBe('PermissionRequest');
+      const decision = specific.decision as Record<string, unknown>;
+      expect(decision.behavior).toBe('allow');
+    });
+
+    it('permission-request: camelCase input also auto-allows safe command', async () => {
+      const input: HookInput = {
+        sessionId: 'test-session-858',
+        directory: '/tmp/test-routing',
+        toolName: 'Bash',
+        toolInput: { command: 'npm test' },
+      };
+
+      const result = await processHook('permission-request', input);
+      expect(result.continue).toBe(true);
+      const out = result as unknown as Record<string, unknown>;
+      expect(out.hookSpecificOutput).toBeDefined();
+      const specific = out.hookSpecificOutput as Record<string, unknown>;
+      const decision = specific.decision as Record<string, unknown>;
+      expect(decision.behavior).toBe('allow');
+    });
+
+    it('setup-init: snake_case input reaches handler and returns additionalContext', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'bridge-858-setup-'));
+      try {
+        const rawInput = {
+          session_id: 'test-session-858',
+          cwd: tempDir,
+          transcript_path: join(tempDir, 'transcript.jsonl'),
+          permission_mode: 'default',
+          hook_event_name: 'Setup',
+        } as unknown as HookInput;
+
+        const result = await processHook('setup-init', rawInput);
+        expect(result.continue).toBe(true);
+        const out = result as unknown as Record<string, unknown>;
+        expect(out.hookSpecificOutput).toBeDefined();
+        const specific = out.hookSpecificOutput as Record<string, unknown>;
+        expect(specific.hookEventName).toBe('Setup');
+        expect(typeof specific.additionalContext).toBe('string');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('session-end: snake_case input reaches handler without crashing', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'bridge-858-session-end-'));
+      try {
+        const rawInput = {
+          session_id: 'test-session-858',
+          cwd: tempDir,
+          transcript_path: join(tempDir, 'transcript.jsonl'),
+          permission_mode: 'default',
+          hook_event_name: 'SessionEnd',
+          reason: 'other',
+        } as unknown as HookInput;
+
+        const result = await processHook('session-end', rawInput);
+        expect(result.continue).toBe(true);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('pre-compact: snake_case input reaches handler and creates checkpoint directory', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'bridge-858-pre-compact-'));
+      try {
+        execFileSync('git', ['init'], { cwd: tempDir, stdio: 'pipe' });
+        const rawInput = {
+          session_id: 'test-session-858',
+          cwd: tempDir,
+          transcript_path: join(tempDir, 'transcript.jsonl'),
+          permission_mode: 'default',
+          hook_event_name: 'PreCompact',
+          trigger: 'manual',
+        } as unknown as HookInput;
+
+        const result = await processHook('pre-compact', rawInput);
+        expect(result.continue).toBe(true);
+        // If cwd reached the handler, it will have created the checkpoint dir
+        const checkpointDir = join(tempDir, '.omc', 'state', 'checkpoints');
+        expect(existsSync(checkpointDir)).toBe(true);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 });

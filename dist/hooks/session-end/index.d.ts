@@ -20,6 +20,22 @@ export interface HookOutput {
     continue: boolean;
 }
 /**
+ * Get session start time from state files.
+ *
+ * When sessionId is provided, only state files whose session_id matches are
+ * considered.  State files that carry a *different* session_id are treated as
+ * stale leftovers and skipped — this is the fix for issue #573 where stale
+ * state files caused grossly overreported session durations.
+ *
+ * Legacy state files (no session_id field) are used as a fallback so that
+ * older state formats still work.
+ *
+ * When multiple files match, the earliest started_at is returned so that
+ * duration reflects the full session span (e.g. autopilot started before
+ * ultrawork).
+ */
+export declare function getSessionStartTime(directory: string, sessionId?: string): string | undefined;
+/**
  * Record session metrics
  */
 export declare function recordSessionMetrics(directory: string, input: SessionEndInput): SessionMetrics;
@@ -27,6 +43,11 @@ export declare function recordSessionMetrics(directory: string, input: SessionEn
  * Clean up transient state files
  */
 export declare function cleanupTransientState(directory: string): number;
+/**
+ * Extract python_repl research session IDs from transcript JSONL.
+ * These sessions are terminated on SessionEnd to prevent bridge leaks.
+ */
+export declare function extractPythonReplSessionIdsFromTranscript(transcriptPath: string): Promise<string[]>;
 /**
  * Clean up mode state files on session end.
  *

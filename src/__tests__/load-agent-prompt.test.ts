@@ -10,7 +10,7 @@ describe('loadAgentPrompt', () => {
       // Should NOT contain frontmatter
       expect(prompt).not.toMatch(/^---/);
       // Should contain actual prompt content
-      expect(prompt).toMatch(/architect|Oracle|debugging/i);
+      expect(prompt).toMatch(/architect|debugging/i);
     });
 
     test('loads different agents correctly', () => {
@@ -58,6 +58,33 @@ describe('loadAgentPrompt', () => {
       expect(() => loadAgentPrompt('architect')).not.toThrow();
       expect(() => loadAgentPrompt('qa-tester')).not.toThrow();
       expect(() => loadAgentPrompt('explore-high')).not.toThrow();
+    });
+  });
+
+  describe('provider-aware loading', () => {
+    test('loadAgentPrompt with codex provider returns prompt without XML tags', () => {
+      const prompt = loadAgentPrompt('architect', 'codex');
+      expect(prompt).toBeTruthy();
+      expect(prompt).not.toContain('<Agent_Prompt>');
+      expect(prompt).not.toContain('<Role>');
+    });
+
+    test('loadAgentPrompt without provider returns Claude-style prompt with XML tags', () => {
+      const prompt = loadAgentPrompt('architect');
+      expect(prompt).toBeTruthy();
+      expect(prompt).toContain('<Agent_Prompt>');
+    });
+
+    test('loadAgentPrompt with codex provider returns flat markdown style', () => {
+      const prompt = loadAgentPrompt('architect', 'codex');
+      expect(prompt).toContain('**Role**');
+    });
+
+    test('loadAgentPrompt with codex provider falls back for nonexistent agent', () => {
+      const prompt = loadAgentPrompt('nonexistent-agent-xyz', 'codex');
+      // Should fall back to the default agents/ directory fallback
+      expect(prompt).toContain('Agent: nonexistent-agent-xyz');
+      expect(prompt).toContain('Prompt unavailable');
     });
   });
 

@@ -100,7 +100,7 @@ describe('resolveDelegation', () => {
     });
     expect(result.provider).toBe('gemini');
     expect(result.tool).toBe('ask_gemini');
-    expect(result.agentOrModel).toBe('gemini-2.5-pro');
+    expect(result.agentOrModel).toBe('gemini-3.1-pro-preview');
   });
 
   // Test 9: Explicit ask_gemini with custom model
@@ -200,7 +200,7 @@ describe('resolveDelegation', () => {
     });
     expect(result.provider).toBe('gemini');
     expect(result.tool).toBe('ask_gemini');
-    expect(result.agentOrModel).toBe('gemini-2.5-pro');
+    expect(result.agentOrModel).toBe('gemini-3.1-pro-preview');
   });
 
   // Test 15: Config enabled but role not in roles map
@@ -248,8 +248,11 @@ describe('resolveDelegation', () => {
   // Test 18: All known role categories use defaults correctly
   it.each([
     ['explore', 'explore'],
-    ['researcher', 'researcher'],
+    ['document-specialist', 'document-specialist'],
+    ['researcher', 'document-specialist'],
+    ['tdd-guide', 'test-engineer'],
     ['architect', 'architect'],
+
     ['planner', 'planner'],
     ['critic', 'critic'],
     ['analyst', 'analyst'],
@@ -260,7 +263,7 @@ describe('resolveDelegation', () => {
     ['quality-reviewer', 'quality-reviewer'],
     ['designer', 'designer'],
     ['writer', 'writer'],
-    ['vision', 'vision'],
+    ['vision', 'document-specialist'],
     ['qa-tester', 'qa-tester'],
     ['debugger', 'debugger'],
     ['scientist', 'scientist'],
@@ -331,7 +334,7 @@ describe('resolveDelegation', () => {
     });
     expect(result.provider).toBe('gemini');
     expect(result.tool).toBe('ask_gemini');
-    expect(result.agentOrModel).toBe('gemini-2.5-pro');
+    expect(result.agentOrModel).toBe('gemini-3.1-pro-preview');
     expect(result.reason).toContain('Fallback to default provider: gemini');
     expect(result.fallbackChain).toBeUndefined();
   });

@@ -6,56 +6,35 @@
  *
  * Ported from oh-my-opencode's keyword-detector hook.
  */
-import { isEcomodeEnabled } from '../../features/auto-update.js';
-/**
- * Autopilot keywords
- */
-const AUTOPILOT_KEYWORDS = [
-    'autopilot',
-    'auto pilot',
-    'auto-pilot',
-    'autonomous',
-    'full auto',
-    'fullsend',
-];
-const AUTOPILOT_PHRASE_PATTERNS = [
-    /\bbuild\s+me\s+/i,
-    /\bcreate\s+me\s+/i,
-    /\bmake\s+me\s+/i,
-    /\bi\s+want\s+a\s+/i,
-    /\bi\s+want\s+an\s+/i,
-    /\bhandle\s+it\s+all\b/i,
-    /\bend\s+to\s+end\b/i,
-    /\be2e\s+this\b/i,
-];
+import { isTeamEnabled } from '../../features/auto-update.js';
+import { classifyTaskSize, isHeavyMode, } from '../task-size-detector/index.js';
 /**
  * Keyword patterns for each mode
  */
 const KEYWORD_PATTERNS = {
     cancel: /\b(cancelomc|stopomc)\b/i,
-    ralph: /\b(ralph|don't stop|must complete|until done)\b/i,
-    autopilot: /\b(autopilot|auto pilot|auto-pilot|autonomous|full auto|fullsend)\b/i,
-    team: /\b(team)\b|\bcoordinated\s+team\b|\b(ultrapilot|ultra-pilot)\b|\bparallel\s+build\b|\bswarm\s+build\b|\bswarm\s+\d+\s+agents?\b|\bcoordinated\s+agents\b/i,
-    ultrawork: /\b(ultrawork|ulw|uw)\b/i,
-    ecomode: /\b(eco|ecomode|eco-mode|efficient|save-tokens|budget)\b/i,
-    pipeline: /\b(pipeline)\b|\bchain\s+agents\b/i,
+    ralph: /\b(ralph)\b/i,
+    autopilot: /\b(autopilot|auto[\s-]?pilot|fullsend|full\s+auto)\b/i,
+    ultrapilot: /\b(ultrapilot|ultra-pilot)\b|\bparallel\s+build\b|\bswarm\s+build\b/i,
+    ultrawork: /\b(ultrawork|ulw)\b/i,
+    swarm: /\bswarm\s+\d+\s+agents?\b|\bcoordinated\s+agents\b|\bteam\s+mode\b/i,
+    team: /(?<!\b(?:my|the|our|a|his|her|their|its)\s)\bteam\b|\bcoordinated\s+team\b/i,
+    pipeline: /\bagent\s+pipeline\b|\bchain\s+agents\b/i,
     ralplan: /\b(ralplan)\b/i,
-    plan: /\bplan\s+(this|the)\b/i,
-    tdd: /\b(tdd)\b|\btest\s+first\b|\bred\s+green\b/i,
-    research: /\b(research)\b|\banalyze\s+data\b|\bstatistics\b/i,
-    ultrathink: /\b(ultrathink|think hard|think deeply)\b/i,
-    deepsearch: /\b(deepsearch)\b|\bsearch\s+(the\s+)?(codebase|code|files?|project)\b|\bfind\s+(in\s+)?(codebase|code|all\s+files?)\b/i,
-    analyze: /\b(deep\s*analyze)\b|\binvestigate\s+(the|this|why)\b|\bdebug\s+(the|this|why)\b/i,
+    tdd: /\b(tdd)\b|\btest\s+first\b/i,
+    ultrathink: /\b(ultrathink)\b/i,
+    deepsearch: /\b(deepsearch)\b|\bsearch\s+the\s+codebase\b|\bfind\s+in\s+(the\s+)?codebase\b/i,
+    analyze: /\b(deep[\s-]?analyze|deepanalyze)\b/i,
+    ccg: /\b(ccg|claude-codex-gemini)\b/i,
     codex: /\b(ask|use|delegate\s+to)\s+(codex|gpt)\b/i,
     gemini: /\b(ask|use|delegate\s+to)\s+gemini\b/i
 };
 /**
  * Priority order for keyword detection
- * Higher priority keywords take precedence
  */
 const KEYWORD_PRIORITY = [
-    'cancel', 'ralph', 'autopilot', 'team', 'ultrawork', 'ecomode',
-    'pipeline', 'ralplan', 'plan', 'tdd', 'research',
+    'cancel', 'ralph', 'autopilot', 'ultrapilot', 'team', 'ultrawork',
+    'swarm', 'pipeline', 'ccg', 'ralplan', 'tdd',
     'ultrathink', 'deepsearch', 'analyze', 'codex', 'gemini'
 ];
 /**
@@ -71,25 +50,21 @@ export function removeCodeBlocks(text) {
     return result;
 }
 /**
- * Sanitize text for keyword detection by removing XML tags, URLs, file paths,
- * and code blocks to prevent false positives
+* Sanitize text for keyword detection by removing structural noise.
+ * Strips XML tags, URLs, file paths, and code blocks.
  */
 export function sanitizeForKeywordDetection(text) {
-    return text
-        // Strip XML-style tag blocks
-        .replace(/<(\w[\w-]*)[\s>][\s\S]*?<\/\1>/g, '')
-        // Strip self-closing XML tags
-        .replace(/<\w[\w-]*(?:\s[^>]*)?\s*\/>/g, '')
-        // Strip URLs
-        .replace(/https?:\/\/[^\s)>\]]+/g, '')
-        // Strip file paths — uses capture group + $1 replacement instead of lookbehind
-        // for broader engine compatibility (the .mjs runtime uses lookbehind instead)
-        .replace(/(^|[\s"'`(])(?:\/)?(?:[\w.-]+\/)+[\w.-]+/gm, '$1')
-        // Strip markdown code blocks
-        .replace(/```[\s\S]*?```/g, '')
-        .replace(/~~~[\s\S]*?~~~/g, '')
-        // Strip inline code
-        .replace(/`[^`]+`/g, '');
+    // Remove XML tag blocks (opening + content + closing; tag names must match)
+    let result = text.replace(/<(\w[\w-]*)[\s>][\s\S]*?<\/\1>/g, '');
+    // Remove self-closing XML tags
+    result = result.replace(/<\w[\w-]*(?:\s[^>]*)?\s*\/>/g, '');
+    // Remove URLs
+    result = result.replace(/https?:\/\/\S+/g, '');
+    // Remove file paths — requires leading / or ./ or multi-segment dir/file.ext
+    result = result.replace(/(^|[\s"'`(])(?:\.?\/(?:[\w.-]+\/)*[\w.-]+|(?:[\w.-]+\/)+[\w.-]+\.\w+)/gm, '$1');
+    // Remove code blocks (fenced and inline)
+    result = removeCodeBlocks(result);
+    return result;
 }
 /**
  * Extract prompt text from message parts
@@ -106,23 +81,10 @@ export function extractPromptText(parts) {
 export function detectKeywordsWithType(text, _agentName) {
     const detected = [];
     const cleanedText = sanitizeForKeywordDetection(text);
-    // Check for autopilot keywords
-    const hasAutopilot = AUTOPILOT_KEYWORDS.some(kw => cleanedText.toLowerCase().includes(kw.toLowerCase()));
-    // Check for autopilot phrase patterns
-    const hasAutopilotPhrase = AUTOPILOT_PHRASE_PATTERNS.some(pattern => pattern.test(cleanedText));
-    if (hasAutopilot || hasAutopilotPhrase) {
-        const keyword = hasAutopilot ? 'autopilot' : 'build-phrase';
-        const position = cleanedText.toLowerCase().indexOf(keyword.toLowerCase());
-        detected.push({
-            type: 'autopilot',
-            keyword,
-            position: position >= 0 ? position : 0
-        });
-    }
     // Check each keyword type
     for (const type of KEYWORD_PRIORITY) {
-        // Skip ecomode detection if disabled in config
-        if (type === 'ecomode' && !isEcomodeEnabled()) {
+        // Skip team-related types when team feature is disabled
+        if ((type === 'team' || type === 'ultrapilot' || type === 'swarm') && !isTeamEnabled()) {
             continue;
         }
         const pattern = KEYWORD_PATTERNS[type];
@@ -133,6 +95,14 @@ export function detectKeywordsWithType(text, _agentName) {
                 keyword: match[0],
                 position: match.index
             });
+            // Legacy ultrapilot/swarm also activate team mode internally
+            if (type === 'ultrapilot' || type === 'swarm') {
+                detected.push({
+                    type: 'team',
+                    keyword: match[0],
+                    position: match.index
+                });
+            }
         }
     }
     return detected;
@@ -154,16 +124,45 @@ export function getAllKeywords(text) {
     // Exclusive: cancel suppresses everything
     if (types.includes('cancel'))
         return ['cancel'];
-    // Mutual exclusion: ecomode beats ultrawork (only if ecomode is enabled)
-    if (types.includes('ecomode') && types.includes('ultrawork') && isEcomodeEnabled()) {
-        types = types.filter(t => t !== 'ultrawork');
-    }
-    // Mutual exclusion: team beats autopilot (legacy ultrapilot semantics)
+    // Mutual exclusion: team beats autopilot (ultrapilot/swarm now map to team at detection)
     if (types.includes('team') && types.includes('autopilot')) {
         types = types.filter(t => t !== 'autopilot');
     }
     // Sort by priority order
     return KEYWORD_PRIORITY.filter(k => types.includes(k));
+}
+/**
+ * Get all keywords with task-size-based filtering applied.
+ * For small tasks, heavy orchestration modes (ralph/autopilot/team/ultrawork etc.)
+ * are suppressed to avoid over-orchestration.
+ *
+ * This is the recommended function to use in the bridge hook for keyword detection.
+ */
+export function getAllKeywordsWithSizeCheck(text, options = {}) {
+    const { enabled = true, smallWordLimit = 50, largeWordLimit = 200, suppressHeavyModesForSmallTasks = true, } = options;
+    const keywords = getAllKeywords(text);
+    if (!enabled || !suppressHeavyModesForSmallTasks || keywords.length === 0) {
+        return { keywords, taskSizeResult: null, suppressedKeywords: [] };
+    }
+    const thresholds = { smallWordLimit, largeWordLimit };
+    const taskSizeResult = classifyTaskSize(text, thresholds);
+    // Only suppress heavy modes for small tasks
+    if (taskSizeResult.size !== 'small') {
+        return { keywords, taskSizeResult, suppressedKeywords: [] };
+    }
+    const suppressedKeywords = [];
+    const filteredKeywords = keywords.filter(keyword => {
+        if (isHeavyMode(keyword)) {
+            suppressedKeywords.push(keyword);
+            return false;
+        }
+        return true;
+    });
+    return {
+        keywords: filteredKeywords,
+        taskSizeResult,
+        suppressedKeywords,
+    };
 }
 /**
  * Get the highest priority keyword detected with conflict resolution

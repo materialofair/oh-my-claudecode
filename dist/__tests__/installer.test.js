@@ -30,22 +30,6 @@ function loadAgentDefinitions() {
     return definitions;
 }
 /**
- * Load command definitions for testing
- */
-function loadCommandDefinitions() {
-    const commandsDir = join(getPackageDir(), 'commands');
-    const definitions = {};
-    if (!existsSync(commandsDir)) {
-        throw new Error(`commands directory not found: ${commandsDir}`);
-    }
-    for (const file of readdirSync(commandsDir)) {
-        if (file.endsWith('.md')) {
-            definitions[file] = readFileSync(join(commandsDir, file), 'utf-8');
-        }
-    }
-    return definitions;
-}
-/**
  * Load CLAUDE.md content for testing
  */
 function loadClaudeMdContent() {
@@ -58,7 +42,6 @@ function loadClaudeMdContent() {
 describe('Installer Constants', () => {
     // Load definitions once for all tests
     const AGENT_DEFINITIONS = loadAgentDefinitions();
-    const COMMAND_DEFINITIONS = loadCommandDefinitions();
     const CLAUDE_MD_CONTENT = loadClaudeMdContent();
     describe('AGENT_DEFINITIONS', () => {
         it('should contain expected core agents', () => {
@@ -67,7 +50,6 @@ describe('Installer Constants', () => {
                 'explore.md',
                 'designer.md',
                 'writer.md',
-                'vision.md',
                 'critic.md',
                 'analyst.md',
                 'executor.md',
@@ -113,26 +95,21 @@ describe('Installer Constants', () => {
         });
         it('should have consistent model assignments', () => {
             const modelExpectations = {
-                'architect.md': 'opus',
-                'executor.md': 'sonnet',
-                'designer.md': 'sonnet',
-                'writer.md': 'haiku',
-                'vision.md': 'sonnet',
-                'critic.md': 'opus',
-                'analyst.md': 'opus',
-                'planner.md': 'opus',
-                'qa-tester.md': 'sonnet',
-                'debugger.md': 'sonnet',
-                'verifier.md': 'sonnet',
-                'style-reviewer.md': 'haiku',
-                'quality-reviewer.md': 'opus',
-                'api-reviewer.md': 'sonnet',
-                'performance-reviewer.md': 'sonnet',
-                'test-engineer.md': 'sonnet',
-                'security-reviewer.md': 'opus',
-                'build-fixer.md': 'sonnet',
-                'git-master.md': 'sonnet',
-                'deep-executor.md': 'opus',
+                'architect.md': 'claude-opus-4-6',
+                'executor.md': 'claude-sonnet-4-6',
+                'designer.md': 'claude-sonnet-4-6',
+                'writer.md': 'claude-haiku-4-5',
+                'critic.md': 'claude-opus-4-6',
+                'analyst.md': 'claude-opus-4-6',
+                'planner.md': 'claude-opus-4-6',
+                'qa-tester.md': 'claude-sonnet-4-6',
+                'debugger.md': 'claude-sonnet-4-6',
+                'verifier.md': 'claude-sonnet-4-6',
+                'quality-reviewer.md': 'claude-opus-4-6',
+                'test-engineer.md': 'claude-sonnet-4-6',
+                'security-reviewer.md': 'claude-opus-4-6',
+                'build-fixer.md': 'claude-sonnet-4-6',
+                'git-master.md': 'claude-sonnet-4-6',
             };
             for (const [filename, expectedModel] of Object.entries(modelExpectations)) {
                 const content = AGENT_DEFINITIONS[filename];
@@ -146,38 +123,46 @@ describe('Installer Constants', () => {
             expect(filenames.length).toBe(uniqueFilenames.size);
         });
     });
-    describe('COMMAND_DEFINITIONS', () => {
-        it('should contain expected commands (0 commands - all migrated to skills)', () => {
-            const expectedCommands = [];
-            for (const command of expectedCommands) {
-                expect(COMMAND_DEFINITIONS).toHaveProperty(command);
-                expect(typeof COMMAND_DEFINITIONS[command]).toBe('string');
-                expect(COMMAND_DEFINITIONS[command].length).toBeGreaterThan(0);
+    describe('Commands directory removed (#582)', () => {
+        it('should NOT have a commands/ directory in the package root', () => {
+            const commandsDir = join(getPackageDir(), 'commands');
+            expect(existsSync(commandsDir)).toBe(false);
+        });
+    });
+    describe('No self-referential deprecation stubs (#582)', () => {
+        it('should not have any commands/*.md files that redirect to their own skill name', () => {
+            const packageDir = getPackageDir();
+            const commandsDir = join(packageDir, 'commands');
+            // commands/ directory should not exist at all
+            if (!existsSync(commandsDir)) {
+                // This is the expected state - no commands directory
+                expect(true).toBe(true);
+                return;
             }
-        });
-        it('should have valid frontmatter for each command', () => {
-            for (const [_filename, content] of Object.entries(COMMAND_DEFINITIONS)) {
-                // Check for frontmatter delimiters
-                expect(content).toMatch(/^---\n/);
-                expect(content).toMatch(/\n---\n/);
-                // Extract frontmatter
-                const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-                expect(frontmatterMatch).toBeTruthy();
-                const frontmatter = frontmatterMatch[1];
-                // Check required field
-                expect(frontmatter).toMatch(/^description:\s+.+/m);
+            // If commands/ somehow gets re-added, ensure no self-referential stubs
+            const files = readdirSync(commandsDir).filter(f => f.endsWith('.md'));
+            const selfReferentialStubs = [];
+            for (const file of files) {
+                const commandName = file.replace('.md', '');
+                const content = readFileSync(join(commandsDir, file), 'utf-8');
+                // Detect pattern: command file that tells user to invoke the same-named skill
+                const skillInvokePattern = new RegExp(`/oh-my-claudecode:${commandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+                if (skillInvokePattern.test(content) && content.toLowerCase().includes('deprecated')) {
+                    selfReferentialStubs.push(file);
+                }
             }
+            expect(selfReferentialStubs).toEqual([]);
         });
-        it('should not contain duplicate command names', () => {
-            const commandNames = Object.keys(COMMAND_DEFINITIONS);
-            const uniqueNames = new Set(commandNames);
-            expect(commandNames.length).toBe(uniqueNames.size);
-        });
-        it('should contain $ARGUMENTS placeholder in commands that need it', () => {
-            const commandsWithArgs = [];
-            for (const command of commandsWithArgs) {
-                const content = COMMAND_DEFINITIONS[command];
-                expect(content).toContain('$ARGUMENTS');
+        it('should have every skill backed by a SKILL.md (no missing skills)', () => {
+            const skillsDir = join(getPackageDir(), 'skills');
+            if (!existsSync(skillsDir))
+                return;
+            const skillDirs = readdirSync(skillsDir, { withFileTypes: true })
+                .filter(d => d.isDirectory())
+                .map(d => d.name);
+            for (const skillName of skillDirs) {
+                const skillMd = join(skillsDir, skillName, 'SKILL.md');
+                expect(existsSync(skillMd), `skills/${skillName}/SKILL.md should exist`).toBe(true);
             }
         });
     });
@@ -285,11 +270,6 @@ describe('Installer Constants', () => {
             const agentKeys = Object.keys(AGENT_DEFINITIONS);
             const uniqueAgentKeys = new Set(agentKeys);
             expect(agentKeys.length).toBe(uniqueAgentKeys.size);
-        });
-        it('should not have duplicate command definitions', () => {
-            const commandKeys = Object.keys(COMMAND_DEFINITIONS);
-            const uniqueCommandKeys = new Set(commandKeys);
-            expect(commandKeys.length).toBe(uniqueCommandKeys.size);
         });
         it('should have agents referenced in CLAUDE.md exist in AGENT_DEFINITIONS', () => {
             const agentMatches = CLAUDE_MD_CONTENT.matchAll(/\`([a-z-]+)\`\s*\|\s*(Opus|Sonnet|Haiku)/g);
@@ -430,7 +410,6 @@ describe('Installer Constants', () => {
         it('should not contain unintended placeholder text', () => {
             const allContent = [
                 ...Object.values(AGENT_DEFINITIONS),
-                ...Object.values(COMMAND_DEFINITIONS),
                 CLAUDE_MD_CONTENT,
             ];
             // Note: "TODO" appears intentionally in "Todo_Discipline", "TodoWrite" tool, and "TODO OBSESSION"
@@ -455,7 +434,6 @@ describe('Installer Constants', () => {
         it('should not contain excessive blank lines', () => {
             const allContent = [
                 ...Object.values(AGENT_DEFINITIONS),
-                ...Object.values(COMMAND_DEFINITIONS),
             ];
             for (const content of allContent) {
                 // No more than 3 consecutive blank lines

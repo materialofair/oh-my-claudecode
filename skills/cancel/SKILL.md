@@ -1,6 +1,6 @@
 ---
 name: cancel
-description: Cancel any active OMC mode (autopilot, ralph, ultrawork, ecomode, ultraqa, swarm, ultrapilot, pipeline, team)
+description: Cancel any active OMC mode (autopilot, ralph, ultrawork, ultraqa, swarm, ultrapilot, pipeline, team)
 ---
 
 # Cancel Skill
@@ -19,12 +19,12 @@ Automatically detects which mode is active and cancels it:
 - **Autopilot**: Stops workflow, preserves progress for resume
 - **Ralph**: Stops persistence loop, clears linked ultrawork if applicable
 - **Ultrawork**: Stops parallel execution (standalone or linked)
-- **Ecomode**: Stops token-efficient parallel execution (standalone or linked to ralph)
 - **UltraQA**: Stops QA cycling workflow
 - **Swarm**: Stops coordinated agent swarm, releases claimed tasks
 - **Ultrapilot**: Stops parallel autopilot workers
 - **Pipeline**: Stops sequential agent pipeline
-- **Team**: Sends shutdown_request to all teammates, waits for responses, calls TeamDelete
+- **Team**: Sends shutdown_request to all teammates, waits for responses, calls TeamDelete, clears linked ralph if present
+- **Team+Ralph (linked)**: Cancels team first (graceful shutdown), then clears ralph state. Cancelling ralph when linked also cancels team first.
 
 ## Usage
 
@@ -43,16 +43,15 @@ Or say: "cancelomc", "stopomc"
 - The default cleanup flow calls `state_clear` with the session id to remove only the matching session files; modes stay bound to their originating session.
 
 Active modes are still cancelled in dependency order:
-1. Autopilot (includes linked ralph/ultraqa/ecomode cleanup)
-2. Ralph (cleans its linked ultrawork or ecomode)
+1. Autopilot (includes linked ralph/ultraqa/ cleanup)
+2. Ralph (cleans its linked ultrawork or )
 3. Ultrawork (standalone)
-4. Ecomode (standalone)
-5. UltraQA (standalone)
-6. Swarm (standalone)
-7. Ultrapilot (standalone)
-8. Pipeline (standalone)
-9. Team (Claude Code native)
-10. Plan Consensus (standalone)
+4. UltraQA (standalone)
+5. Swarm (standalone)
+6. Ultrapilot (standalone)
+7. Pipeline (standalone)
+8. Team (Claude Code native)
+9. Plan Consensus (standalone)
 
 ## Force Clear All
 
@@ -80,7 +79,6 @@ Legacy compatibility list (removed only under `--force`/`--all`):
 - `.omc/state/ralph-plan-state.json`
 - `.omc/state/ralph-verification.json`
 - `.omc/state/ultrawork-state.json`
-- `.omc/state/ecomode-state.json`
 - `.omc/state/ultraqa-state.json`
 - `.omc/state/swarm.db`
 - `.omc/state/swarm.db-wal`
@@ -167,9 +165,27 @@ After graceful pass:
 **TeamDelete + Cleanup:**
 ```
   1. Call TeamDelete() — removes ~/.claude/teams/{name}/ and ~/.claude/tasks/{name}/
-  2. Remove local state: rm -f .omc/state/team-state.json
-  3. Emit structured cancel report
+  2. Clear team state: state_clear(mode="team")
+  3. Check for linked ralph: state_read(mode="ralph") — if linked_team is true:
+     a. Clear ralph state: state_clear(mode="ralph")
+     b. Clear linked ultrawork if present: state_clear(mode="ultrawork")
+  4. Run orphan scan (see below)
+  5. Emit structured cancel report
 ```
+
+**Orphan Detection (Post-Cleanup):**
+
+After TeamDelete, verify no agent processes remain:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-orphans.mjs" --team-name "{team_name}"
+```
+
+The orphan scanner:
+1. Checks `ps aux` (Unix) or `tasklist` (Windows) for processes with `--team-name` matching the deleted team
+2. For each orphan whose team config no longer exists: sends SIGTERM, waits 5s, sends SIGKILL if still alive
+3. Reports cleanup results as JSON
+
+Use `--dry-run` to inspect without killing. The scanner is safe to run multiple times.
 
 **Structured Cancel Report:**
 ```
@@ -330,7 +346,6 @@ Mode-specific subsections below describe what extra cleanup each handler perform
 | Autopilot | "Autopilot cancelled at phase: {phase}. Progress preserved for resume." |
 | Ralph | "Ralph cancelled. Persistent mode deactivated." |
 | Ultrawork | "Ultrawork cancelled. Parallel execution mode deactivated." |
-| Ecomode | "Ecomode cancelled. Token-efficient execution mode deactivated." |
 | UltraQA | "UltraQA cancelled. QA cycling workflow stopped." |
 | Swarm | "Swarm cancelled. Coordinated agents stopped." |
 | Ultrapilot | "Ultrapilot cancelled. Parallel autopilot workers stopped." |
@@ -356,7 +371,7 @@ Mode-specific subsections below describe what extra cleanup each handler perform
 ## Notes
 
 - **Dependency-aware**: Autopilot cancellation cleans up Ralph and UltraQA
-- **Link-aware**: Ralph cancellation cleans up linked Ultrawork or Ecomode
+- **Link-aware**: Ralph cancellation cleans up linked Ultrawork
 - **Safe**: Only clears linked Ultrawork, preserves standalone Ultrawork
 - **Local-only**: Clears state files in `.omc/state/` directory
 - **Resume-friendly**: Autopilot state is preserved for seamless resume

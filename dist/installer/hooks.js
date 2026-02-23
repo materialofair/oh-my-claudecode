@@ -8,22 +8,36 @@
  * This module provides Node.js scripts (.mjs) for cross-platform support (Windows, macOS, Linux).
  * Bash scripts were deprecated in v3.8.6 and removed in v3.9.0.
  */
-import { homedir } from "os";
 import { join, dirname } from "path";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
+import { getConfigDir } from '../utils/config-dir.js';
 // =============================================================================
 // TEMPLATE LOADER (loads hook scripts from templates/hooks/)
 // =============================================================================
 /**
  * Get the package root directory (where templates/ lives)
- * Works for both development (src/) and production (dist/)
+ * Works for both development (src/), production (dist/), and CJS bundles (bridge/).
+ * When esbuild bundles to CJS, import.meta is replaced with {} so we
+ * fall back to __dirname which is natively available in CJS.
  */
 function getPackageDir() {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    // From src/installer/ or dist/installer/, go up two levels to package root
-    return join(__dirname, "..", "..");
+    try {
+        if (import.meta?.url) {
+            const __filename = fileURLToPath(import.meta.url);
+            const __dirname = dirname(__filename);
+            // From src/installer/ or dist/installer/, go up two levels to package root
+            return join(__dirname, "..", "..");
+        }
+    }
+    catch {
+        // import.meta.url unavailable — fall through to CJS path
+    }
+    // CJS bundle path: from bridge/ go up 1 level to package root
+    if (typeof __dirname !== "undefined") {
+        return join(__dirname, "..");
+    }
+    return process.cwd();
 }
 /**
  * Load a hook template file from templates/hooks/
@@ -57,7 +71,7 @@ export function shouldUseNodeHooks() {
 }
 /** Get the Claude config directory path (cross-platform) */
 export function getClaudeConfigDir() {
-    return join(homedir(), ".claude");
+    return getConfigDir();
 }
 /** Get the hooks directory path */
 export function getHooksDir() {
@@ -85,7 +99,7 @@ TELL THE USER WHAT AGENTS YOU WILL LEVERAGE NOW TO SATISFY USER'S REQUEST.
 
 ## AGENT UTILIZATION PRINCIPLES (by capability, not by name)
 - **Codebase Exploration**: Spawn exploration agents using BACKGROUND TASKS for file patterns, internal implementations, project structure
-- **Documentation & References**: Use researcher-type agents via BACKGROUND TASKS for API references, examples, external library docs
+- **Documentation & References**: Use document-specialist agents via BACKGROUND TASKS for API references, examples, external library docs
 - **Planning & Strategy**: NEVER plan yourself - ALWAYS spawn a dedicated planning agent for work breakdown
 - **High-IQ Reasoning**: Leverage specialized agents for architecture decisions, code review, strategic planning
 - **Frontend/UI Tasks**: Delegate to UI-specialized agents for design and implementation
@@ -93,13 +107,13 @@ TELL THE USER WHAT AGENTS YOU WILL LEVERAGE NOW TO SATISFY USER'S REQUEST.
 ## EXECUTION RULES
 - **TODO**: Track EVERY step. Mark complete IMMEDIATELY after each.
 - **PARALLEL**: Fire independent agent calls simultaneously via Task(run_in_background=true) - NEVER wait sequentially.
-- **BACKGROUND FIRST**: Use Task tool for exploration/research agents (10+ concurrent if needed).
+- **BACKGROUND FIRST**: Use Task tool for exploration/document-specialist agents (10+ concurrent if needed).
 - **VERIFY**: Re-read request after completion. Check ALL requirements met before reporting done.
 - **DELEGATE**: Don't do everything yourself - orchestrate specialized agents for their strengths.
 
 ## WORKFLOW
 1. Analyze the request and identify required capabilities
-2. Spawn exploration/researcher agents via Task(run_in_background=true) in PARALLEL (10+ if needed)
+2. Spawn exploration/document-specialist agents via Task(run_in_background=true) in PARALLEL (10+ if needed)
 3. Always Use Plan agent with gathered context to create detailed work breakdown
 4. Execute with continuous verification against original requirements
 
@@ -194,7 +208,7 @@ Use your extended thinking capabilities to provide the most thorough and well-re
 export const SEARCH_MESSAGE = `<search-mode>
 MAXIMIZE SEARCH EFFORT. Launch multiple background agents IN PARALLEL:
 - explore agents (codebase patterns, file structures)
-- researcher agents (remote repos, official docs, GitHub examples)
+- document-specialist agents (remote repos, official docs, GitHub examples)
 Plus direct tools: Grep, Glob
 NEVER stop at first result - be exhaustive.
 </search-mode>
@@ -211,7 +225,7 @@ ANALYSIS MODE. Gather context before diving deep:
 
 CONTEXT GATHERING (parallel):
 - 1-2 explore agents (codebase patterns, implementations)
-- 1-2 researcher agents (if external library involved)
+- 1-2 document-specialist agents (if external library involved)
 - Direct tools: Grep, Glob, LSP for targeted searches
 
 IF COMPLEX (architecture, multi-system, debugging after 2+ failures):
@@ -263,6 +277,8 @@ export const KEYWORD_DETECTOR_SCRIPT_NODE = loadTemplate("keyword-detector.mjs")
 export const STOP_CONTINUATION_SCRIPT_NODE = loadTemplate("stop-continuation.mjs");
 /** Node.js persistent mode hook script - loaded from templates/hooks/persistent-mode.mjs */
 export const PERSISTENT_MODE_SCRIPT_NODE = loadTemplate("persistent-mode.mjs");
+/** Node.js code simplifier hook script - loaded from templates/hooks/code-simplifier.mjs */
+export const CODE_SIMPLIFIER_SCRIPT_NODE = loadTemplate("code-simplifier.mjs");
 /** Node.js session start hook script - loaded from templates/hooks/session-start.mjs */
 export const SESSION_START_SCRIPT_NODE = loadTemplate("session-start.mjs");
 /** Post-tool-use Node.js script - loaded from templates/hooks/post-tool-use.mjs */
@@ -349,11 +365,25 @@ export const HOOKS_SETTINGS_CONFIG_NODE = {
                     },
                 ],
             },
+            {
+                hooks: [
+                    {
+                        type: "command",
+                        command: isWindows()
+                            ? 'node "%USERPROFILE%\\.claude\\hooks\\code-simplifier.mjs"'
+                            : 'node "$HOME/.claude/hooks/code-simplifier.mjs"',
+                    },
+                ],
+            },
         ],
     },
 };
 /**
  * Get the hooks settings config (Node.js only).
+ *
+ * @deprecated Hooks are now delivered via the plugin's hooks/hooks.json.
+ * settings.json hook entries are no longer written by the installer.
+ * Kept for test compatibility only.
  */
 export function getHooksSettingsConfig() {
     return HOOKS_SETTINGS_CONFIG_NODE;
@@ -364,6 +394,10 @@ export function getHooksSettingsConfig() {
 /**
  * Get Node.js hook scripts (Cross-platform)
  * Returns a record of filename -> content for all Node.js hooks
+ *
+ * @deprecated Hook scripts are no longer installed to ~/.claude/hooks/.
+ * All hooks are delivered via the plugin's hooks/hooks.json + scripts/.
+ * Kept for test compatibility only.
  */
 export function getHookScripts() {
     return {
@@ -374,6 +408,7 @@ export function getHookScripts() {
         "pre-tool-use.mjs": loadTemplate("pre-tool-use.mjs"),
         "post-tool-use.mjs": loadTemplate("post-tool-use.mjs"),
         "post-tool-use-failure.mjs": loadTemplate("post-tool-use-failure.mjs"),
+        "code-simplifier.mjs": loadTemplate("code-simplifier.mjs"),
         // Shared library modules (in lib/ subdirectory)
         "lib/stdin.mjs": loadTemplate("lib/stdin.mjs"),
         "lib/atomic-write.mjs": loadTemplate("lib/atomic-write.mjs"),

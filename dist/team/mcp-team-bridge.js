@@ -16,6 +16,7 @@ import { writeHeartbeat, deleteHeartbeat } from './heartbeat.js';
 import { killSession } from './tmux-session.js';
 import { logAuditEvent } from './audit-log.js';
 import { getEffectivePermissions, findPermissionViolations } from './permissions.js';
+import { getTeamStatus } from './team-status.js';
 /** Simple logger */
 function log(message) {
     const ts = new Date().toISOString();
@@ -418,6 +419,15 @@ export async function runBridge(config) {
     let activeChild = null;
     log(`[bridge] ${workerName}@${teamName} starting (${provider})`);
     audit(config, 'bridge_start');
+    // Write initial heartbeat (protected so startup I/O failure doesn't prevent loop entry)
+    try {
+        writeHeartbeat(workingDirectory, buildHeartbeat(config, 'polling', null, 0));
+    }
+    catch (err) {
+        audit(config, 'bridge_start', undefined, { warning: 'startup_write_failed', error: String(err) });
+    }
+    // Ready emission is deferred until first successful poll cycle
+    let readyEmitted = false;
     while (true) {
         try {
             // --- 1. Check shutdown signal ---
@@ -464,6 +474,24 @@ export async function runBridge(config) {
             }
             // --- 3. Write heartbeat ---
             writeHeartbeat(workingDirectory, buildHeartbeat(config, 'polling', null, consecutiveErrors));
+            // Emit ready after first successful heartbeat write in poll loop
+            if (!readyEmitted) {
+                try {
+                    // Write ready heartbeat so status-based monitoring detects the transition
+                    writeHeartbeat(workingDirectory, buildHeartbeat(config, 'ready', null, 0));
+                    appendOutbox(teamName, workerName, {
+                        type: 'ready',
+                        message: `Worker ${workerName} is ready (${provider})`,
+                        timestamp: new Date().toISOString(),
+                    });
+                    // Emit worker_ready audit event for activity-log / hook consumers
+                    audit(config, 'worker_ready');
+                    readyEmitted = true;
+                }
+                catch (err) {
+                    audit(config, 'bridge_start', undefined, { warning: 'startup_write_failed', error: String(err) });
+                }
+            }
             // --- 4. Read inbox ---
             const messages = readNewInboxMessages(teamName, workerName);
             // --- 5. Find next task ---
@@ -485,7 +513,7 @@ export async function runBridge(config) {
                 }
                 // --- 7. Build prompt ---
                 const prompt = buildTaskPrompt(task, messages, config);
-                const promptFile = writePromptFile(config, task.id, prompt);
+                const _promptFile = writePromptFile(config, task.id, prompt);
                 const outputFile = getOutputPath(config, task.id);
                 log(`[bridge] Executing task ${task.id}: ${task.subject}`);
                 // --- 8. Execute CLI (with permission enforcement) ---
@@ -640,6 +668,27 @@ export async function runBridge(config) {
                     });
                     audit(config, 'worker_idle');
                     idleNotified = true;
+                }
+                // --- Auto-cleanup: self-terminate when all team tasks are done ---
+                // Only check when we have no pending task and already notified idle.
+                // Guard: if inProgress > 0, other workers are still running — don't shutdown yet.
+                try {
+                    const teamStatus = getTeamStatus(teamName, workingDirectory);
+                    if (teamStatus.taskSummary.total > 0 && teamStatus.taskSummary.pending === 0 && teamStatus.taskSummary.inProgress === 0) {
+                        log(`[bridge] All team tasks complete. Auto-terminating worker.`);
+                        appendOutbox(teamName, workerName, {
+                            type: 'all_tasks_complete',
+                            message: 'All team tasks reached terminal state. Worker self-terminating.',
+                            timestamp: new Date().toISOString()
+                        });
+                        audit(config, 'bridge_shutdown', undefined, { reason: 'auto_cleanup_all_tasks_complete' });
+                        await handleShutdown(config, { requestId: 'auto-cleanup', reason: 'all_tasks_complete' }, activeChild);
+                        break;
+                    }
+                }
+                catch (err) {
+                    // Non-fatal: if status check fails, keep polling
+                    log(`[bridge] Auto-cleanup status check failed: ${err.message}`);
                 }
             }
             // --- 11. Rotate outbox if needed ---

@@ -12,7 +12,8 @@
  */
 export declare function toForwardSlash(path: string): string;
 /**
- * Get Claude config directory path
+ * Get Claude config directory path.
+ * Respects the CLAUDE_CONFIG_DIR environment variable when set.
  */
 export declare function getClaudeConfigDir(): string;
 /**
@@ -30,6 +31,13 @@ export declare function getDataDir(): string;
  */
 export declare function getConfigDir(): string;
 /**
+ * Get the plugin cache base directory for oh-my-claudecode.
+ * This is the directory containing version subdirectories.
+ *
+ * Structure: <configDir>/plugins/cache/omc/oh-my-claudecode/
+ */
+export declare function getPluginCacheBase(): string;
+/**
  * Safely delete a file, ignoring ENOENT errors.
  * Prevents crashes when cleaning up files that may not exist (Bug #13 fix).
  */
@@ -38,4 +46,16 @@ export declare function safeUnlinkSync(filePath: string): boolean;
  * Safely remove a directory recursively, ignoring errors.
  */
 export declare function safeRmSync(dirPath: string): boolean;
+/**
+ * Result of a plugin cache purge operation.
+ */
+export interface PurgeCacheResult {
+    /** Number of stale version directories removed */
+    removed: number;
+    /** Paths that were removed */
+    removedPaths: string[];
+    /** Errors encountered (non-fatal) */
+    errors: string[];
+}
+export declare function purgeStalePluginCacheVersions(): PurgeCacheResult;
 //# sourceMappingURL=paths.d.ts.map

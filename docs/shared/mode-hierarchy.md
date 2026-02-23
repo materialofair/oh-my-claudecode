@@ -13,7 +13,7 @@ autopilot (autonomous end-to-end)
 
 ultrapilot (parallel autopilot)
 ├── includes: file ownership partitioning
-├── includes: worker coordination (up to 5 workers)
+├── includes: worker coordination (up to 20 workers)
 └── falls back to: autopilot (if not parallelizable)
 
 swarm (N-agent coordination)
@@ -21,7 +21,7 @@ swarm (N-agent coordination)
 ├── includes: heartbeat monitoring
 └── orthogonal to: autopilot/ultrapilot (different paradigm)
 
-ecomode (token efficiency ONLY)
+ (token efficiency ONLY)
 └── modifies: agent tier selection (prefer haiku/sonnet)
     (does NOT include persistence - that's ralph's job)
 
@@ -43,7 +43,7 @@ ultrawork (parallelism engine)
 | swarm | Standalone | SQLite claiming | - |
 | ralph | Wrapper | ultrawork | - |
 | ultrawork | Component | - | - |
-| ecomode | Modifier | - | - |
+|  | Modifier | - | - |
 | ultraqa | Component | - | - |
 
 ## Decision Tree
@@ -55,7 +55,7 @@ Want autonomous execution?
 │   └── NO: autopilot (sequential with ralph phases)
 └── NO: Want parallel execution with manual oversight?
     ├── YES: Do you want cost optimization?
-    │   ├── YES: ecomode + ultrawork
+    │   ├── YES:  + ultrawork
     │   └── NO: ultrawork alone
     └── NO: Want persistence until verified done?
         ├── YES: ralph (persistence + ultrawork + verification)
@@ -70,11 +70,11 @@ Have many similar independent tasks (e.g., "fix 47 errors")?
 | Mode | Best For | Parallelism | Persistence | Verification | File Ownership |
 |------|----------|-------------|-------------|--------------|----------------|
 | autopilot | "Build me X" | Via ralph | Yes | Yes | N/A |
-| ultrapilot | Multi-component | 5 workers | Yes | Yes | Partitioned |
+| ultrapilot | Multi-component | 20 workers | Yes | Yes | Partitioned |
 | swarm | Homogeneous tasks | N workers | Per-task | Per-task | Per-task |
 | ralph | "Don't stop" | Via ultrawork | Yes | Mandatory | N/A |
 | ultrawork | Parallel only | Yes | No | No | N/A |
-| ecomode | Cost savings | Modifier | No | No | N/A |
+|  | Cost savings | Modifier | No | No | N/A |
 
 ## Quick Reference
 
@@ -83,7 +83,7 @@ Have many similar independent tasks (e.g., "fix 47 errors")?
 **Fixing many similar issues?** → `swarm`
 **Want control over execution?** → `ultrawork`
 **Need verified completion?** → `ralph`
-**Want to save tokens?** → `ecomode` (combine with other modes)
+**Want to save tokens?** → `` (combine with other modes)
 
 ## Combining Modes
 
@@ -94,7 +94,7 @@ Valid combinations:
 
 Invalid combinations:
 - `autopilot ultrapilot` = Mutually exclusive (both are standalone)
-- `ecomode` alone = Not useful (needs an execution mode)
+- `` alone = Not useful (needs an execution mode)
 
 ## State Management
 
@@ -110,7 +110,7 @@ All mode state files use standardized locations:
 | autopilot | `autopilot-state.json` |
 | ultrapilot | `ultrapilot-state.json` |
 | ultrawork | `ultrawork-state.json` |
-| ecomode | `ecomode-state.json` |
+|  | `-state.json` |
 | ultraqa | `ultraqa-state.json` |
 | pipeline | `pipeline-state.json` |
 | swarm | `swarm-summary.json` + `swarm-active.marker` |

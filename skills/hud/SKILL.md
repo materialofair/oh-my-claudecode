@@ -9,6 +9,8 @@ scope: ~/.claude/**  # DOCUMENTATION ONLY - Allowed write scope
 
 Configure the OMC HUD (Heads-Up Display) for the statusline.
 
+Note: All `~/.claude/...` paths in this guide respect `CLAUDE_CONFIG_DIR` when that environment variable is set.
+
 ## Quick Commands
 
 | Command | Description |
@@ -34,24 +36,19 @@ When you run `/oh-my-claudecode:hud` or `/oh-my-claudecode:hud setup`, the syste
 
 **Step 1:** Check if setup is needed:
 ```bash
-ls ~/.claude/hud/omc-hud.mjs 2>/dev/null && echo "EXISTS" || echo "MISSING"
+node -e "const p=require('path'),f=require('fs'),d=process.env.CLAUDE_CONFIG_DIR||p.join(require('os').homedir(),'.claude');console.log(f.existsSync(p.join(d,'hud','omc-hud.mjs'))?'EXISTS':'MISSING')"
 ```
 
 **Step 2:** Verify the plugin is installed:
 ```bash
-PLUGIN_VERSION=$(ls ~/.claude/plugins/cache/omc/oh-my-claudecode/ 2>/dev/null | sort -V | tail -1)
-if [ -n "$PLUGIN_VERSION" ]; then
-  ls ~/.claude/plugins/cache/omc/oh-my-claudecode/$PLUGIN_VERSION/dist/hud/index.js 2>/dev/null && echo "READY" || echo "NOT_FOUND - try reinstalling: /plugin install oh-my-claudecode"
-else
-  echo "Plugin not installed - run: /plugin install oh-my-claudecode"
-fi
+node -e "const p=require('path'),f=require('fs'),d=process.env.CLAUDE_CONFIG_DIR||p.join(require('os').homedir(),'.claude'),b=p.join(d,'plugins','cache','omc','oh-my-claudecode');try{const v=f.readdirSync(b).filter(x=>/^\d/.test(x)).sort((a,c)=>a.localeCompare(c,void 0,{numeric:true}));if(v.length===0){console.log('Plugin not installed - run: /plugin install oh-my-claudecode');process.exit()}const l=v[v.length-1],h=p.join(b,l,'dist','hud','index.js');console.log('Version:',l);console.log(f.existsSync(h)?'READY':'NOT_FOUND - try reinstalling: /plugin install oh-my-claudecode')}catch{console.log('Plugin not installed - run: /plugin install oh-my-claudecode')}"
 ```
 
 **Step 3:** If omc-hud.mjs is MISSING or argument is `setup`, create the HUD directory and script:
 
 First, create the directory:
 ```bash
-mkdir -p ~/.claude/hud
+node -e "require('fs').mkdirSync(require('path').join(process.env.CLAUDE_CONFIG_DIR||require('path').join(require('os').homedir(),'.claude'),'hud'),{recursive:true})"
 ```
 
 Then, use the Write tool to create `~/.claude/hud/omc-hud.mjs` with this exact content:
@@ -109,8 +106,8 @@ async function main() {
 
   // 2. Development paths
   const devPaths = [
-    join(home, "Workspace/oh-my-claude-sisyphus/dist/hud/index.js"),
-    join(home, "workspace/oh-my-claude-sisyphus/dist/hud/index.js"),
+    join(home, "Workspace/oh-my-claudecode/dist/hud/index.js"),
+    join(home, "workspace/oh-my-claudecode/dist/hud/index.js"),
     join(home, "Workspace/oh-my-claudecode/dist/hud/index.js"),
     join(home, "workspace/oh-my-claudecode/dist/hud/index.js"),
   ];
@@ -135,9 +132,9 @@ async function main() {
 main();
 ```
 
-**Step 3:** Make it executable:
+**Step 3:** Make it executable (Unix only, skip on Windows):
 ```bash
-chmod +x ~/.claude/hud/omc-hud.mjs
+node -e "if(process.platform==='win32'){console.log('Skipped (Windows)')}else{require('fs').chmodSync(require('path').join(process.env.CLAUDE_CONFIG_DIR||require('path').join(require('os').homedir(),'.claude'),'hud','omc-hud.mjs'),0o755);console.log('Done')}"
 ```
 
 **Step 4:** Update settings.json to use the HUD:
@@ -148,8 +145,10 @@ Read `~/.claude/settings.json`, then update/add the `statusLine` field.
 
 First, determine the correct path:
 ```bash
-node -e "const p=require('path').join(require('os').homedir(),'.claude','hud','omc-hud.mjs');console.log(JSON.stringify(p))"
+node -e "const p=require('path').join(require('os').homedir(),'.claude','hud','omc-hud.mjs').split(require('path').sep).join('/');console.log(JSON.stringify(p))"
 ```
+
+**IMPORTANT:** The command path MUST use forward slashes on all platforms. Claude Code executes statusLine commands via bash, which interprets backslashes as escape characters and breaks the path.
 
 Then set the `statusLine` field using the resolved path. On Unix it will look like:
 ```json
@@ -161,12 +160,12 @@ Then set the `statusLine` field using the resolved path. On Unix it will look li
 }
 ```
 
-On Windows it will look like:
+On Windows the path uses forward slashes (not backslashes):
 ```json
 {
   "statusLine": {
     "type": "command",
-    "command": "node C:\\Users\\username\\.claude\\hud\\omc-hud.mjs"
+    "command": "node C:/Users/username/.claude/hud/omc-hud.mjs"
   }
 }
 ```
@@ -175,7 +174,7 @@ Use the Edit tool to add/update this field while preserving other settings.
 
 **Step 5:** Clean up old HUD scripts (if any):
 ```bash
-rm -f ~/.claude/hud/sisyphus-hud.mjs 2>/dev/null
+node -e "const p=require('path'),f=require('fs'),d=process.env.CLAUDE_CONFIG_DIR||p.join(require('os').homedir(),'.claude'),t=p.join(d,'hud','omc-hud.mjs');try{if(f.existsSync(t)){f.unlinkSync(t);console.log('Removed legacy script')}else{console.log('No legacy script found')}}catch{}"
 ```
 
 **Step 6:** Tell the user to restart Claude Code for changes to take effect.
@@ -191,13 +190,13 @@ Shows only the essentials:
 ### Focused (Default)
 Shows all relevant elements:
 ```
-[OMC] ralph:3/10 | US-002 | ultrawork skill:planner | ctx:67% | agents:2 | bg:3/5 | todos:2/5
+[OMC] branch:main | ralph:3/10 | US-002 | ultrawork skill:planner | ctx:67% | agents:2 | bg:3/5 | todos:2/5
 ```
 
 ### Full
 Shows everything including multi-line agent details:
 ```
-[OMC] ralph:3/10 | US-002 (2/5) | ultrawork | ctx:[████░░]67% | agents:3 | bg:3/5 | todos:2/5
+[OMC] repo:oh-my-claudecode branch:main | ralph:3/10 | US-002 (2/5) | ultrawork | ctx:[████░░]67% | agents:3 | bg:3/5 | todos:2/5
 ├─ O architect    2m   analyzing architecture patterns...
 ├─ e explore     45s   searching for test files
 └─ s executor     1m   implementing validation logic
@@ -216,6 +215,8 @@ When agents are running, the HUD shows detailed information on separate lines:
 | Element | Description |
 |---------|-------------|
 | `[OMC]` | Mode identifier |
+| `repo:name` | Git repository name (cyan) |
+| `branch:name` | Git branch name (cyan) |
 | `ralph:3/10` | Ralph loop iteration/max |
 | `US-002` | Current PRD story ID |
 | `ultrawork` | Active mode badge |
@@ -269,7 +270,7 @@ You can manually edit the config file. Each option can be set individually - any
 If the HUD is not showing:
 1. Run `/oh-my-claudecode:hud setup` to auto-install and configure
 2. Restart Claude Code after setup completes
-3. If still not working, run `/oh-my-claudecode:doctor` for full diagnostics
+3. If still not working, run `/oh-my-claudecode:omc-doctor` for full diagnostics
 
 Manual verification:
 - HUD script: `~/.claude/hud/omc-hud.mjs`

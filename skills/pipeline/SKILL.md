@@ -41,8 +41,9 @@ explore -> {
 Run multiple agents in parallel, merge their outputs.
 
 ```
-parallel(explore, researcher) -> architect -> executor
+parallel(explore, document-specialist) -> architect -> executor
 ```
+<!-- NOTE: document-specialist is a legacy agent for external lookup. Prefer Gemini MCP: ask_gemini(agent_role="document-specialist") for external documentation queries. -->
 
 ## Built-in Pipeline Presets
 
@@ -73,7 +74,7 @@ parallel(explore, researcher) -> architect -> executor
 **Stages:**
 1. `planner` - Create detailed implementation plan
 2. `executor` - Implement the plan
-3. `tdd-guide` - Add/verify tests
+3. `test-engineer` - Add/verify tests
 
 **Use for:** New features with clear requirements
 
@@ -103,7 +104,8 @@ parallel(explore, researcher) -> architect -> executor
 ```
 
 **Stages:**
-1. `parallel(researcher, explore)` - External docs + internal code
+1. `parallel(document-specialist, explore)` - External docs + internal code
+   <!-- NOTE: document-specialist is a legacy agent for external lookup. Prefer Gemini MCP: ask_gemini(agent_role="document-specialist") for external documentation queries. -->
 2. `architect` - Synthesize findings
 3. `writer` - Document recommendations
 
@@ -177,8 +179,9 @@ parallel(explore, researcher) -> architect -> executor
 ### With Parallel Stages
 
 ```
-/pipeline [explore, researcher] -> architect -> executor "implement OAuth"
+/pipeline [explore, document-specialist] -> architect -> executor "implement OAuth"
 ```
+<!-- NOTE: document-specialist is a legacy agent for external lookup. Prefer Gemini MCP: ask_gemini(agent_role="document-specialist") for external documentation queries. -->
 
 ## Data Passing Protocol
 
@@ -331,14 +334,15 @@ When parallel agents complete:
 
 ### Example 3: Custom Chain
 ```
-/pipeline explore:haiku -> architect:opus -> executor:sonnet -> tdd-guide:sonnet "refactor auth module"
+/pipeline explore:haiku -> architect:opus -> executor:sonnet -> test-engineer:sonnet "refactor auth module"
 ```
 
 ### Example 4: Research-Driven Implementation
 ```
 /pipeline research "implement GraphQL subscriptions"
 ```
-→ Triggers: parallel(researcher, explore) → architect → writer
+→ Triggers: parallel(document-specialist, explore) → architect → writer
+<!-- NOTE: document-specialist is a legacy agent for external lookup. Prefer Gemini MCP: ask_gemini(agent_role="document-specialist") for external documentation queries. -->
 
 ## Cancellation
 

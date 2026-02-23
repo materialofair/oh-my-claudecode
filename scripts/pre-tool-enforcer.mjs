@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * PreToolUse Hook: Sisyphus Reminder Enforcer (Node.js)
+ * PreToolUse Hook: OMC Reminder Enforcer (Node.js)
  * Injects contextual reminders before every tool execution
  * Cross-platform: Windows, macOS, Linux
  */
 
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { pathToFileURL } from 'url';
 import { readStdin } from './lib/stdin.mjs';
 
 // Simple JSON field extraction
@@ -125,6 +126,13 @@ async function recordToolInvocation(data, directory) {
 }
 
 async function main() {
+  // Skip guard: check OMC_SKIP_HOOKS env var (see issue #838)
+  const _skipHooks = (process.env.OMC_SKIP_HOOKS || '').split(',').map(s => s.trim());
+  if (process.env.DISABLE_OMC === '1' || _skipHooks.includes('pre-tool-use')) {
+    console.log(JSON.stringify({ continue: true }));
+    return;
+  }
+
   try {
     const input = await readStdin();
 
@@ -135,6 +143,31 @@ async function main() {
     let data = {};
     try { data = JSON.parse(input); } catch {}
     recordToolInvocation(data, directory);
+
+    // Send notification when AskUserQuestion is about to execute (user input needed)
+    // Fires in PreToolUse so users get notified BEFORE the tool blocks for input (#597)
+    if (toolName === 'AskUserQuestion') {
+      try {
+        const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT;
+        if (pluginRoot) {
+          const { notify } = await import(pathToFileURL(join(pluginRoot, 'dist', 'notifications', 'index.js')).href);
+
+          const toolInput = data.toolInput || data.tool_input || {};
+          const questions = toolInput.questions || [];
+          const questionText = questions.map(q => q.question || '').filter(Boolean).join('; ') || 'User input requested';
+          const sessionId = data.session_id || data.sessionId || '';
+
+          // Fire and forget - don't block tool execution
+          notify('ask-user-question', {
+            sessionId,
+            projectPath: directory,
+            question: questionText,
+          }).catch(() => {});
+        }
+      } catch {
+        // Notification not available, skip
+      }
+    }
 
     const todoStatus = getTodoStatus(directory);
 
@@ -155,7 +188,7 @@ async function main() {
     }, null, 2));
   } catch (error) {
     // On error, always continue
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
   }
 }
 

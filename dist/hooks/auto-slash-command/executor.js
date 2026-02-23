@@ -7,10 +7,10 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, basename } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../../utils/paths.js';
 import { resolveLiveData } from './live-data.js';
 /** Claude config directory */
-const CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
+const CLAUDE_CONFIG_DIR = getClaudeConfigDir();
 /**
  * Parse YAML-like frontmatter from markdown file
  * Simple implementation - supports basic key: value format
@@ -37,6 +37,36 @@ function parseFrontmatter(content) {
         data[key] = value;
     }
     return { data, body };
+}
+function stripOptionalQuotes(value) {
+    const trimmed = value.trim();
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+        (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+        return trimmed.slice(1, -1).trim();
+    }
+    return trimmed;
+}
+function getFrontmatterString(data, key) {
+    const value = data[key];
+    if (!value)
+        return undefined;
+    const normalized = stripOptionalQuotes(value);
+    return normalized.length > 0 ? normalized : undefined;
+}
+function getFrontmatterAliases(data) {
+    const rawAliases = getFrontmatterString(data, 'aliases');
+    if (!rawAliases)
+        return [];
+    if (rawAliases.startsWith('[') && rawAliases.endsWith(']')) {
+        const inner = rawAliases.slice(1, -1).trim();
+        if (!inner)
+            return [];
+        return inner
+            .split(',')
+            .map(alias => stripOptionalQuotes(alias))
+            .filter(alias => alias.length > 0);
+    }
+    return [rawAliases];
 }
 /**
  * Discover commands from a directory
@@ -105,20 +135,36 @@ export function discoverAllCommands() {
                     try {
                         const content = readFileSync(skillPath, 'utf-8');
                         const { data, body } = parseFrontmatter(content);
-                        const metadata = {
-                            name: data.name || dir.name,
-                            description: data.description || '',
-                            argumentHint: data['argument-hint'],
-                            model: data.model,
-                            agent: data.agent,
-                        };
-                        skillCommands.push({
-                            name: data.name || dir.name,
-                            path: skillPath,
-                            metadata,
-                            content: body,
-                            scope: 'skill',
-                        });
+                        const canonicalName = getFrontmatterString(data, 'name') || dir.name;
+                        const aliases = Array.from(new Set(getFrontmatterAliases(data).filter(alias => alias.toLowerCase() !== canonicalName.toLowerCase())));
+                        const commandNames = [canonicalName, ...aliases];
+                        const description = getFrontmatterString(data, 'description') || '';
+                        const argumentHint = getFrontmatterString(data, 'argument-hint');
+                        const model = getFrontmatterString(data, 'model');
+                        const agent = getFrontmatterString(data, 'agent');
+                        for (const commandName of commandNames) {
+                            const isAlias = commandName !== canonicalName;
+                            const metadata = {
+                                name: commandName,
+                                description,
+                                argumentHint,
+                                model,
+                                agent,
+                                aliases: isAlias ? undefined : aliases,
+                                aliasOf: isAlias ? canonicalName : undefined,
+                                deprecatedAlias: isAlias || undefined,
+                                deprecationMessage: isAlias
+                                    ? `Alias "/${commandName}" is deprecated. Use "/${canonicalName}" instead.`
+                                    : undefined,
+                            };
+                            skillCommands.push({
+                                name: commandName,
+                                path: skillPath,
+                                metadata,
+                                content: body,
+                                scope: 'skill',
+                            });
+                        }
                     }
                     catch {
                         continue;
@@ -131,7 +177,15 @@ export function discoverAllCommands() {
         }
     }
     // Priority: project > user > skills
-    return [...projectCommands, ...userCommands, ...skillCommands];
+    const prioritized = [...projectCommands, ...userCommands, ...skillCommands];
+    const seen = new Set();
+    return prioritized.filter((command) => {
+        const key = command.name.toLowerCase();
+        if (seen.has(key))
+            return false;
+        seen.add(key);
+        return true;
+    });
 }
 /**
  * Find a specific command by name
@@ -165,6 +219,9 @@ function formatCommandTemplate(cmd, args) {
         sections.push(`**Agent**: ${cmd.metadata.agent}\n`);
     }
     sections.push(`**Scope**: ${cmd.scope}\n`);
+    if (cmd.metadata.aliasOf) {
+        sections.push(`⚠️ **Deprecated Alias**: \`/${cmd.name}\` is deprecated and will be removed in a future release. Use \`/${cmd.metadata.aliasOf}\` instead.\n`);
+    }
     sections.push('---\n');
     // Resolve arguments in content, then execute any live-data commands
     const resolvedContent = resolveArguments(cmd.content || '', args);
@@ -185,7 +242,7 @@ export function executeSlashCommand(parsed) {
     if (!command) {
         return {
             success: false,
-            error: `Command "/${parsed.command}" not found. Available commands are in ~/.claude/commands/ or .claude/commands/`,
+            error: `Command "/${parsed.command}" not found. Available commands are in $CLAUDE_CONFIG_DIR/commands/ (or ~/.claude/commands/ by default) or .claude/commands/`,
         };
     }
     try {
@@ -206,8 +263,15 @@ export function executeSlashCommand(parsed) {
  * List all available commands
  */
 export function listAvailableCommands() {
+    return listAvailableCommandsWithOptions();
+}
+export function listAvailableCommandsWithOptions(options) {
+    const { includeAliases = false } = options ?? {};
     const commands = discoverAllCommands();
-    return commands.map((cmd) => ({
+    const visibleCommands = includeAliases
+        ? commands
+        : commands.filter((cmd) => !cmd.metadata.aliasOf);
+    return visibleCommands.map((cmd) => ({
         name: cmd.name,
         description: cmd.metadata.description,
         scope: cmd.scope,

@@ -2,9 +2,12 @@ node_modules/
 *.log
 .DS_Store
 .omc/
-.sisyphus/
+.omc/
 .idea/
+.claude/
 
 # Windows reserved names (prevent accidental creation)
 nul
 NUL
+.omx/
+.env

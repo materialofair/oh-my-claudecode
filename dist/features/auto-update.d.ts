@@ -10,12 +10,13 @@
  * - Configurable update notifications
  */
 import { TaskTool } from '../hooks/beads-context/types.js';
+import type { NotificationConfig } from '../notifications/types.js';
 /** GitHub repository information */
 export declare const REPO_OWNER = "Yeachan-Heo";
 export declare const REPO_NAME = "oh-my-claudecode";
 export declare const GITHUB_API_URL = "https://api.github.com/repos/Yeachan-Heo/oh-my-claudecode";
 export declare const GITHUB_RAW_URL = "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode";
-/** Installation paths */
+/** Installation paths (respects CLAUDE_CONFIG_DIR env var) */
 export declare const CLAUDE_CONFIG_DIR: string;
 export declare const VERSION_FILE: string;
 export declare const CONFIG_FILE: string;
@@ -38,6 +39,8 @@ export interface StopCallbackTelegramConfig {
     botToken?: string;
     /** Chat ID to send messages to */
     chatId?: string;
+    /** Optional tags/usernames to prefix in notifications */
+    tagList?: string[];
 }
 /**
  * Stop hook callback configuration for Discord
@@ -46,6 +49,18 @@ export interface StopCallbackDiscordConfig {
     enabled: boolean;
     /** Discord webhook URL */
     webhookUrl?: string;
+    /** Optional tags/user IDs/roles to prefix in notifications */
+    tagList?: string[];
+}
+/**
+ * Stop hook callback configuration for Slack
+ */
+export interface StopCallbackSlackConfig {
+    enabled: boolean;
+    /** Slack incoming webhook URL */
+    webhookUrl?: string;
+    /** Optional tags/mentions to include in notifications */
+    tagList?: string[];
 }
 /**
  * Stop hook callbacks configuration
@@ -54,11 +69,12 @@ export interface StopHookCallbacksConfig {
     file?: StopCallbackFileConfig;
     telegram?: StopCallbackTelegramConfig;
     discord?: StopCallbackDiscordConfig;
+    slack?: StopCallbackSlackConfig;
 }
 /**
  * OMC configuration (stored in .omc-config.json)
  */
-export interface SisyphusConfig {
+export interface OMCConfig {
     /** Whether silent auto-updates are enabled (opt-in for security) */
     silentAutoUpdate: boolean;
     /** When the configuration was set */
@@ -74,33 +90,41 @@ export interface SisyphusConfig {
         /** Inject usage instructions at session start (default: true) */
         injectInstructions?: boolean;
     };
-    /** Preferred execution mode for parallel work (set by omc-setup Step 3.7) */
-    defaultExecutionMode?: 'ultrawork' | 'ecomode';
-    /** Ecomode-specific configuration */
-    ecomode?: {
-        /** Whether ecomode is enabled (default: true). Set to false to disable ecomode completely. */
-        enabled?: boolean;
-    };
     /** Whether initial setup has been completed (ISO timestamp) */
     setupCompleted?: string;
     /** Version of setup wizard that was completed */
     setupVersion?: string;
-    /** Stop hook callback configuration */
+    /** Stop hook callback configuration (legacy, use notifications instead) */
     stopHookCallbacks?: StopHookCallbacksConfig;
+    /** Multi-platform lifecycle notification configuration */
+    notifications?: NotificationConfig;
+    /** Named notification profiles (keyed by profile name) */
+    notificationProfiles?: Record<string, NotificationConfig>;
+    /** Whether HUD statusline is enabled (default: true). Set to false to skip HUD installation. */
+    hudEnabled?: boolean;
+    /** Whether to prompt for upgrade at session start when a new version is available (default: true).
+     *  Set to false to show a passive notification instead of an interactive prompt. */
+    autoUpgradePrompt?: boolean;
 }
 /**
- * Read the Sisyphus configuration
+ * Read the OMC configuration
  */
-export declare function getSisyphusConfig(): SisyphusConfig;
+export declare function getOMCConfig(): OMCConfig;
 /**
  * Check if silent auto-updates are enabled
  */
 export declare function isSilentAutoUpdateEnabled(): boolean;
 /**
- * Check if ecomode is enabled
- * Returns true by default if not explicitly disabled
+ * Check if auto-upgrade prompt is enabled at session start
+ * Returns true by default - users must explicitly opt out
  */
-export declare function isEcomodeEnabled(): boolean;
+export declare function isAutoUpgradePromptEnabled(): boolean;
+/**
+ * Check if team feature is enabled
+ * Returns false by default - requires explicit opt-in
+ * Checks ~/.claude/settings.json first, then env var fallback
+ */
+export declare function isTeamEnabled(): boolean;
 /**
  * Version metadata stored after installation
  */

@@ -78,7 +78,7 @@ Result: [tests still pass]
 
 ## External Model Consultation (Preferred)
 
-The tdd-guide agent SHOULD consult Codex for test strategy validation.
+The test-engineer agent SHOULD consult Codex for test strategy validation.
 
 ### Protocol
 1. **Form your OWN test strategy FIRST** - Design tests independently
@@ -99,8 +99,7 @@ The tdd-guide agent SHOULD consult Codex for test strategy validation.
 - Small, isolated functionality
 
 ### Tool Usage
-Before first MCP tool use, call `ToolSearch("mcp")` to discover deferred MCP tools.
-Use `mcp__x__ask_codex` with `agent_role: "tdd-guide"`.
-If ToolSearch finds no MCP tools, fall back to the `test-engineer` Claude agent.
+Before first MCP tool use, run the 3-step discovery: (1) `ToolSearch("mcp")`, (2) look for `mcp__x__ask_codex` in the results, (3) fall back to the `test-engineer` Claude agent only if step 1 returns empty. Never use `ToolSearch("ask_codex")` as the primary search -- it can return false negatives even when MCP tools are present.
+Use `mcp__x__ask_codex` with `agent_role: "test-engineer"`.
 
 **Remember:** The discipline IS the value. Shortcuts destroy the benefit.

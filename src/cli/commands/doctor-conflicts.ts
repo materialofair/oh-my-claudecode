@@ -4,9 +4,9 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { homedir } from 'os';
 import { join } from 'path';
-import type { PluginConfig } from '../../shared/types.js';
+import { getClaudeConfigDir } from '../../utils/paths.js';
+import { isOmcHook } from '../../installer/index.js';
 import { colors } from '../utils/formatting.js';
 
 export interface ConflictReport {
@@ -18,11 +18,10 @@ export interface ConflictReport {
 }
 
 /**
- * Check for hook conflicts in ~/.claude/settings.json
+ * Collect hook entries from a single settings.json file.
  */
-export function checkHookConflicts(): ConflictReport['hookConflicts'] {
+function collectHooksFromSettings(settingsPath: string): ConflictReport['hookConflicts'] {
   const conflicts: ConflictReport['hookConflicts'] = [];
-  const settingsPath = join(homedir(), '.claude', 'settings.json');
 
   if (!existsSync(settingsPath)) {
     return conflicts;
@@ -49,15 +48,13 @@ export function checkHookConflicts(): ConflictReport['hookConflicts'] {
           if (!group.hooks || !Array.isArray(group.hooks)) continue;
           for (const hook of group.hooks) {
             if (hook.type === 'command' && hook.command) {
-              const lowerCmd = hook.command.toLowerCase();
-              const isOmc = lowerCmd.includes('omc') || lowerCmd.includes('oh-my-claudecode');
-              conflicts.push({ event, command: hook.command, isOmc });
+              conflicts.push({ event, command: hook.command, isOmc: isOmcHook(hook.command) });
             }
           }
         }
       }
     }
-  } catch (error) {
+  } catch (_error) {
     // Ignore parse errors, will be reported separately
   }
 
@@ -65,10 +62,39 @@ export function checkHookConflicts(): ConflictReport['hookConflicts'] {
 }
 
 /**
+ * Check for hook conflicts in both profile-level (~/.claude/settings.json)
+ * and project-level (./.claude/settings.json).
+ *
+ * Claude Code settings precedence: project > profile > defaults.
+ * We check both levels so the diagnostic is complete.
+ */
+export function checkHookConflicts(): ConflictReport['hookConflicts'] {
+  const profileSettingsPath = join(getClaudeConfigDir(), 'settings.json');
+  const projectSettingsPath = join(process.cwd(), '.claude', 'settings.json');
+
+  const profileHooks = collectHooksFromSettings(profileSettingsPath);
+  const projectHooks = collectHooksFromSettings(projectSettingsPath);
+
+  // Deduplicate by event+command (same hook in both levels should appear once)
+  const seen = new Set<string>();
+  const merged: ConflictReport['hookConflicts'] = [];
+
+  for (const hook of [...projectHooks, ...profileHooks]) {
+    const key = `${hook.event}::${hook.command}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(hook);
+    }
+  }
+
+  return merged;
+}
+
+/**
  * Check CLAUDE.md for OMC markers and user content
  */
 export function checkClaudeMdStatus(): ConflictReport['claudeMdStatus'] {
-  const claudeMdPath = join(homedir(), '.claude', 'CLAUDE.md');
+  const claudeMdPath = join(getClaudeConfigDir(), 'CLAUDE.md');
 
   if (!existsSync(claudeMdPath)) {
     return null;
@@ -101,7 +127,7 @@ export function checkClaudeMdStatus(): ConflictReport['claudeMdStatus'] {
       hasUserContent,
       path: claudeMdPath
     };
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -125,7 +151,7 @@ export function checkEnvFlags(): ConflictReport['envFlags'] {
  */
 export function checkConfigIssues(): ConflictReport['configIssues'] {
   const unknownFields: string[] = [];
-  const configPath = join(homedir(), '.claude', '.omc-config.json');
+  const configPath = join(getClaudeConfigDir(), '.omc-config.json');
 
   if (!existsSync(configPath)) {
     return { unknownFields };
@@ -143,7 +169,7 @@ export function checkConfigIssues(): ConflictReport['configIssues'] {
       'permissions',
       'magicKeywords',
       'routing',
-      // SisyphusConfig fields (from auto-update.ts / omc-setup)
+      // OMCConfig fields (from auto-update.ts / omc-setup)
       'silentAutoUpdate',
       'configuredAt',
       'configVersion',
@@ -151,9 +177,12 @@ export function checkConfigIssues(): ConflictReport['configIssues'] {
       'taskToolConfig',
       'defaultExecutionMode',
       'bashHistory',
-      'ecomode',
+      'agentTiers',
       'setupCompleted',
       'setupVersion',
+      'stopHookCallbacks',
+      'notifications',
+      'autoUpgradePrompt',
     ]);
 
     for (const field of Object.keys(config)) {
@@ -161,7 +190,7 @@ export function checkConfigIssues(): ConflictReport['configIssues'] {
         unknownFields.push(field);
       }
     }
-  } catch (error) {
+  } catch (_error) {
     // Ignore parse errors
   }
 
