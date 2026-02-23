@@ -62,6 +62,31 @@ Enable Claude Code native teams in `~/.claude/settings.json`:
 
 > If teams are disabled, OMC will warn you and fall back to non-team execution where possible.
 
+### tmux CLI Workers — Codex & Gemini (v4.4.0+)
+
+**v4.4.0 removes the Codex/Gemini MCP servers** (`x`, `g` providers). Use `/omc-teams` to spawn real CLI processes in tmux split-panes instead:
+
+```bash
+/omc-teams 2:codex   "review auth module for security issues"
+/omc-teams 2:gemini  "redesign UI components for accessibility"
+/omc-teams 1:claude  "implement the payment flow"
+```
+
+For mixed Codex + Gemini work in one command, use the **`/ccg`** skill:
+
+```bash
+/ccg Review this PR — architecture (Codex) and UI components (Gemini)
+```
+
+| Skill | Workers | Best For |
+|-------|---------|----------|
+| `/omc-teams N:codex` | N Codex CLI panes | Code review, security analysis, architecture |
+| `/omc-teams N:gemini` | N Gemini CLI panes | UI/UX design, docs, large-context tasks |
+| `/omc-teams N:claude` | N Claude CLI panes | General tasks via Claude CLI in tmux |
+| `/ccg` | 1 Codex + 1 Gemini | Parallel tri-model orchestration |
+
+Workers spawn on-demand and die when their task completes — no idle resource usage. Requires `codex` / `gemini` CLIs installed and an active tmux session.
+
 > **Note: Package naming** — The project is branded as **oh-my-claudecode** (repo, plugin, commands), but the npm package is published as [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus). If you install the CLI tools via npm/bun, use `npm install -g oh-my-claude-sisyphus`.
 
 ### Updating
@@ -110,7 +135,9 @@ Multiple strategies for different use cases — from Team-backed orchestration t
 
 | Mode | What it is | Use For |
 |------|------------|---------|
-| **Team (recommended)** | Canonical staged pipeline (`team-plan → team-prd → team-exec → team-verify → team-fix`) | Coordinated agents working on a shared task list |
+| **Team (recommended)** | Canonical staged pipeline (`team-plan → team-prd → team-exec → team-verify → team-fix`) | Coordinated Claude agents on a shared task list |
+| **omc-teams** | tmux CLI workers — real `claude`/`codex`/`gemini` processes in split-panes | Codex/Gemini CLI tasks; on-demand spawn, die when done |
+| **ccg** | Tri-model: Codex (analytical) + Gemini (design) in parallel, Claude synthesizes | Mixed backend+UI work needing both Codex and Gemini |
 | **Autopilot** | Autonomous execution (single lead agent) | End-to-end feature work with minimal ceremony |
 | **Ultrawork** | Maximum parallelism (non-team) | Burst parallel fixes/refactors where Team isn't needed |
 | **Ralph** | Persistent mode with verify/fix loops | Tasks that must complete fully (no silent partials) |
@@ -141,6 +168,8 @@ Optional shortcuts for power users. Natural language works fine without them.
 | Keyword | Effect | Example |
 |---------|--------|---------|
 | `team` | Canonical Team orchestration | `/team 3:executor "fix all TypeScript errors"` |
+| `omc-teams` | tmux CLI workers (codex/gemini/claude) | `/omc-teams 2:codex "security review"` |
+| `ccg` | Tri-model Codex+Gemini orchestration | `/ccg review this PR` |
 | `autopilot` | Full autonomous execution | `autopilot: build a todo app` |
 | `ralph` | Persistence mode | `ralph: refactor auth` |
 | `ulw` | Maximum parallelism | `ulw fix all errors` |
