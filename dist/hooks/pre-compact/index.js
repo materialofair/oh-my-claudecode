@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, } from "fs";
 import { promises as fsPromises } from "fs";
 import { join } from "path";
-import { initJobDb, getActiveJobs, getRecentJobs, getJobStats } from '../../mcp/job-state-db.js';
+import { initJobDb, getActiveJobs, getRecentJobs, getJobStats } from '../../lib/job-state-db.js';
 // ============================================================================
 // Constants
 // ============================================================================
@@ -222,11 +222,11 @@ async function getActiveJobsSummary(directory) {
         if (!dbReady) {
             return { activeJobs: [], recentJobs: [], stats: null };
         }
-        const active = getActiveJobs(undefined, directory);
-        const recent = getRecentJobs(undefined, 5 * 60 * 1000, directory); // Last 5 minutes
+        const active = getActiveJobs();
+        const recent = getRecentJobs(undefined, 5 * 60 * 1000); // Last 5 minutes
         // Filter recent to only completed/failed (not active ones which are already listed)
         const recentCompleted = recent.filter(j => j.status === 'completed' || j.status === 'failed');
-        const stats = getJobStats(directory);
+        const stats = getJobStats();
         return {
             activeJobs: active.map(j => ({
                 jobId: j.jobId,

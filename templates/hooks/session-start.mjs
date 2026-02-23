@@ -69,7 +69,7 @@ async function checkForUpdates(currentVersion) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-    const response = await fetch('https://registry.npmjs.org/oh-my-claudecode/latest', {
+    const response = await fetch('https://registry.npmjs.org/oh-my-claude-sisyphus/latest', {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -221,7 +221,7 @@ async function main() {
 oh-my-claudecode v${updateInfo.latestVersion} is available (current: v${updateInfo.currentVersion}).
 
 ACTION: Use AskUserQuestion to ask the user if they want to upgrade now. Offer these options:
-- "Upgrade now" (Recommended): Run \`npm install -g oh-my-claudecode@latest\` via Bash, then run \`omc install --force --skip-claude-check --refresh-hooks\` to reconcile hooks and CLAUDE.md
+- "Upgrade now" (Recommended): Run \`npm install -g oh-my-claude-sisyphus@latest\` via Bash, then run \`omc install --force --skip-claude-check --refresh-hooks\` to reconcile hooks and CLAUDE.md
 - "Skip this time": Continue the session without upgrading
 - "Don't ask again": Tell the user to set "autoUpgradePrompt": false in ~/.claude/.omc-config.json to disable future prompts
 
@@ -346,20 +346,6 @@ ${agentsContent}${truncationNotice}
         // Skip if file can't be read
       }
     }
-
-    // MCP tool discovery reminder (deferred tools need ToolSearch before use)
-    messages.push(`<session-restore>
-
-[MCP TOOL DISCOVERY REQUIRED]
-
-MCP tools (ask_codex, ask_gemini) are deferred and NOT in your tool list yet.
-Before first use, call ToolSearch("mcp") to discover all available MCP tools.
-If ToolSearch returns no results, MCP servers are not configured -- use Claude agent fallbacks instead.
-
-</session-restore>
-
----
-`);
 
     if (messages.length > 0) {
       console.log(JSON.stringify({
