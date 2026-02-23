@@ -14,6 +14,8 @@ import { join } from 'path';
 import { mkdirSync, rmSync, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 
+type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
+
 // ─── killWorkerPanes + killTeamSession ───────────────────────────────────────
 
 // Mock child_process so tmux calls don't require a real tmux install
@@ -21,7 +23,7 @@ vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   return {
     ...actual,
-    execFile: vi.fn((_cmd: string, _args: string[], cb: Function) => cb(null, '', '')),
+    execFile: vi.fn((_cmd: string, _args: string[], cb: ExecFileCallback) => cb(null, '', '')),
     execFileSync: actual.execFileSync,
     execSync: actual.execSync,
   };
@@ -36,7 +38,7 @@ beforeEach(async () => {
   killedPanes = [];
   killedSessions = [];
   const cp = await import('child_process');
-  vi.mocked(cp.execFile).mockImplementation(((_cmd: string, args: string[], cb: Function) => {
+  vi.mocked(cp.execFile).mockImplementation(((_cmd: string, args: string[], cb: ExecFileCallback) => {
     if (args[0] === 'kill-pane') killedPanes.push(args[2]);
     if (args[0] === 'kill-session') killedSessions.push(args[2]);
     cb(null, '', '');
