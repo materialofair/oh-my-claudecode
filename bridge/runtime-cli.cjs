@@ -296,6 +296,17 @@ async function sendToWorker(sessionName, paneId, message) {
 }
 async function injectToLeaderPane(sessionName, leaderPaneId, message) {
   const prefixed = `[OMC_TMUX_INJECT] ${message}`.slice(0, 200);
+  try {
+    const { execFile } = await import("child_process");
+    const { promisify } = await import("util");
+    const execFileAsync = promisify(execFile);
+    const captured = await capturePaneAsync(leaderPaneId, execFileAsync);
+    if (paneHasActiveTask(captured)) {
+      await execFileAsync("tmux", ["send-keys", "-t", leaderPaneId, "C-c"]);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  } catch {
+  }
   return sendToWorker(sessionName, leaderPaneId, prefixed);
 }
 async function isWorkerAlive(paneId) {
@@ -626,7 +637,6 @@ _queued: ${(/* @__PURE__ */ new Date()).toISOString()}_
     stopWatchdog = watchdogCliWorkers(
       teamName,
       workerNames,
-      agentTypes,
       cwd,
       3e3,
       async (event) => {
@@ -707,7 +717,7 @@ async function monitorTeam(teamName, cwd, workerPaneIds) {
   }
   return { teamName, phase, workers, taskCounts, deadWorkers };
 }
-function watchdogCliWorkers(teamName, workerNames, agentTypes, cwd, intervalMs, onComplete) {
+function watchdogCliWorkers(teamName, workerNames, cwd, intervalMs, onComplete) {
   const processed = /* @__PURE__ */ new Set();
   const tick = async () => {
     for (let i = 0; i < workerNames.length; i++) {
@@ -838,10 +848,10 @@ async function main() {
   async function doShutdown(status) {
     pollActive = false;
     finalStatus = status;
-    const taskResults = collectTaskResults(stateRoot2);
     if (runtime?.stopWatchdog) {
       runtime.stopWatchdog();
     }
+    const taskResults = collectTaskResults(stateRoot2);
     if (runtime) {
       try {
         await shutdownTeam(

@@ -138,7 +138,7 @@ async function handleStatus(args: unknown): Promise<{ content: Array<{ type: 'te
   }
   const elapsed = ((Date.now() - job.startedAt) / 1000).toFixed(1);
   const out: Record<string, unknown> = { jobId: job_id, status: job.status, elapsedSeconds: elapsed };
-  if (job.result) out.result = JSON.parse(job.result) as unknown;
+  if (job.result) { try { out.result = JSON.parse(job.result) as unknown; } catch { out.result = job.result; } }
   if (job.stderr) out.stderr = job.stderr;
   return { content: [{ type: 'text', text: JSON.stringify(out) }] };
 }
@@ -157,7 +157,7 @@ async function handleWait(args: unknown): Promise<{ content: Array<{ type: 'text
     if (job.status !== 'running') {
       const elapsed = ((Date.now() - job.startedAt) / 1000).toFixed(1);
       const out: Record<string, unknown> = { jobId: job_id, status: job.status, elapsedSeconds: elapsed };
-      if (job.result) out.result = JSON.parse(job.result) as unknown;
+      if (job.result) { try { out.result = JSON.parse(job.result) as unknown; } catch { out.result = job.result; } }
       if (job.stderr) out.stderr = job.stderr;
       return { content: [{ type: 'text', text: JSON.stringify(out) }] };
     }

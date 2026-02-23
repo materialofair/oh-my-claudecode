@@ -226,7 +226,6 @@ export async function startTeam(config: TeamConfig): Promise<TeamRuntime> {
     stopWatchdog = watchdogCliWorkers(
       teamName,
       workerNames,
-      agentTypes,
       cwd,
       3000,
       async (event) => {
@@ -328,14 +327,12 @@ export async function monitorTeam(teamName: string, cwd: string, workerPaneIds: 
 }
 
 /**
- * Poll for CLI worker completion via done.json sentinel files.
- * Skips Claude workers (they use the sentinel/.ready protocol).
+ * Poll for all worker done.json sentinel files (claude, codex, gemini).
  * Returns a stop function that clears the interval.
  */
 export function watchdogCliWorkers(
   teamName: string,
   workerNames: string[],
-  agentTypes: CliAgentType[],
   cwd: string,
   intervalMs: number,
   onComplete: (event: WatchdogCompletionEvent) => Promise<void> | void

@@ -115,13 +115,13 @@ async function main(): Promise<void> {
     pollActive = false;
     finalStatus = status;
 
-    // 1. Collect task results before shutdown destroys state
-    const taskResults = collectTaskResults(stateRoot);
-
-    // 2. Stop watchdog if running
+    // 1. Stop watchdog first — prevents late tick from racing with result collection
     if (runtime?.stopWatchdog) {
       runtime.stopWatchdog();
     }
+
+    // 2. Collect task results (watchdog is now stopped, no more writes to tasks/)
+    const taskResults = collectTaskResults(stateRoot);
 
     // 3. Shutdown team with 2s timeout (non-Claude workers never write shutdown-ack.json)
     if (runtime) {

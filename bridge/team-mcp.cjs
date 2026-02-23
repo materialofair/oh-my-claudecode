@@ -17840,7 +17840,13 @@ async function handleStatus(args) {
   }
   const elapsed = ((Date.now() - job.startedAt) / 1e3).toFixed(1);
   const out = { jobId: job_id, status: job.status, elapsedSeconds: elapsed };
-  if (job.result) out.result = JSON.parse(job.result);
+  if (job.result) {
+    try {
+      out.result = JSON.parse(job.result);
+    } catch {
+      out.result = job.result;
+    }
+  }
   if (job.stderr) out.stderr = job.stderr;
   return { content: [{ type: "text", text: JSON.stringify(out) }] };
 }
@@ -17856,7 +17862,13 @@ async function handleWait(args) {
     if (job.status !== "running") {
       const elapsed = ((Date.now() - job.startedAt) / 1e3).toFixed(1);
       const out = { jobId: job_id, status: job.status, elapsedSeconds: elapsed };
-      if (job.result) out.result = JSON.parse(job.result);
+      if (job.result) {
+        try {
+          out.result = JSON.parse(job.result);
+        } catch {
+          out.result = job.result;
+        }
+      }
       if (job.stderr) out.stderr = job.stderr;
       return { content: [{ type: "text", text: JSON.stringify(out) }] };
     }

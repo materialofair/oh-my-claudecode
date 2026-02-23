@@ -374,6 +374,21 @@ export async function injectToLeaderPane(
   message: string
 ): Promise<boolean> {
   const prefixed = `[OMC_TMUX_INJECT] ${message}`.slice(0, 200);
+
+  // If the leader is running a blocking tool (e.g. omc_run_team_wait shows
+  // "esc to interrupt"), send C-c first so the message is not queued in the
+  // stdin buffer behind the blocked process.
+  try {
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const execFileAsync = promisify(execFile);
+    const captured = await capturePaneAsync(leaderPaneId, execFileAsync as never);
+    if (paneHasActiveTask(captured)) {
+      await execFileAsync('tmux', ['send-keys', '-t', leaderPaneId, 'C-c']);
+      await new Promise<void>(r => setTimeout(r, 250));
+    }
+  } catch { /* best-effort */ }
+
   return sendToWorker(sessionName, leaderPaneId, prefixed);
 }
 

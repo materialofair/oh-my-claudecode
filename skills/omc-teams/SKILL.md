@@ -41,7 +41,7 @@ Spawn N CLI worker processes in tmux panes to execute tasks in parallel. Support
 ## How It Works
 
 1. Claude decomposes the task into N independent subtasks (one per worker)
-2. Calls the `mcp__t__omc_run_team` MCP tool with the team config
+2. Calls `mcp__team__omc_run_team_start` then `mcp__team__omc_run_team_wait`
 3. The OMC MCP server spawns `runtime-cli.cjs` (co-located in the same install directory)
 4. The runtime creates tmux split-panes and launches the CLI processes
 5. Each worker reads its task from an inbox file and writes `done.json` on completion
@@ -157,7 +157,7 @@ state_write(mode="team", current_phase="completed", active=false)
 | Aspect | `/team` | `/omc-teams` |
 |--------|---------|-------------|
 | Worker type | Claude Code agents (`Task(subagent_type=...)`) | claude / codex / gemini CLI processes |
-| Invocation | `TeamCreate` / `SendMessage` / `TeamDelete` | `mcp__t__omc_run_team` MCP tool |
+| Invocation | `TeamCreate` / `SendMessage` / `TeamDelete` | `mcp__team__omc_run_team_start` + `omc_run_team_wait` |
 | Coordination | Native Claude Code team messaging | tmux panes + inbox files + `done.json` sentinels |
 | Communication | Native Claude Code team messaging | File-based (inbox.md → done.json) |
 | Use when | You want Claude agents with full tool access | You want CLI autonomy (codex/gemini) at scale |
