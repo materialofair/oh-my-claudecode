@@ -258,7 +258,8 @@ export type HookType =
   | "setup-init" // NEW: One-time initialization
   | "setup-maintenance" // NEW: Periodic maintenance
   | "permission-request" // NEW: Smart auto-approval
-  | "code-simplifier"; // NEW: Auto-simplify recently modified files on Stop
+  | "code-simplifier" // NEW: Auto-simplify recently modified files on Stop
+  | "conductor"; // NEW: Product-centered workflow hook
 
 /**
  * Extract prompt text from various input formats
@@ -1289,7 +1290,9 @@ export async function processHook(
 
       case "conductor": {
         const { processConductor } = await import("./conductor/index.js");
-        return await processConductor(input);
+        const commandInput = getPromptText(input).trim();
+        const output = await processConductor(commandInput);
+        return { continue: true, message: output };
       }
 
       default:

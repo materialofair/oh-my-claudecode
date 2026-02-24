@@ -21309,6 +21309,11 @@ var MODE_CONFIGS = {
     stateFile: "pipeline-state.json",
     activeProperty: "active"
   },
+  conductor: {
+    name: "Conductor",
+    stateFile: "../conductor/conductor-state.json",
+    activeProperty: "active"
+  },
   team: {
     name: "Team",
     stateFile: "team-state.json",

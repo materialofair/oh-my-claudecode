@@ -58,11 +58,6 @@ export declare function inlineSuccessBlocks(metadataText: string, wrappedRespons
  */
 export declare const SUBAGENT_HEADER = "[SUBAGENT MODE] You are running as a subagent. DO NOT spawn additional subagents or call Codex/Gemini CLI recursively. Focus only on your assigned task.";
 /**
- * Wrap file content with untrusted delimiters to prevent prompt injection.
- * Each file's content is clearly marked as data to analyze, not instructions.
- */
-export declare function wrapUntrustedFileContent(filepath: string, content: string): string;
-/**
  * Build the full prompt with system prompt prepended.
  *
  * Order: subagent_header > system_prompt > file_context > user_prompt

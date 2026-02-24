@@ -72,7 +72,7 @@ describe('executeCodex reasoning effort', () => {
         const promise = executeCodex('test prompt', 'gpt-5.3-codex', undefined, undefined);
         await promise;
         const [, spawnArgs] = spawnMock.mock.calls[0];
-        expect(spawnArgs).toEqual(['exec', '-m', 'gpt-5.3-codex', '--json', '--full-auto']);
+        expect(spawnArgs).toEqual(['exec', '-m', 'gpt-5.3-codex', '--json', '--full-auto', '--skip-git-repo-check']);
         expect(spawnArgs).not.toContain('-c');
     });
     it('should include -c model_reasoning_effort when reasoningEffort is "low"', async () => {
@@ -106,6 +106,12 @@ describe('executeCodex reasoning effort', () => {
         const [, spawnArgs] = spawnMock.mock.calls[0];
         expect(spawnArgs).not.toContain('-c');
     });
+    it('should always include --skip-git-repo-check to support untrusted directories', async () => {
+        setupSpawnMock();
+        await executeCodex('test prompt', 'gpt-5.3-codex');
+        const [, spawnArgs] = spawnMock.mock.calls[0];
+        expect(spawnArgs).toContain('--skip-git-repo-check');
+    });
 });
 describe('executeCodexWithFallback reasoning effort passthrough', () => {
     it('should pass reasoningEffort to the executor function', async () => {
@@ -134,6 +140,34 @@ describe('executeCodexWithFallback reasoning effort passthrough', () => {
         expect(mockExecutor.mock.calls[0][3]).toBe('low');
         // Second call with fallback model
         expect(mockExecutor.mock.calls[1][3]).toBe('low');
+        expect(result.usedFallback).toBe(true);
+        expect(result.actualModel).toBe('gpt-5.2-codex');
+    });
+    it('explicit model retries same model for disconnect errors (no fallback model switch)', async () => {
+        const mockExecutor = vi.fn()
+            .mockRejectedValueOnce(new Error('Codex rate limit error: stream disconnected'))
+            .mockRejectedValueOnce(new Error('Codex rate limit error: ECONNRESET'))
+            .mockResolvedValueOnce('ok after retry');
+        const mockSleep = vi.fn().mockResolvedValue(undefined);
+        const result = await executeCodexWithFallback('test prompt', 'gpt-5.3-codex', undefined, ['gpt-5.3-codex', 'gpt-5.2-codex'], { executor: mockExecutor, sleepFn: mockSleep }, 'medium');
+        expect(mockExecutor).toHaveBeenCalledTimes(3);
+        expect(mockExecutor.mock.calls[0][1]).toBe('gpt-5.3-codex');
+        expect(mockExecutor.mock.calls[1][1]).toBe('gpt-5.3-codex');
+        expect(mockExecutor.mock.calls[2][1]).toBe('gpt-5.3-codex');
+        expect(result.usedFallback).toBe(false);
+        expect(result.actualModel).toBe('gpt-5.3-codex');
+        expect(mockSleep).toHaveBeenCalledTimes(2);
+    });
+    it('implicit model advances fallback chain on disconnect errors', async () => {
+        const mockExecutor = vi.fn()
+            .mockRejectedValueOnce(new Error('Codex rate limit error: transport closed'))
+            .mockResolvedValueOnce('fallback response');
+        const mockSleep = vi.fn().mockResolvedValue(undefined);
+        const result = await executeCodexWithFallback('test prompt', undefined, undefined, ['gpt-5.3-codex', 'gpt-5.2-codex'], { executor: mockExecutor, sleepFn: mockSleep }, 'low');
+        expect(mockExecutor).toHaveBeenCalledTimes(2);
+        expect(mockExecutor.mock.calls[0][1]).toBe('gpt-5.3-codex');
+        expect(mockExecutor.mock.calls[1][1]).toBe('gpt-5.2-codex');
+        expect(mockSleep).toHaveBeenCalledTimes(1);
         expect(result.usedFallback).toBe(true);
         expect(result.actualModel).toBe('gpt-5.2-codex');
     });
