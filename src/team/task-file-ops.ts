@@ -170,7 +170,7 @@ function sanitizeTaskId(taskId: string): string {
 function canonicalTasksDir(teamName: string, cwd?: string): string {
   const root = cwd ?? process.cwd();
   const dir = getTaskStoragePath(root, sanitizeName(teamName));
-  validateResolvedPath(dir, getTaskStoragePath(root, sanitizeName(teamName)));
+  validateResolvedPath(dir, join(root, '.omc', 'state', 'team'));
   return dir;
 }
 
@@ -181,7 +181,7 @@ function canonicalTasksDir(teamName: string, cwd?: string): string {
 function legacyTasksDir(teamName: string): string {
   const claudeConfigDir = getClaudeConfigDir();
   const dir = getLegacyTaskStoragePath(claudeConfigDir, sanitizeName(teamName));
-  validateResolvedPath(dir, getLegacyTaskStoragePath(claudeConfigDir, sanitizeName(teamName)));
+  validateResolvedPath(dir, join(claudeConfigDir, 'tasks'));
   return dir;
 }
 

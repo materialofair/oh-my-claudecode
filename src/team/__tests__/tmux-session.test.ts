@@ -85,7 +85,7 @@ describe('buildWorkerStartCommand', () => {
       cwd: '/tmp'
     });
 
-    expect(cmd).toContain('env A=1 /bin/zsh -c');
+    expect(cmd).toContain("env A='1' /bin/zsh -c");
     expect(cmd).toContain('[ -f "/home/tester/.zshrc" ] && source "/home/tester/.zshrc";');
   });
 

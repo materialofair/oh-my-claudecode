@@ -110,7 +110,10 @@ export function buildWorkerStartCommand(config: WorkerPaneConfig): string {
   }
 
   const envString = Object.entries(config.envVars)
-    .map(([k, v]) => `${k}=${v}`)
+    .map(([k, v]) => {
+      assertSafeEnvKey(k);
+      return `${k}=${shellEscape(v)}`;
+    })
     .join(' ');
 
   const shellName = shellNameFromPath(shell) || 'bash';
