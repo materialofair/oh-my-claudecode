@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-28 | Updated: 2026-01-31 -->
+<!-- Generated: 2026-01-28 | Updated: 2026-02-24 -->
 
 # hooks
 
@@ -20,6 +20,11 @@ Hooks intercept Claude Code events to enable:
 |------|-------------|
 | `index.ts` | Re-exports all hooks |
 | `bridge.ts` | Shell script entry point - `processHook()` routes events to handlers |
+
+### Bridge Import Safety
+
+- `bridge.ts` must remain safe to import as a library module.
+- Keep direct-execution checks guarded (do not assume `process.argv[1]` is always defined).
 
 ## Subdirectories
 

@@ -1347,8 +1347,11 @@ export async function main(): Promise<void> {
   console.log(JSON.stringify(output));
 }
 
-// Run if called directly
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Run if called directly.
+// Guard argv[1] because this module is also imported as a library entrypoint.
+const invokedPath = process.argv[1];
+const isDirectRun = typeof invokedPath === "string" && import.meta.url === pathToFileURL(invokedPath).href;
+if (isDirectRun) {
   main().catch((err) => {
     console.error("[hook-bridge] Fatal error:", err);
     process.exit(1);
