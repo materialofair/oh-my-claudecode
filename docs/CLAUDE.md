@@ -158,19 +158,41 @@ Code Intelligence:
 
 ---
 
-<skills>
-Skills are user-invocable commands (`/oh-my-claudecode:<name>`). When you detect trigger patterns, invoke the corresponding skill.
+<passive-behaviors>
+These behaviors apply unconditionally — no skill invocation required:
+- ALWAYS delegate source code edits (.ts/.py/.go/.js/.tsx etc.) to `executor`; never write them directly
+- ALWAYS run `verifier` before claiming a task complete
+- "build me" / "I want a [project]" / "create a [app]" → start autopilot workflow immediately
+- "don't stop" / "must complete" → ralph mode, loop until verified complete
+- broad request (vague verb, no target file/function, touches 3+ areas) → explore first, then plan skill
+- project has AGENTS.md files → read them as authoritative passive context before any codebase work
+</passive-behaviors>
 
-Workflow Skills:
-- `autopilot` ("autopilot", "build me", "I want a"): full autonomous execution from idea to working code
-- `ralph` ("ralph", "don't stop", "must complete"): self-referential loop with verifier verification; includes ultrawork
-- `ultrawork` ("ulw", "ultrawork"): maximum parallelism with parallel agent orchestration
+<skills>
+Trigger words below fire deterministically — no deliberation about whether to invoke. The summaries below are sufficient for direct execution; invoke the Skill tool for full protocol detail when needed.
+
+**Core Workflow Skills (inline summaries):**
+
+`autopilot` ("autopilot", "build me", "I want a"):
+  Expansion: analyst+architect expand idea into spec → Planning: planner+critic create plan → Execution: ultrawork implements → QA: ultraqa cycles → Validation: verifier+security-reviewer validate. Invoke skill for full 6-phase protocol.
+
+`ralph` ("ralph", "don't stop", "must complete"):
+  Persistent loop: execute task → verifier checks completeness → if incomplete, identify gaps, fix, retry. Never stops until verifier confirms complete. Includes ultrawork for parallelism. Invoke skill for loop configuration.
+
+`team` ("team", "coordinated team", "team ralph"):
+  Pipeline: team-plan (explore+planner) → team-prd (analyst) → team-exec (executor+specialists) → team-verify (verifier+reviewers) → team-fix (loop). TeamCreate → TaskCreate×N → spawn agents → claim tasks → shutdown → TeamDelete. Invoke skill for full stage protocol.
+
+`plan` ("plan this", "plan the"):
+  EnterPlanMode → explore codebase with Glob/Grep/Read → design approach → AskUserQuestion if ambiguous → ExitPlanMode for approval. `--consensus`: Planner+Architect+Critic iterate until agreement. Invoke skill for full protocol.
+
+`ultrawork` ("ulw", "ultrawork"):
+  Maximum parallelism: decompose into independent subtasks, spawn 3-10 executor agents simultaneously with run_in_background. Invoke skill for task decomposition protocol.
+
+**Other Workflow Skills:**
 - `swarm` ("swarm"): **deprecated compatibility alias** over Team; use `/team` (still routes to Team staged pipeline for now)
 - `ultrapilot` ("ultrapilot", "parallel build"): compatibility facade over Team; maps onto Team's staged runtime
-- `team` ("team", "coordinated team", "team ralph"): N coordinated agents using Claude Code native teams with stage-aware agent routing; supports `team ralph` for persistent team execution
 - `pipeline` ("pipeline", "chain agents"): sequential agent chaining with data passing
 - `ultraqa` (activated by autopilot): QA cycling -- test, verify, fix, repeat
-- `plan` ("plan this", "plan the"): strategic planning; supports `--consensus` and `--review` modes
 - `ralplan` ("ralplan", "consensus plan"): alias for `/plan --consensus` -- iterative planning with Planner, Architect, Critic until consensus
 - `sciomc` ("sciomc"): parallel scientist agents for comprehensive analysis
 - `external-context`: invoke parallel document-specialist agents for web searches
