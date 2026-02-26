@@ -355,7 +355,8 @@ function checkArchitectRejectionInTranscript(sessionId: string): { rejected: boo
  */
 async function checkRalphLoop(
   sessionId?: string,
-  directory?: string
+  directory?: string,
+  cancelInProgress?: boolean
 ): Promise<PersistentModeResult | null> {
   const workingDir = resolveToWorktreeRoot(directory);
   const state = readRalphState(workingDir, sessionId);
@@ -370,7 +371,8 @@ async function checkRalphLoop(
   }
 
   // Explicit cancellation window: never re-arm Ralph internals while cancel is in progress.
-  if (isSessionCancelInProgress(workingDir, sessionId)) {
+  // Uses cached cancel signal from checkPersistentModes to avoid TOCTOU re-reads.
+  if (cancelInProgress) {
     return {
       shouldBlock: false,
       message: '',
@@ -506,15 +508,7 @@ async function checkRalphLoop(
     };
   }
 
-  // Check max iterations
-  if (isSessionCancelInProgress(workingDir, sessionId)) {
-    return {
-      shouldBlock: false,
-      message: '',
-      mode: 'none'
-    };
-  }
-
+  // Check max iterations (cancel already checked at function entry via cached flag)
   if (state.iteration >= state.max_iterations) {
     // Do not silently stop Ralph with unfinished work.
     // Extend the limit and continue enforcement so user-visible cancellation
@@ -578,7 +572,8 @@ ${newState.prompt ? `Original task: ${newState.prompt}` : ''}
 async function checkUltrawork(
   sessionId?: string,
   directory?: string,
-  _hasIncompleteTodos?: boolean
+  _hasIncompleteTodos?: boolean,
+  cancelInProgress?: boolean
 ): Promise<PersistentModeResult | null> {
   const workingDir = resolveToWorktreeRoot(directory);
   const state = readUltraworkState(workingDir, sessionId);
@@ -592,7 +587,8 @@ async function checkUltrawork(
     return null;
   }
 
-  if (isSessionCancelInProgress(workingDir, sessionId)) {
+  // Uses cached cancel signal from checkPersistentModes to avoid TOCTOU re-reads.
+  if (cancelInProgress) {
     return {
       shouldBlock: false,
       message: '',
@@ -723,8 +719,9 @@ export async function checkPersistentModes(
   }
 
   // Session-scoped cancel signal from state_clear during /cancel flow.
-  // Ensures stop-hook does not re-arm Ralph/Ultrawork while cancellation is in progress.
-  if (isSessionCancelInProgress(workingDir, sessionId)) {
+  // Cache once and pass to sub-functions to avoid TOCTOU re-reads (issue #1058).
+  const cancelInProgress = isSessionCancelInProgress(workingDir, sessionId);
+  if (cancelInProgress) {
     return {
       shouldBlock: false,
       message: '',
@@ -760,7 +757,7 @@ export async function checkPersistentModes(
   const hasIncompleteTodos = todoResult.count > 0;
 
   // Priority 1: Ralph (explicit loop mode)
-  const ralphResult = await checkRalphLoop(sessionId, workingDir);
+  const ralphResult = await checkRalphLoop(sessionId, workingDir, cancelInProgress);
   if (ralphResult) {
     return ralphResult;
   }
@@ -786,7 +783,7 @@ export async function checkPersistentModes(
   }
 
   // Priority 2: Ultrawork Mode (performance mode with persistence)
-  const ultraworkResult = await checkUltrawork(sessionId, workingDir, hasIncompleteTodos);
+  const ultraworkResult = await checkUltrawork(sessionId, workingDir, hasIncompleteTodos, cancelInProgress);
   if (ultraworkResult?.shouldBlock) {
     return ultraworkResult;
   }
