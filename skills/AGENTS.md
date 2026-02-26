@@ -44,6 +44,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | `security-review/SKILL.md` | security-review | Security vulnerability detection |
 | `tdd/SKILL.md` | tdd | Test-driven development workflow |
 | `build-fix/SKILL.md` | build-fix | Fix build and TypeScript errors |
+| `ai-commenting/SKILL.md` | ai-commenting | AI-native code annotation protocol for intent/risk/deps/test context |
 
 ### Exploration Skills
 
