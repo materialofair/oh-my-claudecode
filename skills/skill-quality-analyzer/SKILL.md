@@ -1,21 +1,26 @@
 ---
 name: skill-quality-analyzer
-description: Analyzes Codex skill quality with 6-dimension scoring system similar to CodeDNA, providing actionable improvement recommendations
+description: Analyzes Claude Code skill quality with 6-dimension scoring system, providing actionable improvement recommendations for descriptions, structure, examples, and triggers.
 ---
 
 # Skill Quality Analyzer
 
-Comprehensive quality analysis system for Codex skills using a 6-dimension scoring framework inspired by CodeDNA. Identifies quality issues, provides improvement recommendations, and generates detailed quality reports.
+Comprehensive quality analysis system for Claude Code skills using a 6-dimension scoring framework. Identifies quality issues, provides improvement recommendations, and generates detailed quality reports.
 
 ## Agent Workflow
 
 To perform a high-quality analysis, follow this **Hybrid Workflow**:
 
-1.  **Run Static Analysis**: Execute `python3 analyzer.py --skill-path [TARGET_SKILL_PATH]` to get objective metrics for the **target skill**.
-2.  **Read Target Skill Content**: Use `view_file` to read the `SKILL.md` and `HOW_TO_USE.md` of the **skill you are analyzing** (the target skill). *Do not read this analyzer skill's own files.*
-3.  **Synthesize Report**: Combine the script's findings (hard metrics) with your manual review of the **target skill's content** (soft metrics) to generate the final report.
-    *   *Script says*: "Description too short." -> *You check*: "Is it just short, or is it actual nonsense?"
-    *   *Script says*: "100/100 score." -> *You check*: "Format is perfect, but does the logic make sense?"
+1.  **Hard Metrics (tools)**: Use `Glob` and `Read` tools to gather objective facts about the **target skill**.
+    - Does `SKILL.md` exist? Check with `Glob("skills/<name>/SKILL.md")`
+    - Does the description contain quoted trigger phrases? Check with `Read` on the frontmatter
+    - Are referenced `references/` files present? Verify each exists
+    - If `analyzer.py` is present in this skill's directory, run it: `python3 skills/skill-quality-analyzer/analyzer.py --skill-path [TARGET_SKILL_PATH]`
+2.  **Soft Metrics (judgment)**: Use `Read` to read the target skill's `SKILL.md` content and assess semantics.
+    *Do not read this analyzer skill's own files — read only the skill being analyzed.*
+    - *Script says*: "Description too short." → *You check*: "Is it just short, or actually nonsense?"
+    - *Script says*: "100/100 score." → *You check*: "Format is perfect, but does the logic make sense?"
+3.  **Synthesize Report**: Combine hard metrics + soft judgment into a severity-ranked report.
 
 ## Capabilities
 
@@ -29,7 +34,7 @@ To perform a high-quality analysis, follow this **Hybrid Workflow**:
 ## Input Requirements
 
 **Single Skill Analysis**:
-- Skill folder path (e.g., `~/.codex/skills/my-skill/`)
+- Skill folder path (e.g., `~/.claude/skills/my-skill/` or `skills/my-skill/`)
 - Or SKILL.md file path directly
 
 **Batch Analysis**:
@@ -109,7 +114,7 @@ To perform a high-quality analysis, follow this **Hybrid Workflow**:
   - <50: No examples or sample data
 
 ### 4. Trigger Detection (15%)
-- **What it measures**: How easily Codex can determine when to invoke this skill
+- **What it measures**: How easily Claude can determine when to invoke this skill
 - **Key indicators**:
   - Clear "When to use" section
   - Specific trigger keywords identified
@@ -122,13 +127,13 @@ To perform a high-quality analysis, follow this **Hybrid Workflow**:
   - <50: No clear triggers
 
 ### 5. Best Practices (15%)
-- **What it measures**: Adherence to Codex skill development standards
+- **What it measures**: Adherence to Claude Code skill development standards
 - **Key indicators**:
-  - Follows Codex naming conventions
+  - Follows Claude Code naming conventions (kebab-case folder = YAML name)
   - Proper Python structure (if applicable)
-  - README.md and HOW_TO_USE.md present
-  - No backup files or __pycache__
-  - Proper file organization
+  - No backup files or `__pycache__`
+  - Proper file organization (SKILL.md + optional references/, scripts/)
+  - No platform-specific branding (e.g., "Codex" in a Claude Code skill)
 - **Scoring**:
   - 90-100: Exemplary adherence
   - 70-89: Minor deviations
@@ -153,35 +158,36 @@ To perform a high-quality analysis, follow this **Hybrid Workflow**:
 
 **Basic Analysis**:
 ```
-"Analyze the quality of my skill-creator skill"
-"What's the quality score for ~/.codex/skills/code-review/"
-"Run quality analysis on the aws-solution-architect skill"
+"Analyze the quality of my skill-development skill"
+"What's the quality score for ~/.claude/skills/code-review/"
+"Run quality analysis on the skill-debugger skill"
 ```
 
 **Detailed Report**:
 ```
 "Generate a detailed quality report for skill-debugger"
-"Analyze ~/.codex/skills/prompt-factory/ and create improvement recommendations"
+"Analyze skills/skill-development/ and create improvement recommendations"
 ```
 
 **Batch Analysis**:
 ```
-"Analyze all skills in ~/.codex/skills/ and rank them by quality"
+"Analyze all skills in skills/ and rank them by quality"
 "Compare quality scores across all my custom skills"
 ```
 
 **Comparative Analysis**:
 ```
-"Compare my code-review skill against Antigravity's best practices"
-"How does skill-tester compare to official skills in quality?"
+"Compare my code-review skill against best practices"
+"How does skill-tester compare to the skill-development skill in quality?"
 ```
 
 ## Scripts
 
 - `analyzer.py`: Core 6-dimension quality analysis engine
-  - Usage: `python3 analyzer.py --skill-path /path/to/skill`
+  - Usage: `python3 skills/skill-quality-analyzer/analyzer.py --skill-path /path/to/skill`
+  - Run this as the **Hard Metrics** step before manual review
 - `validator.py`: YAML frontmatter and structure validation (merged into analyzer.py)
-- `best_practices_checker.py`: Checks adherence to Codex standards (merged into analyzer.py)
+- `best_practices_checker.py`: Checks adherence to Claude Code standards (merged into analyzer.py)
 
 ## Best Practices
 
@@ -192,22 +198,15 @@ To perform a high-quality analysis, follow this **Hybrid Workflow**:
 5. **Batch Analysis for Consistency**: Use batch mode to ensure consistent quality across all your skills
 6. **Compare Against Examples**: Use comparative analysis to learn from official skills
 
-## Integration with Quality Systems
+## Integration with Skill Pipeline
 
-**Agent-KB Integration**:
-- Automatically records quality patterns from high-scoring skills
-- Learns common issues from low-scoring skills
-- Suggests improvements based on historical data
+**With skill-development**: Use after creating a new skill to validate it meets the standard before shipping.
 
-**CodeDNA Alignment**:
-- Uses similar 6-dimension framework
-- Consistent scoring methodology
-- Shares best practices database
+**With skill-debugger**: Run quality-analyzer first (structural issues), then skill-debugger (trigger issues).
 
-**CI/CD Integration**:
-- Can be used in pre-commit hooks
-- Quality gates for skill deployment
-- Automated quality regression testing
+**With skill-tester**: Quality-analyzer checks static quality; skill-tester validates behavioral correctness.
+
+**Recommended pipeline**: `skill-development` → `skill-quality-analyzer` → `skill-debugger` → `skill-tester`
 
 ## Limitations
 
@@ -220,10 +219,9 @@ To perform a high-quality analysis, follow this **Hybrid Workflow**:
 
 ## When NOT to Use This Skill
 
-- **Testing Functional Correctness**: Use skill-tester instead
-- **Runtime Debugging**: Use skill-debugger for execution issues
-- **Documentation Generation**: Use skill-doc-generator for creating docs
-- **Initial Skill Creation**: Use skill-creator or templates first, then analyze
+- **Testing trigger behavior**: Use skill-debugger instead (why isn't it triggering?)
+- **Verifying behavioral correctness**: Use skill-tester instead (does it produce the right output?)
+- **Creating a new skill**: Use skill-development first, then analyze
 
 ## Quality Thresholds
 
@@ -243,5 +241,5 @@ To perform a high-quality analysis, follow this **Hybrid Workflow**:
 | Structure | Code organization | Section organization & YAML |
 | Examples | Test coverage | Usage examples & sample data |
 | Patterns | Design patterns | Trigger detection |
-| Standards | Coding standards | Codex best practices |
+| Standards | Coding standards | Claude Code best practices |
 | Maintenance | Cyclomatic complexity | File cleanliness & modularity |

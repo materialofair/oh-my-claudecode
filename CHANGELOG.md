@@ -1,3 +1,20 @@
+# oh-my-claudecode v4.4.0: Skill Ecosystem Improvements
+
+Adds `skill-development` as the official authorship guide for writing OMC skills, fixes Codex branding in ported skills, and adapts the quality analyzer workflow for Claude Code tooling.
+
+---
+
+### Added
+
+- **`skill-development` skill**: New skill (equivalent of `skill-development` from the Codex ecosystem) covering OMC skill structure, description trigger-phrase conventions, progressive disclosure, and the quality pipeline (`skill-development` → `skill-quality-analyzer` → `skill-debugger` → `skill-tester`). Includes `references/format-guide.md` and `references/description-patterns.md`.
+
+### Fixed
+
+- **`skill-quality-analyzer`**: Replaced Codex-specific branding throughout; updated Agent Workflow to use Claude Code's `Glob`/`Read` tools as the primary Hard Metrics step (replaces non-existent `view_file` tool); updated skill path examples from `~/.codex/skills/` to `~/.claude/skills/`; replaced Codex-centric Integration section with OMC skill pipeline.
+- **`skill-quality-analyzer` Best Practices dimension**: Now checks for Claude Code naming conventions and flags platform-specific branding as a quality issue.
+
+---
+
 # oh-my-claudecode v4.3.4: MCP Reliability & Hook Hardening
 
 This release is a concentrated bug-fix batch targeting MCP bridge stability, hook field normalization, security hardening, and cross-platform compatibility. No breaking changes.
