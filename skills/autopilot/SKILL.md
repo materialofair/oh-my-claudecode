@@ -46,9 +46,8 @@ Most non-trivial software tasks require coordinated phases: understanding requir
    - Output: `.omc/plans/autopilot-impl.md`
 
 3. **Phase 2 - Execution**: Implement the plan using Ralph + Ultrawork
-   - Executor-low (Haiku): Simple tasks
-   - Executor (Sonnet): Standard tasks
-   - Executor-high (Opus): Complex tasks
+   - Executor (Sonnet): Standard implementation tasks
+   - Deep-executor (Opus): Complex autonomous tasks
    - Run independent tasks in parallel
 
 4. **Phase 3 - QA**: Cycle until all tests pass (UltraQA mode)
@@ -62,9 +61,6 @@ Most non-trivial software tasks require coordinated phases: understanding requir
    - Code-reviewer: Quality review
    - All must approve; fix and re-validate on rejection
 
-6. **Phase 5 - Cleanup**: Delete all state files on successful completion
-   - Remove `.omc/state/autopilot-state.json`, `ralph-state.json`, `ultrawork-state.json`, `ultraqa-state.json`
-   - Run `/oh-my-claudecode:cancel` for clean exit
 </Steps>
 
 <Tool_Usage>
@@ -117,21 +113,17 @@ Why bad: This is an exploration/brainstorming request. Respond conversationally 
 <Advanced>
 ## Configuration
 
-Optional settings in `.claude/settings.json`:
+Default values used internally (passed programmatically via the `config` parameter to `initAutopilot`):
 
 ```json
 {
-  "omc": {
-    "autopilot": {
-      "maxIterations": 10,
-      "maxQaCycles": 5,
-      "maxValidationRounds": 3,
-      "pauseAfterExpansion": false,
-      "pauseAfterPlanning": false,
-      "skipQa": false,
-      "skipValidation": false
-    }
-  }
+  "maxIterations": 10,
+  "maxQaCycles": 5,
+  "maxValidationRounds": 3,
+  "pauseAfterExpansion": false,
+  "pauseAfterPlanning": false,
+  "skipQa": false,
+  "skipValidation": false
 }
 ```
 
@@ -148,7 +140,7 @@ If autopilot was cancelled or failed, run `/oh-my-claudecode:autopilot` again to
 
 ## Troubleshooting
 
-**Stuck in a phase?** Check TODO list for blocked tasks, review `.omc/autopilot-state.json`, or cancel and resume.
+**Stuck in a phase?** Check TODO list for blocked tasks, review `.omc/state/autopilot-state.json`, or cancel and resume.
 
 **QA cycles exhausted?** The same error 3 times indicates a fundamental issue. Review the error pattern; manual intervention may be needed.
 

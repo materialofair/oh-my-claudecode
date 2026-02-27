@@ -66,8 +66,8 @@ export function clearStateCache(): void {
 // Legacy state locations (for backward compatibility)
 const LEGACY_LOCATIONS: Record<string, string[]> = {
   boulder: [".omc/boulder.json"],
-  autopilot: [".omc/autopilot-state.json"],
-  "autopilot-state": [".omc/autopilot-state.json"],
+  autopilot: [".omc/state/autopilot-state.json"],
+  "autopilot-state": [".omc/state/autopilot-state.json"],
   ralph: [".omc/ralph-state.json"],
   "ralph-state": [".omc/ralph-state.json"],
   "ralph-verification": [".omc/ralph-verification.json"],
