@@ -8,7 +8,7 @@
  * Bash hook scripts were removed in v3.9.0.
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync, readdirSync, cpSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
@@ -30,6 +30,11 @@ export const HOOKS_DIR = join(CLAUDE_CONFIG_DIR, 'hooks');
 export const HUD_DIR = join(CLAUDE_CONFIG_DIR, 'hud');
 export const SETTINGS_FILE = join(CLAUDE_CONFIG_DIR, 'settings.json');
 export const VERSION_FILE = join(CLAUDE_CONFIG_DIR, '.omc-version.json');
+export const PLUGINS_DIR = join(CLAUDE_CONFIG_DIR, 'plugins');
+export const PLUGIN_DIR = join(PLUGINS_DIR, 'oh-my-claudecode');
+export const INSTALLED_PLUGINS_FILE = join(PLUGINS_DIR, 'installed_plugins.json');
+export const KNOWN_MARKETPLACES_FILE = join(PLUGINS_DIR, 'known_marketplaces.json');
+export const MARKETPLACE_DIR = join(PLUGINS_DIR, 'marketplaces', 'omc');
 
 /**
  * Core commands - DISABLED for v3.0+
@@ -383,6 +388,127 @@ export function mergeClaudeMd(existingContent: string | null, omcContent: string
 }
 
 /**
+ * Install OMC as a Claude Code plugin to ~/.claude/plugins/oh-my-claudecode/.
+ * Copies skills/ directory, generates commands/, writes marketplace.json,
+ * and updates installed_plugins.json and known_marketplaces.json.
+ */
+function installPlugin(version: string, log: (msg: string) => void): void {
+  const pkgDir = getPackageDir();
+  const skillsSrc = join(pkgDir, 'skills');
+
+  if (!existsSync(skillsSrc)) {
+    log('  Warning: skills/ directory not found in package, skipping plugin install');
+    return;
+  }
+
+  // Ensure plugin directory exists
+  if (!existsSync(PLUGIN_DIR)) {
+    mkdirSync(PLUGIN_DIR, { recursive: true });
+  }
+
+  // Copy skills/ into plugin dir's skills/ subdirectory
+  const pluginSkillsDir = join(PLUGIN_DIR, 'skills');
+  if (!existsSync(pluginSkillsDir)) {
+    mkdirSync(pluginSkillsDir, { recursive: true });
+  }
+  cpSync(skillsSrc, pluginSkillsDir, { recursive: true, force: true });
+  log('  Copied skills/ to plugin directory');
+
+  // Copy .claude-plugin/ directory to plugin root so Claude Code can discover the plugin manifest
+  const claudePluginSrc = join(pkgDir, '.claude-plugin');
+  const claudePluginDest = join(PLUGIN_DIR, '.claude-plugin');
+  if (existsSync(claudePluginSrc)) {
+    if (!existsSync(claudePluginDest)) {
+      mkdirSync(claudePluginDest, { recursive: true });
+    }
+    cpSync(claudePluginSrc, claudePluginDest, { recursive: true, force: true });
+    log('  Copied .claude-plugin/ to plugin directory');
+  }
+
+  // Generate commands/ from skills (thin wrappers for Claude Code slash command discovery)
+  const pluginCommandsDir = join(PLUGIN_DIR, 'commands');
+  if (!existsSync(pluginCommandsDir)) {
+    mkdirSync(pluginCommandsDir, { recursive: true });
+  }
+
+  let commandCount = 0;
+  for (const skillName of readdirSync(skillsSrc)) {
+    if (skillName === 'AGENTS.md') continue;
+    const skillMdPath = join(skillsSrc, skillName, 'SKILL.md');
+    if (!existsSync(skillMdPath)) continue;
+
+    // Read skill to get description
+    const skillContent = readFileSync(skillMdPath, 'utf-8');
+    const descMatch = skillContent.match(/^description:\s*(.+)$/m);
+    const description = descMatch ? descMatch[1].replace(/^["']|["']$/g, '') : `${skillName} skill`;
+
+    // Write thin wrapper command (no 'name' field - Claude Code command format)
+    const commandContent = `---\ndescription: "${description}"\n---\n\nInvoke the oh-my-claudecode:${skillName} skill and follow it exactly as presented to you`;
+    writeFileSync(join(pluginCommandsDir, `${skillName}.md`), commandContent);
+    commandCount++;
+  }
+  log(`  Generated ${commandCount} command wrappers`);
+
+  // Create marketplace directory and marketplace.json
+  // Claude Code looks for .claude-plugin/marketplace.json within the marketplace directory
+  const marketplacePluginDir = join(MARKETPLACE_DIR, '.claude-plugin');
+  if (!existsSync(marketplacePluginDir)) {
+    mkdirSync(marketplacePluginDir, { recursive: true });
+  }
+  const marketplaceJson = {
+    '$schema': 'https://anthropic.com/claude-code/marketplace.schema.json',
+    name: 'omc',
+    description: 'oh-my-claudecode multi-agent orchestration system for Claude Code',
+    owner: { name: 'oh-my-claudecode contributors' },
+    plugins: [{
+      name: 'oh-my-claudecode',
+      description: 'Multi-agent orchestration system for Claude Code',
+      source: '.',
+      category: 'development',
+    }],
+  };
+  writeFileSync(join(marketplacePluginDir, 'marketplace.json'), JSON.stringify(marketplaceJson, null, 2));
+  log('  Created .claude-plugin/marketplace.json');
+
+  // Update known_marketplaces.json to point to the stable marketplace directory
+  if (!existsSync(PLUGINS_DIR)) {
+    mkdirSync(PLUGINS_DIR, { recursive: true });
+  }
+  let knownMarketplaces: Record<string, unknown> = {};
+  if (existsSync(KNOWN_MARKETPLACES_FILE)) {
+    try {
+      knownMarketplaces = JSON.parse(readFileSync(KNOWN_MARKETPLACES_FILE, 'utf-8'));
+    } catch { /* use default */ }
+  }
+  knownMarketplaces['omc'] = {
+    source: { source: 'directory', path: MARKETPLACE_DIR },
+    installLocation: MARKETPLACE_DIR,
+    lastUpdated: new Date().toISOString(),
+  };
+  writeFileSync(KNOWN_MARKETPLACES_FILE, JSON.stringify(knownMarketplaces, null, 2));
+  log('  Updated known_marketplaces.json');
+
+  // Update installed_plugins.json
+  let installedPlugins: Record<string, unknown> = { version: 2, plugins: {} };
+  if (existsSync(INSTALLED_PLUGINS_FILE)) {
+    try {
+      installedPlugins = JSON.parse(readFileSync(INSTALLED_PLUGINS_FILE, 'utf-8'));
+    } catch { /* use default */ }
+  }
+  const plugins = (installedPlugins.plugins as Record<string, unknown[]>) ?? {};
+  plugins['oh-my-claudecode@omc'] = [{
+    scope: 'user',
+    installPath: PLUGIN_DIR,
+    version,
+    installedAt: new Date().toISOString(),
+    lastUpdated: new Date().toISOString(),
+  }];
+  installedPlugins.plugins = plugins;
+  writeFileSync(INSTALLED_PLUGINS_FILE, JSON.stringify(installedPlugins, null, 2));
+  log('  Updated installed_plugins.json');
+}
+
+/**
  * Install OMC agents, commands, skills, and hooks
  */
 export function install(options: InstallOptions = {}): InstallResult {
@@ -553,6 +679,16 @@ export function install(options: InstallOptions = {}): InstallResult {
       // All hooks are delivered via the plugin's hooks/hooks.json + scripts/.
       // Legacy hook entries are cleaned up from settings.json below.
       result.hooksConfigured = true; // Will be set properly after consolidated settings.json write
+
+      // Install plugin to ~/.claude/plugins/oh-my-claudecode/
+      // This ensures Claude Code's plugin system can discover skills.
+      log('Installing plugin to ~/.claude/plugins/oh-my-claudecode/...');
+      try {
+        installPlugin(options.version ?? VERSION, log);
+        log('  Plugin installed successfully');
+      } catch (e) {
+        log(`  Warning: Could not install plugin (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+      }
     } else {
       log('Skipping agent/command/hook files (managed by plugin system)');
     }
@@ -721,6 +857,13 @@ export function install(options: InstallOptions = {}): InstallResult {
 
         existingSettings.hooks = Object.keys(existingHooks).length > 0 ? existingHooks : undefined;
         result.hooksConfigured = true;
+      }
+
+      // 2a. Ensure oh-my-claudecode plugin is enabled
+      {
+        const enabledPlugins = (existingSettings.enabledPlugins as Record<string, boolean>) ?? {};
+        enabledPlugins['oh-my-claudecode@omc'] = true;
+        existingSettings.enabledPlugins = enabledPlugins;
       }
 
       // 2. Configure statusLine (always, even in plugin mode)

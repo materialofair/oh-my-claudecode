@@ -16,6 +16,11 @@ export declare const HOOKS_DIR: string;
 export declare const HUD_DIR: string;
 export declare const SETTINGS_FILE: string;
 export declare const VERSION_FILE: string;
+export declare const PLUGINS_DIR: string;
+export declare const PLUGIN_DIR: string;
+export declare const INSTALLED_PLUGINS_FILE: string;
+export declare const KNOWN_MARKETPLACES_FILE: string;
+export declare const MARKETPLACE_DIR: string;
 /**
  * Core commands - DISABLED for v3.0+
  * All commands are now plugin-scoped skills managed by Claude Code.
