@@ -16,6 +16,8 @@ export declare const HOOKS_DIR: string;
 export declare const HUD_DIR: string;
 export declare const SETTINGS_FILE: string;
 export declare const VERSION_FILE: string;
+export declare const GLOBAL_USER_SKILLS_DIR: string;
+export declare const LEGACY_USER_SKILLS_DIR: string;
 export declare const PLUGINS_DIR: string;
 export declare const PLUGIN_DIR: string;
 export declare const INSTALLED_PLUGINS_FILE: string;

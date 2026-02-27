@@ -13,11 +13,24 @@ psm_init() {
 
     # Create default projects.json if not exists
     if [[ ! -f "$PSM_PROJECTS" ]]; then
-        cat > "$PSM_PROJECTS" << 'EOF'
+        local default_repo="${OMC_REPO:-}"
+        local cfg_file="$HOME/.claude/.omc-config.json"
+
+        if [[ -z "$default_repo" && -f "$cfg_file" ]]; then
+            default_repo=$(jq -r '.updateRepository // empty' "$cfg_file" 2>/dev/null)
+        fi
+        if [[ -z "$default_repo" && -n "${CLAUDE_PLUGIN_ROOT:-}" && -d "$CLAUDE_PLUGIN_ROOT/.git" ]]; then
+            default_repo=$(git -C "$CLAUDE_PLUGIN_ROOT" remote get-url origin 2>/dev/null | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+        fi
+        if [[ -z "$default_repo" ]]; then
+            default_repo="Yeachan-Heo/oh-my-claudecode"
+        fi
+
+        cat > "$PSM_PROJECTS" << EOF
 {
   "aliases": {
     "omc": {
-      "repo": "Yeachan-Heo/oh-my-claudecode",
+      "repo": "$default_repo",
       "local": "~/Workspace/oh-my-claudecode",
       "default_base": "main"
     }

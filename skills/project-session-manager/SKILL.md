@@ -49,7 +49,7 @@ Supported formats:
 {
   "aliases": {
     "omc": {
-      "repo": "Yeachan-Heo/oh-my-claudecode",
+      "repo": "owner/oh-my-claudecode",
       "local": "~/Workspace/oh-my-claudecode",
       "default_base": "main"
     }
@@ -543,7 +543,7 @@ if [[ ! -f ~/.psm/projects.json ]]; then
 {
   "aliases": {
     "omc": {
-      "repo": "Yeachan-Heo/oh-my-claudecode",
+      "repo": "owner/oh-my-claudecode",
       "local": "~/Workspace/oh-my-claudecode",
       "default_base": "main"
     }

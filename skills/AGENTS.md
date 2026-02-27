@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-28 | Updated: 2026-02-19 -->
+<!-- Generated: 2026-01-28 | Updated: 2026-02-27 -->
 
 # skills
 

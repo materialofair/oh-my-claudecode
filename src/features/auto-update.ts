@@ -19,9 +19,13 @@ import { getConfigDir } from '../utils/config-dir.js';
 import { purgeStalePluginCacheVersions } from '../utils/paths.js';
 import type { NotificationConfig } from '../notifications/types.js';
 
-/** GitHub repository information */
-export const REPO_OWNER = 'Yeachan-Heo';
-export const REPO_NAME = 'oh-my-claudecode';
+/** Default GitHub repository information */
+export const DEFAULT_REPO_OWNER = 'Yeachan-Heo';
+export const DEFAULT_REPO_NAME = 'oh-my-claudecode';
+
+/** Backward-compatible exports (default source) */
+export const REPO_OWNER = DEFAULT_REPO_OWNER;
+export const REPO_NAME = DEFAULT_REPO_NAME;
 export const GITHUB_API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`;
 export const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}`;
 
@@ -156,6 +160,24 @@ export interface OMCConfig {
   /** Absolute path to the Node.js binary detected at setup time.
    *  Used by find-node.sh so hooks work for nvm/fnm users where node is not on PATH. */
   nodeBinary?: string;
+  /** Optional update/download source repo in owner/repo format. */
+  updateRepository?: string;
+  /** Optional update/download source branch. */
+  updateBranch?: string;
+}
+
+export interface UpdateSource {
+  owner: string;
+  repo: string;
+  branch: string;
+}
+
+function normalizeRepository(value?: string): { owner: string; repo: string } | null {
+  if (!value) return null;
+  const trimmed = value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/^git@github\.com:/, '');
+  const [owner, repo] = trimmed.split('/');
+  if (!owner || !repo) return null;
+  return { owner, repo };
 }
 
 /**
@@ -183,6 +205,8 @@ export function getOMCConfig(): OMCConfig {
       notificationProfiles: config.notificationProfiles,
       hudEnabled: config.hudEnabled,
       autoUpgradePrompt: config.autoUpgradePrompt,
+      updateRepository: config.updateRepository,
+      updateBranch: config.updateBranch,
     };
   } catch {
     // If config file is invalid, default to disabled for security
@@ -203,6 +227,20 @@ export function isSilentAutoUpdateEnabled(): boolean {
  */
 export function isAutoUpgradePromptEnabled(): boolean {
   return getOMCConfig().autoUpgradePrompt !== false;
+}
+
+export function getUpdateSource(): UpdateSource {
+  const config = getOMCConfig();
+  const fromConfig = normalizeRepository(config.updateRepository);
+  const fromEnv = normalizeRepository(process.env.OMC_REPO || process.env.OMC_UPDATE_REPO);
+  const source = fromConfig ?? fromEnv ?? { owner: DEFAULT_REPO_OWNER, repo: DEFAULT_REPO_NAME };
+  const branch = (config.updateBranch || process.env.OMC_BRANCH || process.env.OMC_UPDATE_BRANCH || 'main').trim();
+
+  return {
+    owner: source.owner,
+    repo: source.repo,
+    branch: branch.length > 0 ? branch : 'main',
+  };
 }
 
 /**
@@ -346,7 +384,11 @@ export function updateLastCheckTime(): void {
  * Fetch the latest release from GitHub
  */
 export async function fetchLatestRelease(): Promise<ReleaseInfo> {
-  const response = await fetch(`${GITHUB_API_URL}/releases/latest`, {
+  const source = getUpdateSource();
+  const apiUrl = `https://api.github.com/repos/${source.owner}/${source.repo}`;
+  const rawUrl = `https://raw.githubusercontent.com/${source.owner}/${source.repo}`;
+
+  const response = await fetch(`${apiUrl}/releases/latest`, {
     headers: {
       'Accept': 'application/vnd.github.v3+json',
       'User-Agent': 'oh-my-claudecode-updater'
@@ -355,7 +397,7 @@ export async function fetchLatestRelease(): Promise<ReleaseInfo> {
 
   if (response.status === 404) {
     // No releases found - try to get version from package.json in repo
-    const pkgResponse = await fetch(`${GITHUB_RAW_URL}/main/package.json`, {
+    const pkgResponse = await fetch(`${rawUrl}/${source.branch}/package.json`, {
       headers: {
         'User-Agent': 'oh-my-claudecode-updater'
       }
@@ -367,7 +409,7 @@ export async function fetchLatestRelease(): Promise<ReleaseInfo> {
         tag_name: `v${pkg.version}`,
         name: `Version ${pkg.version}`,
         published_at: new Date().toISOString(),
-        html_url: `https://github.com/${REPO_OWNER}/${REPO_NAME}`,
+        html_url: `https://github.com/${source.owner}/${source.repo}`,
         body: 'No release notes available (fetched from package.json)',
         prerelease: false,
         draft: false

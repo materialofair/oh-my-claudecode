@@ -15,13 +15,15 @@ Meta-skill for managing oh-my-claudecode skills via CLI-like commands.
 Show all local skills organized by scope.
 
 **Behavior:**
-1. Scan user skills at `~/.claude/skills/omc-learned/`
-2. Scan project skills at `.omc/skills/`
-3. Parse YAML frontmatter for metadata
-4. Display in organized table format:
+1. Scan user skills at `~/.omc/skills/` (preferred)
+2. Scan legacy user skills at `~/.claude/skills/omc-learned/` (compatibility)
+3. Scan project skills at `.omc/skills/`
+4. Scan builtin plugin skills at `~/.claude/plugins/oh-my-claudecode/skills/`
+5. Parse YAML frontmatter for metadata
+6. Display in organized table format:
 
 ```
-USER SKILLS (~/.claude/skills/omc-learned/):
+USER SKILLS (~/.omc/skills + ~/.claude/skills/omc-learned):
 | Name              | Triggers           | Quality | Usage | Scope |
 |-------------------|--------------------|---------|-------|-------|
 | error-handler     | fix, error         | 95%     | 42    | user  |
@@ -31,6 +33,12 @@ PROJECT SKILLS (.omc/skills/):
 | Name              | Triggers           | Quality | Usage | Scope   |
 |-------------------|--------------------|---------|-------|---------|
 | test-runner       | test, run          | 92%     | 15    | project |
+
+BUILTIN SKILLS (~/.claude/plugins/oh-my-claudecode/skills):
+| Name              | Source  | Scope   |
+|-------------------|---------|---------|
+| omc-setup         | plugin  | builtin |
+| code-review       | plugin  | builtin |
 ```
 
 **Fallback:** If quality/usage stats not available, show "N/A"
@@ -51,8 +59,8 @@ Interactive wizard for creating a new skill.
 4. **Ask for argument hint** (optional)
    - Example: "<file> [options]"
 5. **Ask for scope:**
-   - `user` → `~/.claude/skills/omc-learned/<name>/SKILL.md`
-   - `project` → `.omc/skills/<name>/SKILL.md`
+   - `user` → `~/.omc/skills/<name>.md` (fallback: `~/.claude/skills/omc-learned/<name>.md`)
+   - `project` → `.omc/skills/<name>.md`
 6. **Create skill file** with template:
 
 ```yaml
@@ -105,7 +113,7 @@ Triggers (comma-separated): log, logger, logging
 Argument hint (optional): <level> [message]
 Scope (user/project): user
 
-✓ Created skill at ~/.claude/skills/omc-learned/custom-logger/SKILL.md
+✓ Created skill at ~/.omc/skills/custom-logger.md
 → Edit with: /skill edit custom-logger
 ```
 
@@ -117,13 +125,13 @@ Remove a skill by name.
 
 **Behavior:**
 1. **Search for skill** in both scopes:
-   - `~/.claude/skills/omc-learned/<name>/SKILL.md`
-   - `.omc/skills/<name>/SKILL.md`
+   - `~/.omc/skills/<name>.md` and `~/.claude/skills/omc-learned/<name>.md`
+   - `.omc/skills/<name>.md`
 2. **If found:**
    - Display skill info (name, description, scope)
    - **Ask for confirmation:** "Delete '<name>' skill from <scope>? (yes/no)"
 3. **If confirmed:**
-   - Delete entire skill directory (e.g., `~/.claude/skills/omc-learned/<name>/`)
+   - Delete the matching skill file (e.g., `~/.omc/skills/<name>.md`)
    - Report: "✓ Removed skill '<name>' from <scope>"
 4. **If not found:**
    - Report: "✗ Skill '<name>' not found in user or project scope"
@@ -135,7 +143,7 @@ Remove a skill by name.
 User: /skill remove old-logger
 Assistant: Found skill 'old-logger' in user scope:
   Description: Legacy logging utility
-  Scope: user (~/.claude/skills/omc-learned/)
+  Scope: user (~/.omc/skills/)
 
 Delete 'old-logger' skill? (yes/no)
 
@@ -251,13 +259,13 @@ Show detailed information about a skill.
 
 ```
 Skill: custom-logger
-Scope: user (~/.claude/skills/omc-learned/custom-logger/)
+Scope: user (~/.omc/skills/custom-logger.md)
 Description: Enhanced logging with structured output
 Triggers: log, logger, logging
 Argument Hint: <level> [message]
 Quality: 95% (if available)
 Usage Count: 42 times (if available)
-File Path: /home/user/.claude/skills/omc-learned/custom-logger/SKILL.md
+File Path: /home/user/.omc/skills/custom-logger.md
 
 --- FULL CONTENT ---
 [entire markdown content]
@@ -272,7 +280,7 @@ Assistant: Skill: custom-logger
 Scope: user
 Description: Enhanced logging with structured output
 Triggers: log, logger, logging
-File: ~/.claude/skills/omc-learned/custom-logger/SKILL.md
+File: ~/.omc/skills/custom-logger.md
 
 --- CONTENT ---
 # Custom Logger Skill
@@ -290,7 +298,7 @@ Sync skills between user and project scopes.
 
 **Behavior:**
 1. **Scan both scopes:**
-   - User skills: `~/.claude/skills/omc-learned/`
+   - User skills: `~/.omc/skills/` and `~/.claude/skills/omc-learned/`
    - Project skills: `.omc/skills/`
 2. **Compare and categorize:**
    - User-only skills (not in project)
@@ -359,13 +367,21 @@ Interactive wizard for setting up and managing local skills (formerly local-skil
 First, check if skill directories exist and create them if needed:
 
 ```bash
-# Check and create user-level skills directory
-USER_SKILLS_DIR="$HOME/.claude/skills/omc-learned"
+# Check and create user-level skills directories (preferred + legacy)
+USER_SKILLS_DIR="$HOME/.omc/skills"
+LEGACY_USER_SKILLS_DIR="$HOME/.claude/skills/omc-learned"
 if [ -d "$USER_SKILLS_DIR" ]; then
   echo "User skills directory exists: $USER_SKILLS_DIR"
 else
   mkdir -p "$USER_SKILLS_DIR"
   echo "Created user skills directory: $USER_SKILLS_DIR"
+fi
+
+if [ -d "$LEGACY_USER_SKILLS_DIR" ]; then
+  echo "Legacy user skills directory exists: $LEGACY_USER_SKILLS_DIR"
+else
+  mkdir -p "$LEGACY_USER_SKILLS_DIR"
+  echo "Created legacy user skills directory: $LEGACY_USER_SKILLS_DIR"
 fi
 
 # Check and create project-level skills directory
@@ -383,28 +399,34 @@ fi
 Scan both directories and show a comprehensive inventory:
 
 ```bash
-# Scan user-level skills
-echo "=== USER-LEVEL SKILLS (~/.claude/skills/omc-learned/) ==="
-if [ -d "$HOME/.claude/skills/omc-learned" ]; then
-  USER_COUNT=$(find "$HOME/.claude/skills/omc-learned" -name "*.md" 2>/dev/null | wc -l)
-  echo "Total skills: $USER_COUNT"
+# Scan user-level skills (preferred + legacy)
+echo "=== USER-LEVEL SKILLS (~/.omc/skills + ~/.claude/skills/omc-learned/) ==="
+USER_COUNT=0
+for USER_DIR in "$HOME/.omc/skills" "$HOME/.claude/skills/omc-learned"; do
+  if [ -d "$USER_DIR" ]; then
+    USER_COUNT=$((USER_COUNT + $(find "$USER_DIR" -name "*.md" 2>/dev/null | wc -l)))
+  fi
+done
+echo "Total skills: $USER_COUNT"
 
-  if [ $USER_COUNT -gt 0 ]; then
-    echo ""
-    echo "Skills found:"
-    find "$HOME/.claude/skills/omc-learned" -name "*.md" -type f -exec sh -c '
+if [ $USER_COUNT -gt 0 ]; then
+  echo ""
+  echo "Skills found:"
+  for USER_DIR in "$HOME/.omc/skills" "$HOME/.claude/skills/omc-learned"; do
+    [ -d "$USER_DIR" ] || continue
+    find "$USER_DIR" -name "*.md" -type f -exec sh -c '
       FILE="$1"
       NAME=$(grep -m1 "^name:" "$FILE" 2>/dev/null | sed "s/name: //")
       DESC=$(grep -m1 "^description:" "$FILE" 2>/dev/null | sed "s/description: //")
       MODIFIED=$(stat -c "%y" "$FILE" 2>/dev/null || stat -f "%Sm" "$FILE" 2>/dev/null)
+      [ -z "$NAME" ] && NAME=$(basename "$FILE" .md)
       echo "  - $NAME"
       [ -n "$DESC" ] && echo "    Description: $DESC"
+      echo "    File: $FILE"
       echo "    Modified: $MODIFIED"
       echo ""
     ' sh {} \;
-  fi
-else
-  echo "Directory not found"
+  done
 fi
 
 echo ""
@@ -431,8 +453,19 @@ else
   echo "Directory not found"
 fi
 
+# Scan builtin plugin skills (read-only)
+echo ""
+echo "=== BUILTIN SKILLS (~/.claude/plugins/oh-my-claudecode/skills/) ==="
+if [ -d "$HOME/.claude/plugins/oh-my-claudecode/skills" ]; then
+  BUILTIN_COUNT=$(find "$HOME/.claude/plugins/oh-my-claudecode/skills" -name "SKILL.md" 2>/dev/null | wc -l)
+  echo "Total skills: $BUILTIN_COUNT"
+else
+  BUILTIN_COUNT=0
+  echo "Directory not found (plugin may not be installed yet)"
+fi
+
 # Summary
-TOTAL=$((USER_COUNT + PROJECT_COUNT))
+TOTAL=$((USER_COUNT + PROJECT_COUNT + BUILTIN_COUNT))
 echo "=== SUMMARY ==="
 echo "Total skills across all directories: $TOTAL"
 ```
@@ -467,8 +500,9 @@ Ask user to provide either:
 - **Paste content**: Paste skill markdown content directly
 
 Then ask for scope:
-- **User-level** (~/.claude/skills/omc-learned/) - Available across all projects
+- **User-level** (~/.omc/skills/ preferred, ~/.claude/skills/omc-learned/ legacy) - Available across all projects
 - **Project-level** (.omc/skills/) - Only for this project
+- **Builtin** (~/.claude/plugins/oh-my-claudecode/skills/) - Plugin-provided, read-only
 
 Validate the skill format and save to the chosen location.
 
@@ -761,7 +795,8 @@ Good skills are:
 > /oh-my-claudecode:skill list
 
 Checking skill directories...
-✓ User skills directory exists: ~/.claude/skills/omc-learned/
+✓ User skills directory exists: ~/.omc/skills/
+✓ Legacy user skills directory exists: ~/.claude/skills/omc-learned/
 ✓ Project skills directory exists: .omc/skills/
 
 Scanning for skills...
@@ -786,8 +821,14 @@ Total skills: 5
     Description: When to clear TypeScript build cache to fix phantom errors
     Modified: 2026-01-21 11:28:37
 
+=== BUILTIN SKILLS ===
+Total skills: 37
+  - omc-setup
+  - code-review
+  - ultrawork
+
 === SUMMARY ===
-Total skills: 8
+Total skills: 45
 
 What would you like to do?
 1. Add new skill
@@ -804,7 +845,7 @@ What would you like to do?
 - Run `/oh-my-claudecode:skill list` periodically to review your skill library
 - After solving a tricky bug, immediately run learner to capture it
 - Use project-level skills for codebase-specific knowledge
-- Use user-level skills for general patterns that apply everywhere
+- Use user-level skills (`~/.omc/skills/`) for general patterns that apply everywhere
 - Review and refine triggers over time to improve matching accuracy
 
 ---

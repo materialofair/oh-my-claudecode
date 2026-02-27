@@ -30,6 +30,8 @@ export const HOOKS_DIR = join(CLAUDE_CONFIG_DIR, 'hooks');
 export const HUD_DIR = join(CLAUDE_CONFIG_DIR, 'hud');
 export const SETTINGS_FILE = join(CLAUDE_CONFIG_DIR, 'settings.json');
 export const VERSION_FILE = join(CLAUDE_CONFIG_DIR, '.omc-version.json');
+export const GLOBAL_USER_SKILLS_DIR = join(homedir(), '.omc', 'skills');
+export const LEGACY_USER_SKILLS_DIR = join(CLAUDE_CONFIG_DIR, 'skills', 'omc-learned');
 export const PLUGINS_DIR = join(CLAUDE_CONFIG_DIR, 'plugins');
 export const PLUGIN_DIR = join(PLUGINS_DIR, 'oh-my-claudecode');
 export const INSTALLED_PLUGINS_FILE = join(PLUGINS_DIR, 'installed_plugins.json');
@@ -431,7 +433,19 @@ function installPlugin(version: string, log: (msg: string) => void): void {
     mkdirSync(pluginCommandsDir, { recursive: true });
   }
 
+  // Compatibility mirrors for Claude Code variants that only register:
+  // - /oh-my-claudecode <subcommand>
+  // - /oh-my-claudecode:<subcommand>
+  const legacyNamespacedCommandsDir = join(COMMANDS_DIR, 'oh-my-claudecode');
+  if (!existsSync(COMMANDS_DIR)) {
+    mkdirSync(COMMANDS_DIR, { recursive: true });
+  }
+  if (!existsSync(legacyNamespacedCommandsDir)) {
+    mkdirSync(legacyNamespacedCommandsDir, { recursive: true });
+  }
+
   let commandCount = 0;
+  let compatCommandCount = 0;
   for (const skillName of readdirSync(skillsSrc)) {
     if (skillName === 'AGENTS.md') continue;
     const skillMdPath = join(skillsSrc, skillName, 'SKILL.md');
@@ -441,13 +455,21 @@ function installPlugin(version: string, log: (msg: string) => void): void {
     const skillContent = readFileSync(skillMdPath, 'utf-8');
     const descMatch = skillContent.match(/^description:\s*(.+)$/m);
     const description = descMatch ? descMatch[1].replace(/^["']|["']$/g, '') : `${skillName} skill`;
+    const escapedDescription = description.replace(/"/g, '\\"');
+    const skillBody = skillContent.replace(/^---[\s\S]*?---\s*/m, '').trim();
 
-    // Write thin wrapper command (no 'name' field - Claude Code command format)
-    const commandContent = `---\ndescription: "${description}"\n---\n\nInvoke the oh-my-claudecode:${skillName} skill and follow it exactly as presented to you`;
+    // Write self-contained command to avoid runtime Skill(...) delegation failures.
+    const commandContent = `---\ndescription: "${escapedDescription}"\n---\n\n${skillBody}\n`;
     writeFileSync(join(pluginCommandsDir, `${skillName}.md`), commandContent);
+    // Legacy namespaced command: /oh-my-claudecode <subcommand>
+    writeFileSync(join(legacyNamespacedCommandsDir, `${skillName}.md`), commandContent);
+    // Explicit alias command: /oh-my-claudecode:<subcommand>
+    writeFileSync(join(COMMANDS_DIR, `oh-my-claudecode:${skillName}.md`), commandContent);
     commandCount++;
+    compatCommandCount += 2;
   }
   log(`  Generated ${commandCount} command wrappers`);
+  log(`  Generated ${compatCommandCount} compatibility command aliases`);
 
   // Create marketplace directory and marketplace.json
   // Claude Code looks for .claude-plugin/marketplace.json within the marketplace directory
@@ -586,6 +608,12 @@ export function install(options: InstallOptions = {}): InstallResult {
       // NOTE: COMMANDS_DIR creation removed - commands/ deprecated in v4.1.16 (#582)
       if (!existsSync(SKILLS_DIR)) {
         mkdirSync(SKILLS_DIR, { recursive: true });
+      }
+      if (!existsSync(GLOBAL_USER_SKILLS_DIR)) {
+        mkdirSync(GLOBAL_USER_SKILLS_DIR, { recursive: true });
+      }
+      if (!existsSync(LEGACY_USER_SKILLS_DIR)) {
+        mkdirSync(LEGACY_USER_SKILLS_DIR, { recursive: true });
       }
       if (!existsSync(HOOKS_DIR)) {
         mkdirSync(HOOKS_DIR, { recursive: true });

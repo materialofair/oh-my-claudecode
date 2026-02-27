@@ -9,6 +9,40 @@ This is the **only command you need to learn**. After running this, everything e
 
 Note: All `~/.claude/...` paths in this guide respect `CLAUDE_CONFIG_DIR` when that environment variable is set.
 
+## Source Repository Resolution
+
+Before any GitHub download/API call in this skill, resolve source repo/branch with this precedence:
+1. `OMC_REPO` / `OMC_BRANCH` env vars
+2. `~/.claude/.omc-config.json` fields: `updateRepository`, `updateBranch`
+3. Current git `origin` URL (if available)
+4. Fallback: `Yeachan-Heo/oh-my-claudecode` on `main`
+
+Use this helper block in relevant shell commands:
+
+```bash
+OMC_REPO="${OMC_REPO:-}"
+OMC_BRANCH="${OMC_BRANCH:-}"
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+
+if [ -z "$OMC_REPO" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_REPO=$(jq -r '.updateRepository // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_BRANCH" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_BRANCH=$(jq -r '.updateBranch // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_REPO" ] && command -v git >/dev/null 2>&1; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [ -n "$ORIGIN_URL" ]; then
+    OMC_REPO=$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+  fi
+fi
+
+OMC_REPO="${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}"
+OMC_BRANCH="${OMC_BRANCH:-main}"
+OMC_RAW_BASE="https://raw.githubusercontent.com/${OMC_REPO}/${OMC_BRANCH}"
+OMC_WEB_BASE="https://github.com/${OMC_REPO}"
+```
+
 ## Pre-Setup Check: Already Configured?
 
 **CRITICAL**: Before doing anything else, check if setup has already been completed. This prevents users from having to re-run the full setup wizard after every update.
@@ -216,7 +250,24 @@ fi
 # Download fresh OMC content to temp file
 TEMP_OMC=$(mktemp /tmp/omc-claude-XXXXXX.md)
 trap 'rm -f "$TEMP_OMC"' EXIT
-curl -fsSL "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/docs/CLAUDE.md" -o "$TEMP_OMC"
+OMC_REPO="${OMC_REPO:-}"
+OMC_BRANCH="${OMC_BRANCH:-}"
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+if [ -z "$OMC_REPO" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_REPO=$(jq -r '.updateRepository // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_BRANCH" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_BRANCH=$(jq -r '.updateBranch // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_REPO" ] && command -v git >/dev/null 2>&1; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [ -n "$ORIGIN_URL" ]; then
+    OMC_REPO=$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+  fi
+fi
+OMC_REPO="${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}"
+OMC_BRANCH="${OMC_BRANCH:-main}"
+curl -fsSL "https://raw.githubusercontent.com/${OMC_REPO}/${OMC_BRANCH}/docs/CLAUDE.md" -o "$TEMP_OMC"
 
 if [ ! -s "$TEMP_OMC" ]; then
   echo "ERROR: Failed to download CLAUDE.md. Aborting."
@@ -291,7 +342,7 @@ fi
 
 **FALLBACK** if curl fails:
 Tell user to manually download from:
-https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/docs/CLAUDE.md
+https://raw.githubusercontent.com/${OMC_REPO}/${OMC_BRANCH}/docs/CLAUDE.md
 
 ### Verify Plugin Installation
 
@@ -355,7 +406,24 @@ fi
 # Download fresh OMC content to temp file
 TEMP_OMC=$(mktemp /tmp/omc-claude-XXXXXX.md)
 trap 'rm -f "$TEMP_OMC"' EXIT
-curl -fsSL "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/docs/CLAUDE.md" -o "$TEMP_OMC"
+OMC_REPO="${OMC_REPO:-}"
+OMC_BRANCH="${OMC_BRANCH:-}"
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+if [ -z "$OMC_REPO" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_REPO=$(jq -r '.updateRepository // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_BRANCH" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_BRANCH=$(jq -r '.updateBranch // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_REPO" ] && command -v git >/dev/null 2>&1; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [ -n "$ORIGIN_URL" ]; then
+    OMC_REPO=$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+  fi
+fi
+OMC_REPO="${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}"
+OMC_BRANCH="${OMC_BRANCH:-main}"
+curl -fsSL "https://raw.githubusercontent.com/${OMC_REPO}/${OMC_BRANCH}/docs/CLAUDE.md" -o "$TEMP_OMC"
 
 if [ ! -s "$TEMP_OMC" ]; then
   echo "ERROR: Failed to download CLAUDE.md. Aborting."
@@ -994,7 +1062,21 @@ gh auth status &>/dev/null
 **Before prompting, check if the repository is already starred:**
 
 ```bash
-gh api user/starred/Yeachan-Heo/oh-my-claudecode &>/dev/null
+OMC_REPO="${OMC_REPO:-}"
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+if [ -z "$OMC_REPO" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_REPO=$(jq -r '.updateRepository // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_REPO" ] && command -v git >/dev/null 2>&1; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [ -n "$ORIGIN_URL" ]; then
+    OMC_REPO=$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+  fi
+fi
+OMC_REPO="${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}"
+OMC_OWNER="${OMC_REPO%%/*}"
+OMC_REPO_NAME="${OMC_REPO##*/}"
+gh api "/user/starred/${OMC_OWNER}/${OMC_REPO_NAME}" &>/dev/null
 ```
 
 **If already starred (exit code 0):**
@@ -1015,7 +1097,21 @@ Use the AskUserQuestion tool to prompt the user:
 If user chooses "Yes, star it!":
 
 ```bash
-gh api -X PUT /user/starred/Yeachan-Heo/oh-my-claudecode 2>/dev/null && echo "Thanks for starring! ⭐" || true
+OMC_REPO="${OMC_REPO:-}"
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+if [ -z "$OMC_REPO" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_REPO=$(jq -r '.updateRepository // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_REPO" ] && command -v git >/dev/null 2>&1; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [ -n "$ORIGIN_URL" ]; then
+    OMC_REPO=$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+  fi
+fi
+OMC_REPO="${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}"
+OMC_OWNER="${OMC_REPO%%/*}"
+OMC_REPO_NAME="${OMC_REPO##*/}"
+gh api -X PUT "/user/starred/${OMC_OWNER}/${OMC_REPO_NAME}" 2>/dev/null && echo "Thanks for starring! ⭐" || true
 ```
 
 **Note:** Fail silently if the API call doesn't work - never block setup completion.
@@ -1025,7 +1121,19 @@ gh api -X PUT /user/starred/Yeachan-Heo/oh-my-claudecode 2>/dev/null && echo "Th
 ```bash
 echo ""
 echo "If you enjoy oh-my-claudecode, consider starring the repo:"
-echo "  https://github.com/Yeachan-Heo/oh-my-claudecode"
+OMC_REPO="${OMC_REPO:-}"
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+if [ -z "$OMC_REPO" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_REPO=$(jq -r '.updateRepository // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_REPO" ] && command -v git >/dev/null 2>&1; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [ -n "$ORIGIN_URL" ]; then
+    OMC_REPO=$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+  fi
+fi
+OMC_REPO="${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}"
+echo "  https://github.com/${OMC_REPO}"
 echo ""
 ```
 
@@ -1049,15 +1157,27 @@ elif [ -f "$HOME/.claude/CLAUDE.md" ]; then
   OMC_VERSION=$(grep -m1 "^# oh-my-claudecode" "$HOME/.claude/CLAUDE.md" 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 fi
 
+# Resolve source repository and persist it for future updates
+OMC_REPO="${OMC_REPO:-}"
+OMC_BRANCH="${OMC_BRANCH:-}"
+if [ -z "$OMC_REPO" ] && command -v git >/dev/null 2>&1; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [ -n "$ORIGIN_URL" ]; then
+    OMC_REPO=$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+  fi
+fi
+OMC_REPO="${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}"
+OMC_BRANCH="${OMC_BRANCH:-main}"
+
 if [ -f "$CONFIG_FILE" ]; then
   EXISTING=$(cat "$CONFIG_FILE")
 else
   EXISTING='{}'
 fi
 
-# Add setupCompleted timestamp and version
-echo "$EXISTING" | jq --arg ts "$(date -Iseconds)" --arg ver "$OMC_VERSION" \
-  '. + {setupCompleted: $ts, setupVersion: $ver}' > "$CONFIG_FILE"
+# Add setupCompleted timestamp/version and persisted source repo
+echo "$EXISTING" | jq --arg ts "$(date -Iseconds)" --arg ver "$OMC_VERSION" --arg repo "$OMC_REPO" --arg branch "$OMC_BRANCH" \
+  '. + {setupCompleted: $ts, setupVersion: $ver, updateRepository: $repo, updateBranch: $branch}' > "$CONFIG_FILE"
 
 echo "Setup completed successfully!"
 echo "Note: Future updates will only refresh CLAUDE.md, not the full setup wizard."
@@ -1124,7 +1244,7 @@ EXAMPLES:
   /oh-my-claudecode:omc-setup --global  # Update all projects
   /oh-my-claudecode:omc-setup --force   # Re-run full setup wizard
 
-For more info: https://github.com/Yeachan-Heo/oh-my-claudecode
+For more info: https://github.com/${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}
 ```
 
 ## Optional Rule Templates

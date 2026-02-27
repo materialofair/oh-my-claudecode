@@ -157,9 +157,29 @@ node -e "const p=require('path'),f=require('fs'),h=require('os').homedir(),d=pro
 ```
 
 ### Fix: Missing/Outdated CLAUDE.md
-Fetch latest from GitHub and write to `~/.claude/CLAUDE.md`:
-```
-WebFetch(url: "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/docs/CLAUDE.md", prompt: "Return the complete raw markdown content exactly as-is")
+Fetch latest from configured GitHub source and write to `~/.claude/CLAUDE.md`:
+```bash
+OMC_REPO="${OMC_REPO:-}"
+OMC_BRANCH="${OMC_BRANCH:-}"
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+
+if [ -z "$OMC_REPO" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_REPO=$(jq -r '.updateRepository // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_BRANCH" ] && [ -f "$CONFIG_FILE" ]; then
+  OMC_BRANCH=$(jq -r '.updateBranch // empty' "$CONFIG_FILE" 2>/dev/null)
+fi
+if [ -z "$OMC_REPO" ] && command -v git >/dev/null 2>&1; then
+  ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [ -n "$ORIGIN_URL" ]; then
+    OMC_REPO=$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\\.git$##')
+  fi
+fi
+
+OMC_REPO="${OMC_REPO:-Yeachan-Heo/oh-my-claudecode}"
+OMC_BRANCH="${OMC_BRANCH:-main}"
+curl -fsSL "https://raw.githubusercontent.com/${OMC_REPO}/${OMC_BRANCH}/docs/CLAUDE.md" -o "$HOME/.claude/CLAUDE.md"
+echo "Updated ~/.claude/CLAUDE.md from ${OMC_REPO}@${OMC_BRANCH}"
 ```
 
 ### Fix: Legacy Curl-Installed Content

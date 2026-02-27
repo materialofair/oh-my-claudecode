@@ -11,7 +11,10 @@
  */
 import { TaskTool } from '../hooks/beads-context/types.js';
 import type { NotificationConfig } from '../notifications/types.js';
-/** GitHub repository information */
+/** Default GitHub repository information */
+export declare const DEFAULT_REPO_OWNER = "Yeachan-Heo";
+export declare const DEFAULT_REPO_NAME = "oh-my-claudecode";
+/** Backward-compatible exports (default source) */
 export declare const REPO_OWNER = "Yeachan-Heo";
 export declare const REPO_NAME = "oh-my-claudecode";
 export declare const GITHUB_API_URL = "https://api.github.com/repos/Yeachan-Heo/oh-my-claudecode";
@@ -108,6 +111,15 @@ export interface OMCConfig {
     /** Absolute path to the Node.js binary detected at setup time.
      *  Used by find-node.sh so hooks work for nvm/fnm users where node is not on PATH. */
     nodeBinary?: string;
+    /** Optional update/download source repo in owner/repo format. */
+    updateRepository?: string;
+    /** Optional update/download source branch. */
+    updateBranch?: string;
+}
+export interface UpdateSource {
+    owner: string;
+    repo: string;
+    branch: string;
 }
 /**
  * Read the OMC configuration
@@ -122,6 +134,7 @@ export declare function isSilentAutoUpdateEnabled(): boolean;
  * Returns true by default - users must explicitly opt out
  */
 export declare function isAutoUpgradePromptEnabled(): boolean;
+export declare function getUpdateSource(): UpdateSource;
 /**
  * Check if team feature is enabled
  * Returns false by default - requires explicit opt-in
