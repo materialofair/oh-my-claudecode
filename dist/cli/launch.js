@@ -235,10 +235,6 @@ export async function preLaunch(_cwd, _sessionId) {
  */
 export function runClaude(cwd, args, sessionId) {
     const policy = resolveLaunchPolicy(process.env);
-    // Check if omc has a HUD command
-    // For now, use a simple placeholder or skip HUD if not available
-    const hasHudCommand = true;
-    const hudCmd = hasHudCommand ? buildTmuxShellCommand('node', [omcBin, 'hud', '--watch']) : '';
     switch (policy) {
         case 'inside-tmux':
             runClaudeInsideTmux(cwd, args);
@@ -274,17 +270,6 @@ function runClaudeInsideTmux(cwd, args) {
         // Propagate Claude's exit code so omc does not swallow failures
         process.exit(typeof err.status === 'number' ? err.status : 1);
     }
-    finally {
-        // Cleanup HUD pane on exit
-        if (hudPaneId) {
-            killTmuxPane(hudPaneId);
-        }
-        // Clean up any remaining HUD panes
-        const remainingHudPaneIds = listHudWatchPaneIdsInCurrentWindow(currentPaneId);
-        for (const paneId of remainingHudPaneIds) {
-            killTmuxPane(paneId);
-        }
-    }
 }
 /**
  * Run Claude outside tmux - create new session
@@ -301,7 +286,7 @@ function runClaudeOutsideTmux(cwd, args, _sessionId) {
     const tmuxArgs = [
         'new-session', '-d', '-s', sessionName, '-c', cwd,
         claudeCmd,
-        ';', 'set-option', '-g', 'mouse', 'on',
+        ';', 'set-option', '-t', sessionName, 'mouse', 'on',
     ];
     // Attach to session
     tmuxArgs.push(';', 'attach-session', '-t', sessionName);

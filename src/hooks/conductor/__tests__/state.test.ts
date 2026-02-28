@@ -185,7 +185,7 @@ describe('ConductorState', () => {
       expect(state.session_id).toBe(sessionId);
     });
 
-    it('should throw error if mutual exclusion check fails', () => {
+    it('should allow init when autopilot state exists (conductor is non-exclusive)', () => {
       // Create a conflicting mode state (e.g., autopilot)
       const autopilotStateDir = join(testDir, '.omc', 'state');
       const fs = require('fs');
@@ -196,7 +196,9 @@ describe('ConductorState', () => {
         'utf-8'
       );
 
-      expect(() => initConductor(testDir)).toThrow();
+      expect(() => initConductor(testDir)).not.toThrow();
+      const state = readConductorState(testDir);
+      expect(state?.active).toBe(true);
     });
   });
 

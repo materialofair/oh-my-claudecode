@@ -822,8 +822,11 @@ export function install(options = {}) {
                     // Use absolute node path so nvm/fnm users don't get "node not found"
                     // errors when Claude Code invokes the statusLine in a non-interactive shell.
                     const nodeBin = resolveNodeBinary();
-                    const statusLineCommand = nodeBin + ' ' + hudScriptPath.replace(/\\/g, '/');
-                    if (!existingSettings.statusLine) {
+                    const statusLineCommand = '"' + nodeBin + '" "' + hudScriptPath.replace(/\\/g, '/') + '"';
+                    // Auto-migrate legacy string format (pre-v4.5) to object format
+                    const needsMigration = typeof existingSettings.statusLine === 'string'
+                        && isOmcStatusLine(existingSettings.statusLine);
+                    if (!existingSettings.statusLine || needsMigration) {
                         existingSettings.statusLine = {
                             type: 'command',
                             command: statusLineCommand

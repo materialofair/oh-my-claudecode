@@ -16,7 +16,7 @@ import {
   readdirSync,
   realpathSync,
 } from "fs";
-import { join, dirname, basename } from "path";
+import { join, dirname, basename, resolve } from "path";
 import { homedir } from "os";
 import { OmcPaths } from "../../lib/worktree-paths.js";
 
@@ -334,7 +334,20 @@ function safeRealpathSync(filePath: string): string {
   try {
     return realpathSync(filePath);
   } catch {
-    return filePath;
+    const absInput = resolve(filePath);
+    const tail: string[] = [];
+    let probe = absInput;
+    while (true) {
+      try {
+        const realBase = realpathSync(probe);
+        return tail.reduce((acc, seg) => resolve(acc, seg), realBase);
+      } catch {
+        const parent = dirname(probe);
+        if (parent === probe) return absInput;
+        tail.unshift(basename(probe));
+        probe = parent;
+      }
+    }
   }
 }
 
@@ -342,8 +355,8 @@ function safeRealpathSync(filePath: string): string {
  * Check if a resolved path is within a boundary directory.
  */
 function isWithinBoundary(realPath: string, boundary: string): boolean {
-  const normalizedReal = realPath.replace(/\\/g, "/").replace(/\/+/g, "/");
-  const normalizedBoundary = boundary.replace(/\\/g, "/").replace(/\/+/g, "/");
+  const normalizedReal = safeRealpathSync(realPath).replace(/\\/g, "/").replace(/\/+/g, "/");
+  const normalizedBoundary = safeRealpathSync(boundary).replace(/\\/g, "/").replace(/\/+/g, "/");
   return (
     normalizedReal === normalizedBoundary ||
     normalizedReal.startsWith(normalizedBoundary + "/")

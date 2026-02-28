@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readdirSync, realpathSync, mkdirSync } from 'fs';
-import { join, normalize, sep } from 'path';
+import { join, normalize, sep, resolve, dirname, basename } from 'path';
 import { USER_SKILLS_DIR, PROJECT_SKILLS_SUBDIR, SKILL_EXTENSION, DEBUG_ENABLED, GLOBAL_SKILLS_DIR, MAX_RECURSION_DEPTH } from './constants.js';
 import type { SkillFileCandidate } from './types.js';
 
@@ -42,7 +42,20 @@ function safeRealpathSync(filePath: string): string {
   try {
     return realpathSync(filePath);
   } catch {
-    return filePath;
+    const absInput = resolve(filePath);
+    const tail: string[] = [];
+    let probe = absInput;
+    while (true) {
+      try {
+        const realBase = realpathSync(probe);
+        return tail.reduce((acc, seg) => resolve(acc, seg), realBase);
+      } catch {
+        const parent = dirname(probe);
+        if (parent === probe) return absInput;
+        tail.unshift(basename(probe));
+        probe = parent;
+      }
+    }
   }
 }
 
@@ -51,8 +64,8 @@ function safeRealpathSync(filePath: string): string {
  * Used to prevent symlink escapes.
  */
 function isWithinBoundary(realPath: string, boundary: string): boolean {
-  const normalizedReal = normalize(realPath);
-  const normalizedBoundary = normalize(boundary);
+  const normalizedReal = normalize(safeRealpathSync(realPath));
+  const normalizedBoundary = normalize(safeRealpathSync(boundary));
   return normalizedReal === normalizedBoundary ||
          normalizedReal.startsWith(normalizedBoundary + sep);
 }

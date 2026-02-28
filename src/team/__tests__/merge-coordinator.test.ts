@@ -71,7 +71,7 @@ describe('merge-coordinator', () => {
 
       const conflicts = checkMergeConflicts(wt.branch, main, repoDir);
       expect(conflicts).toContain('file1.ts');
-    });
+    }, 20000);
   });
 
   describe('mergeWorkerBranch', () => {

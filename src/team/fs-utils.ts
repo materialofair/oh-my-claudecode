@@ -9,7 +9,7 @@
  */
 
 import { writeFileSync, existsSync, mkdirSync, renameSync, openSync, writeSync, closeSync, realpathSync, constants } from 'fs';
-import { dirname, resolve, relative, basename } from 'path';
+import { dirname, resolve, relative, basename, isAbsolute } from 'path';
 
 /** Atomic write: write JSON to temp file with permissions, then rename (prevents corruption on crash) */
 export function atomicWriteJson(filePath: string, data: unknown, mode: number = 0o600): void {
@@ -60,13 +60,34 @@ function safeRealpath(p: string): string {
   }
 }
 
+/** Canonicalize a path by resolving the nearest existing ancestor with realpath,
+ *  then appending the non-existent tail segments back. This prevents false
+ *  negatives on platforms where aliases (e.g. /var -> /private/var) exist. */
+function canonicalizePath(p: string): string {
+  const absInput = resolve(p);
+  const tail: string[] = [];
+  let probe = absInput;
+
+  while (true) {
+    try {
+      const realBase = realpathSync(probe);
+      return tail.reduce((acc, seg) => resolve(acc, seg), realBase);
+    } catch {
+      const parent = dirname(probe);
+      if (parent === probe) return absInput;
+      tail.unshift(basename(probe));
+      probe = parent;
+    }
+  }
+}
+
 /** Validate that a resolved path is under the expected base directory. Throws if not.
  *  Uses realpathSync to resolve symlinks, preventing symlink-based escapes. */
 export function validateResolvedPath(resolvedPath: string, expectedBase: string): void {
-  const absResolved = safeRealpath(resolvedPath);
-  const absBase = safeRealpath(expectedBase);
+  const absResolved = canonicalizePath(resolvedPath);
+  const absBase = canonicalizePath(expectedBase);
   const rel = relative(absBase, absResolved);
-  if (rel.startsWith('..') || resolve(absBase, rel) !== absResolved) {
+  if (rel !== '' && (rel.startsWith('..') || isAbsolute(rel) || resolve(absBase, rel) !== absResolved)) {
     throw new Error(`Path traversal detected: "${resolvedPath}" escapes base "${expectedBase}"`);
   }
 }

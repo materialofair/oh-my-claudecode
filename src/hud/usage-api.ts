@@ -301,6 +301,11 @@ function refreshAccessToken(refreshToken: string): Promise<OAuthCredentials | nu
       }
     );
 
+    if (!req || typeof req.on !== 'function' || typeof req.end !== 'function') {
+      resolve(null);
+      return;
+    }
+
     req.on('error', () => resolve(null));
     req.on('timeout', () => { req.destroy(); resolve(null); });
     req.end(body);
@@ -344,6 +349,11 @@ function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse | null
         });
       }
     );
+
+    if (!req || typeof req.on !== 'function' || typeof req.end !== 'function') {
+      resolve(null);
+      return;
+    }
 
     req.on('error', () => resolve(null));
     req.on('timeout', () => {
@@ -402,6 +412,11 @@ function fetchUsageFromZai(): Promise<ZaiQuotaResponse | null> {
           });
         }
       );
+
+      if (!req || typeof req.on !== 'function' || typeof req.end !== 'function') {
+        resolve(null);
+        return;
+      }
 
       req.on('error', () => resolve(null));
       req.on('timeout', () => { req.destroy(); resolve(null); });

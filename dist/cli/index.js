@@ -1257,7 +1257,7 @@ program
     if (options.watch) {
         const intervalMs = parseInt(options.interval, 10);
         while (true) {
-            await hudMain();
+            await hudMain(true);
             await new Promise(resolve => setTimeout(resolve, intervalMs));
         }
     }

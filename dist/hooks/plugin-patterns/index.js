@@ -10,7 +10,7 @@
  */
 import { existsSync, readFileSync } from 'fs';
 import { join, extname, normalize } from 'path';
-import { execSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 // =============================================================================
 // SECURITY UTILITIES
 // =============================================================================
@@ -250,7 +250,7 @@ export function runLint(directory) {
             const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
             if (pkg.scripts?.lint) {
                 try {
-                    execSync('npm run lint', { cwd: directory, encoding: 'utf-8', stdio: 'pipe' });
+                    execFileSync('npm', ['run', 'lint'], { cwd: directory, encoding: 'utf-8', stdio: 'pipe' });
                     return { success: true, message: 'Lint passed' };
                 }
                 catch (_error) {

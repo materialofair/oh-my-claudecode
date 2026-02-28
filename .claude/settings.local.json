@@ -2,7 +2,30 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:github.com)",
-      "Bash(git clone:*)"
+      "Bash(git clone:*)",
+      "Bash(git tag:*)",
+      "Bash(npm publish:*)",
+      "Bash(npm version:*)",
+      "Bash(omc:*)",
+      "Bash(echo exit: $?:*)",
+      "Bash(cp:*)",
+      "Bash(node:*)",
+      "Bash(/usr/bin/git diff:*)",
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(python3 -m json.tool)",
+      "Bash(claude:*)",
+      "Bash(python3:*)",
+      "Bash(ls:*)",
+      "Bash(npm whoami:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm test:*)",
+      "Bash(npm view:*)",
+      "Bash(npm ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest:*)",
+      "Bash(git push:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

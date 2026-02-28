@@ -23,6 +23,7 @@ const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const LOCK_TIMEOUT_MS = 2000;
 const LOCK_RETRY_MS = 20;
 const LOCK_STALE_MS = 10000;
+const LOCK_MAX_WAIT_MS = 10000;
 /**
  * Return the registry state directory.
  * OMC_TEST_REGISTRY_DIR overrides the default (~/.omc/state) so that tests
