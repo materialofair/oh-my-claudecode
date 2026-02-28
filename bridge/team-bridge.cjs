@@ -79,24 +79,27 @@ function appendFileWithMode(filePath, data, mode = 384) {
 function ensureDirWithMode(dirPath, mode = 448) {
   if (!(0, import_fs.existsSync)(dirPath)) (0, import_fs.mkdirSync)(dirPath, { recursive: true, mode });
 }
-function safeRealpath(p) {
-  try {
-    return (0, import_fs.realpathSync)(p);
-  } catch {
-    const parent = (0, import_path.dirname)(p);
-    const name = (0, import_path.basename)(p);
+function canonicalizePath(p) {
+  const absInput = (0, import_path.resolve)(p);
+  const tail = [];
+  let probe = absInput;
+  while (true) {
     try {
-      return (0, import_path.resolve)((0, import_fs.realpathSync)(parent), name);
+      const realBase = (0, import_fs.realpathSync)(probe);
+      return tail.reduce((acc, seg) => (0, import_path.resolve)(acc, seg), realBase);
     } catch {
-      return (0, import_path.resolve)(p);
+      const parent = (0, import_path.dirname)(probe);
+      if (parent === probe) return absInput;
+      tail.unshift((0, import_path.basename)(probe));
+      probe = parent;
     }
   }
 }
 function validateResolvedPath(resolvedPath, expectedBase) {
-  const absResolved = safeRealpath(resolvedPath);
-  const absBase = safeRealpath(expectedBase);
+  const absResolved = canonicalizePath(resolvedPath);
+  const absBase = canonicalizePath(expectedBase);
   const rel = (0, import_path.relative)(absBase, absResolved);
-  if (rel.startsWith("..") || (0, import_path.resolve)(absBase, rel) !== absResolved) {
+  if (rel !== "" && (rel.startsWith("..") || (0, import_path.isAbsolute)(rel) || (0, import_path.resolve)(absBase, rel) !== absResolved)) {
     throw new Error(`Path traversal detected: "${resolvedPath}" escapes base "${expectedBase}"`);
   }
 }

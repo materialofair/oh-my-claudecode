@@ -2,8 +2,8 @@
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm version](https://img.shields.io/npm/v/claudecode-omc?color=cb3837)](https://www.npmjs.com/package/claudecode-omc)
+[![npm downloads](https://img.shields.io/npm/dm/claudecode-omc?color=blue)](https://www.npmjs.com/package/claudecode-omc)
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
@@ -20,13 +20,13 @@
 
 **Passo 1: Instale**
 ```bash
-/plugin marketplace add https://github.com/Yeachan-Heo/oh-my-claudecode
-/plugin install oh-my-claudecode
+npm install -g claudecode-omc
 ```
 
 **Passo 2: Configure**
 ```bash
-/omc-setup
+omc install
+omc setup
 ```
 
 **Passo 3: Crie algo**
@@ -85,24 +85,25 @@ Para trabalho misto de Codex + Gemini em um único comando, use a skill **`/ccg`
 
 Trabalhadores são iniciados sob demanda e encerrados quando a tarefa é concluída — sem uso ocioso de recursos. Requer as CLIs `codex` / `gemini` instaladas e uma sessão tmux ativa.
 
-> **Observação: Nome do pacote** — O projeto usa a marca **oh-my-claudecode** (repo, plugin, comandos), mas o pacote npm é publicado como [`oh-my-claudecode`](https://www.npmjs.com/package/oh-my-claude-sisyphus). Se você instalar as ferramentas de CLI via npm/bun, use `npm install -g oh-my-claude-sisyphus`.
+> **Observação: Nome do pacote** — O projeto usa a marca **oh-my-claudecode** (repo, plugin, comandos), mas o pacote npm é publicado como [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc). Se você instalar as ferramentas de CLI via npm/bun, use `npm install -g claudecode-omc`.
 
 ### Atualizando
 
 ```bash
 # 1. Atualize o clone do marketplace
-/plugin marketplace update omc
+npm install -g claudecode-omc@latest
 
 # 2. Execute o setup novamente para atualizar a configuração
-/omc-setup
+omc install
+omc setup
 ```
 
-> **Observação:** Se a atualização automática do marketplace não estiver habilitada, você precisa executar manualmente `/plugin marketplace update omc` para sincronizar a versão mais recente antes de executar o setup.
+> **Observação:** Se a atualização automática do marketplace não estiver habilitada, você precisa executar manualmente `npm install -g claudecode-omc@latest` para sincronizar a versão mais recente antes de executar o setup.
 
 Se você tiver problemas depois de atualizar, limpe o cache antigo do plugin:
 
 ```bash
-/omc-doctor
+omc doctor
 ```
 
 <h1 align="center">Seu Claude acabou de tomar esteroides.</h1>

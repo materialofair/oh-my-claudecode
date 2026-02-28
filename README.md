@@ -8,8 +8,6 @@ English | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](READM
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4%EF%B8%8F-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
 
-> **For Codex users:** [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) provides a similar orchestration experience for OpenAI Codex CLI.
-
 Multi-agent orchestration for Claude Code with zero-friction setup.
 
 [Quick Start](#quick-start) • [Reference](docs/REFERENCE.md) • [Architecture](docs/ARCHITECTURE.md) • [Migration](docs/MIGRATION.md)

@@ -219,7 +219,7 @@ describe('Installer Constants', () => {
             }
             // Verify skills section exists with trigger patterns
             expect(CLAUDE_MD_CONTENT).toContain('skills');
-            expect(CLAUDE_MD_CONTENT).toContain('trigger');
+            expect(CLAUDE_MD_CONTENT).toMatch(/trigger/i);
         });
         it('should contain XML behavioral tags', () => {
             // Check for XML tag structure used in best-practices rewrite

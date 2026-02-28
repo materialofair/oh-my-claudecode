@@ -22,6 +22,11 @@ vi.mock('https', () => ({
         request: vi.fn(),
     },
 }));
+vi.mock('child_process', () => ({
+    execSync: vi.fn(() => {
+        throw new Error('No keychain credentials in test');
+    }),
+}));
 describe('isZaiHost', () => {
     it('accepts exact z.ai hostname', () => {
         expect(isZaiHost('https://z.ai')).toBe(true);

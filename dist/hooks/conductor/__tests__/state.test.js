@@ -134,13 +134,15 @@ describe('ConductorState', () => {
             const state = initConductor(testDir, sessionId);
             expect(state.session_id).toBe(sessionId);
         });
-        it('should throw error if mutual exclusion check fails', () => {
+        it('should allow init when autopilot state exists (conductor is non-exclusive)', () => {
             // Create a conflicting mode state (e.g., autopilot)
             const autopilotStateDir = join(testDir, '.omc', 'state');
             const fs = require('fs');
             fs.mkdirSync(autopilotStateDir, { recursive: true });
             fs.writeFileSync(join(autopilotStateDir, 'autopilot-state.json'), JSON.stringify({ active: true }), 'utf-8');
-            expect(() => initConductor(testDir)).toThrow();
+            expect(() => initConductor(testDir)).not.toThrow();
+            const state = readConductorState(testDir);
+            expect(state?.active).toBe(true);
         });
     });
     describe('createTrack', () => {

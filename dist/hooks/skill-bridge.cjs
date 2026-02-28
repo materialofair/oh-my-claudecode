@@ -197,12 +197,25 @@ function safeRealpathSync(filePath) {
   try {
     return (0, import_fs2.realpathSync)(filePath);
   } catch {
-    return filePath;
+    const absInput = (0, import_path2.resolve)(filePath);
+    const tail = [];
+    let probe = absInput;
+    while (true) {
+      try {
+        const realBase = (0, import_fs2.realpathSync)(probe);
+        return tail.reduce((acc, seg) => (0, import_path2.resolve)(acc, seg), realBase);
+      } catch {
+        const parent = (0, import_path2.dirname)(probe);
+        if (parent === probe) return absInput;
+        tail.unshift((0, import_path2.basename)(probe));
+        probe = parent;
+      }
+    }
   }
 }
 function isWithinBoundary(realPath, boundary) {
-  const normalizedReal = realPath.replace(/\\/g, "/").replace(/\/+/g, "/");
-  const normalizedBoundary = boundary.replace(/\\/g, "/").replace(/\/+/g, "/");
+  const normalizedReal = safeRealpathSync(realPath).replace(/\\/g, "/").replace(/\/+/g, "/");
+  const normalizedBoundary = safeRealpathSync(boundary).replace(/\\/g, "/").replace(/\/+/g, "/");
   return normalizedReal === normalizedBoundary || normalizedReal.startsWith(normalizedBoundary + "/");
 }
 function findSkillFiles(projectRoot, options) {

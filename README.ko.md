@@ -2,8 +2,8 @@
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm version](https://img.shields.io/npm/v/claudecode-omc?color=cb3837)](https://www.npmjs.com/package/claudecode-omc)
+[![npm downloads](https://img.shields.io/npm/dm/claudecode-omc?color=blue)](https://www.npmjs.com/package/claudecode-omc)
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
@@ -20,13 +20,13 @@
 
 **Step 1: 설치**
 ```bash
-/plugin marketplace add https://github.com/Yeachan-Heo/oh-my-claudecode
-/plugin install oh-my-claudecode
+npm install -g claudecode-omc
 ```
 
 **Step 2: 설정**
 ```bash
-/omc-setup
+omc install
+omc setup
 ```
 
 **Step 3: 무언가 만들기**
@@ -85,24 +85,25 @@ Team은 단계별 파이프라인으로 실행됩니다:
 
 워커는 요청 시 생성되고 작업 완료 후 종료됩니다 — 유휴 리소스 낭비 없음. `codex` / `gemini` CLI가 설치되어 있고 활성 tmux 세션이 필요합니다.
 
-> **참고: 패키지 이름** — 프로젝트 브랜드명은 **oh-my-claudecode** (저장소, 플러그인, 명령어)이지만, npm 패키지는 [`oh-my-claudecode`](https://www.npmjs.com/package/oh-my-claude-sisyphus)로 배포됩니다. npm/bun으로 CLI 도구를 설치할 때는 `npm install -g oh-my-claude-sisyphus`를 사용하세요.
+> **참고: 패키지 이름** — 프로젝트 브랜드명은 **oh-my-claudecode** (저장소, 플러그인, 명령어)이지만, npm 패키지는 [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc)로 배포됩니다. npm/bun으로 CLI 도구를 설치할 때는 `npm install -g claudecode-omc`를 사용하세요.
 
 ### 업데이트
 
 ```bash
 # 1. 마켓플레이스 클론 업데이트
-/plugin marketplace update omc
+npm install -g claudecode-omc@latest
 
 # 2. 셋업을 다시 실행하여 설정 갱신
-/omc-setup
+omc install
+omc setup
 ```
 
-> **참고:** 마켓플레이스 auto-update가 활성화되어 있지 않은 경우, 셋업 실행 전에 `/plugin marketplace update omc`를 수동으로 실행하여 최신 버전을 동기화해야 합니다.
+> **참고:** 마켓플레이스 auto-update가 활성화되어 있지 않은 경우, 셋업 실행 전에 `npm install -g claudecode-omc@latest`를 수동으로 실행하여 최신 버전을 동기화해야 합니다.
 
 업데이트 후 문제가 발생하면, 이전 플러그인 캐시를 정리하세요:
 
 ```bash
-/omc-doctor
+omc doctor
 ```
 
 <h1 align="center">당신의 Claude가 스테로이드를 맞았습니다.</h1>

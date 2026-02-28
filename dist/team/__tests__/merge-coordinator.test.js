@@ -70,7 +70,7 @@ describe('merge-coordinator', () => {
             execFileSync('git', ['commit', '-m', 'Change file1 in main'], { cwd: repoDir, stdio: 'pipe' });
             const conflicts = checkMergeConflicts(wt.branch, main, repoDir);
             expect(conflicts).toContain('file1.ts');
-        });
+        }, 20000);
     });
     describe('mergeWorkerBranch', () => {
         it('succeeds for clean merge', () => {

@@ -2,8 +2,8 @@
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm version](https://img.shields.io/npm/v/claudecode-omc?color=cb3837)](https://www.npmjs.com/package/claudecode-omc)
+[![npm downloads](https://img.shields.io/npm/dm/claudecode-omc?color=blue)](https://www.npmjs.com/package/claudecode-omc)
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
@@ -20,13 +20,13 @@
 
 **ステップ 1: インストール**
 ```bash
-/plugin marketplace add https://github.com/Yeachan-Heo/oh-my-claudecode
-/plugin install oh-my-claudecode
+npm install -g claudecode-omc
 ```
 
 **ステップ 2: セットアップ**
 ```bash
-/omc-setup
+omc install
+omc setup
 ```
 
 **ステップ 3: 何か作ってみる**
@@ -85,24 +85,25 @@ Codex + Gemini を一つのコマンドで使うには **`/ccg`** スキルを�
 
 ワーカーはオンデマンドで起動し、タスク完了後に終了します — アイドルリソースの無駄なし。`codex` / `gemini` CLI のインストールとアクティブな tmux セッションが必要です。
 
-> **注意: パッケージ名について** — プロジェクトのブランド名は **oh-my-claudecode**（リポジトリ、プラグイン、コマンド）ですが、npmパッケージは [`oh-my-claudecode`](https://www.npmjs.com/package/oh-my-claude-sisyphus) として公開されています。npm/bunでCLIツールをインストールする場合は `npm install -g oh-my-claude-sisyphus` を使用してください。
+> **注意: パッケージ名について** — プロジェクトのブランド名は **oh-my-claudecode**（リポジトリ、プラグイン、コマンド）ですが、npmパッケージは [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc) として公開されています。npm/bunでCLIツールをインストールする場合は `npm install -g claudecode-omc` を使用してください。
 
 ### アップデート
 
 ```bash
 # 1. マーケットプレイスクローンを更新
-/plugin marketplace update omc
+npm install -g claudecode-omc@latest
 
 # 2. セットアップを再実行して設定を更新
-/omc-setup
+omc install
+omc setup
 ```
 
-> **注意:** マーケットプレイスの自動更新が有効になっていない場合は、セットアップ実行前に `/plugin marketplace update omc` を手動で実行して最新バージョンを同期する必要があります。
+> **注意:** マーケットプレイスの自動更新が有効になっていない場合は、セットアップ実行前に `npm install -g claudecode-omc@latest` を手動で実行して最新バージョンを同期する必要があります。
 
 更新後に問題が発生した場合は、古いプラグインキャッシュをクリアしてください：
 
 ```bash
-/omc-doctor
+omc doctor
 ```
 
 <h1 align="center">あなたの Claude がステロイド級にパワーアップ。</h1>

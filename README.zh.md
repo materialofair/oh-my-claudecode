@@ -2,8 +2,8 @@
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm version](https://img.shields.io/npm/v/claudecode-omc?color=cb3837)](https://www.npmjs.com/package/claudecode-omc)
+[![npm downloads](https://img.shields.io/npm/dm/claudecode-omc?color=blue)](https://www.npmjs.com/package/claudecode-omc)
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
@@ -20,13 +20,13 @@
 
 **第一步：安装**
 ```bash
-/plugin marketplace add https://github.com/Yeachan-Heo/oh-my-claudecode
-/plugin install oh-my-claudecode
+npm install -g claudecode-omc
 ```
 
 **第二步：配置**
 ```bash
-/omc-setup
+omc install
+omc setup
 ```
 
 **第三步：开始构建**
@@ -85,24 +85,25 @@ Team 按阶段化流水线运行：
 
 工作者按需生成，任务完成后自动退出 — 无空闲资源浪费。需要安装 `codex` / `gemini` CLI 并有活跃的 tmux 会话。
 
-> **注意：包命名** — 项目品牌名为 **oh-my-claudecode**（仓库、插件、命令），但 npm 包以 [`oh-my-claudecode`](https://www.npmjs.com/package/oh-my-claude-sisyphus) 发布。通过 npm/bun 安装 CLI 工具时，请使用 `npm install -g oh-my-claude-sisyphus`。
+> **注意：包命名** — 项目品牌名为 **oh-my-claudecode**（仓库、插件、命令），但 npm 包以 [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc) 发布。通过 npm/bun 安装 CLI 工具时，请使用 `npm install -g claudecode-omc`。
 
 ### 更新
 
 ```bash
 # 1. 更新 marketplace 克隆
-/plugin marketplace update omc
+npm install -g claudecode-omc@latest
 
 # 2. 重新运行设置以刷新配置
-/omc-setup
+omc install
+omc setup
 ```
 
-> **注意：** 如果 marketplace 自动更新未启用，您需要在运行设置之前手动执行 `/plugin marketplace update omc` 来同步最新版本。
+> **注意：** 如果 marketplace 自动更新未启用，您需要在运行设置之前手动执行 `npm install -g claudecode-omc@latest` 来同步最新版本。
 
 如果更新后遇到问题，清除旧的插件缓存：
 
 ```bash
-/omc-doctor
+omc doctor
 ```
 
 <h1 align="center">你的 Claude 已被注入超能力。</h1>

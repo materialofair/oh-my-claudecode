@@ -235,6 +235,10 @@ function refreshAccessToken(refreshToken) {
                 resolve(null);
             });
         });
+        if (!req || typeof req.on !== 'function' || typeof req.end !== 'function') {
+            resolve(null);
+            return;
+        }
         req.on('error', () => resolve(null));
         req.on('timeout', () => { req.destroy(); resolve(null); });
         req.end(body);
@@ -274,6 +278,10 @@ function fetchUsageFromApi(accessToken) {
                 }
             });
         });
+        if (!req || typeof req.on !== 'function' || typeof req.end !== 'function') {
+            resolve(null);
+            return;
+        }
         req.on('error', () => resolve(null));
         req.on('timeout', () => {
             req.destroy();
@@ -325,6 +333,10 @@ function fetchUsageFromZai() {
                     }
                 });
             });
+            if (!req || typeof req.on !== 'function' || typeof req.end !== 'function') {
+                resolve(null);
+                return;
+            }
             req.on('error', () => resolve(null));
             req.on('timeout', () => { req.destroy(); resolve(null); });
             req.end();
