@@ -12,7 +12,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { TaskTool } from '../hooks/beads-context/types.js';
 import { install as installOmc, HOOKS_DIR, isProjectScopedPlugin, isRunningAsPlugin } from '../installer/index.js';
 import { getConfigDir } from '../utils/config-dir.js';
@@ -45,18 +45,28 @@ function syncMarketplaceClone(verbose: boolean = false): { ok: boolean; message:
   const execOpts = { encoding: 'utf-8' as const, stdio: stdio as any, timeout: 60000 };
 
   try {
-    execSync(`git -C "${marketplacePath}" fetch --all --prune`, execOpts);
+    execFileSync('git', ['-C', marketplacePath, 'fetch', '--all', '--prune'], execOpts);
   } catch (err) {
     return { ok: false, message: `Failed to fetch marketplace clone: ${err instanceof Error ? err.message : err}` };
   }
 
   // Ensure we're on main (ignore errors for older clones on different branches)
-  try { execSync(`git -C "${marketplacePath}" checkout main`, { ...execOpts, timeout: 15000 }); } catch { /* ignore checkout errors on older clones */ }
+  try { execFileSync('git', ['-C', marketplacePath, 'checkout', 'main'], { ...execOpts, timeout: 15000 }); } catch { /* ignore checkout errors on older clones */ }
+
+  // Reset to upstream state -- the marketplace clone is a managed read-only
+  // checkout, so any local modifications (e.g. regenerated dist files) can be
+  // safely discarded.  This avoids the "dirty worktree" failure that
+  // `git pull --ff-only` would hit when untracked/modified files exist (#978).
+  try {
+    execFileSync('git', ['-C', marketplacePath, 'reset', '--hard', 'origin/main'], execOpts);
+  } catch (err) {
+    return { ok: false, message: `Failed to reset marketplace clone: ${err instanceof Error ? err.message : err}` };
+  }
 
   try {
-    execSync(`git -C "${marketplacePath}" pull --ff-only origin main`, execOpts);
-  } catch (err) {
-    return { ok: false, message: `Failed to update marketplace clone: ${err instanceof Error ? err.message : err}` };
+    execFileSync('git', ['-C', marketplacePath, 'clean', '-fd'], execOpts);
+  } catch {
+    // clean is best-effort; untracked leftovers won't break anything
   }
 
   return { ok: true, message: 'Marketplace clone updated' };
@@ -330,15 +340,15 @@ export function getInstalledVersion(): VersionMetadata | null {
     // Try to detect version from package.json if installed via npm
     try {
       // Check if we can find the package in node_modules
-      const result = execSync('npm list -g oh-my-claudecode --json', {
+      const result = execSync('npm list -g oh-my-claude-sisyphus --json', {
         encoding: 'utf-8',
         timeout: 5000,
         stdio: 'pipe'
       });
       const data = JSON.parse(result);
-      if (data.dependencies?.['oh-my-claudecode']?.version) {
+      if (data.dependencies?.['oh-my-claude-sisyphus']?.version) {
         return {
-          version: data.dependencies['oh-my-claudecode'].version,
+          version: data.dependencies['oh-my-claude-sisyphus'].version,
           installedAt: new Date().toISOString(),
           installMethod: 'npm'
         };
@@ -570,7 +580,7 @@ export async function performUpdate(options?: {
 
     // Use npm for updates on all platforms (install.sh was removed)
     try {
-      execSync('npm install -g oh-my-claudecode@latest', {
+      execSync('npm install -g oh-my-claude-sisyphus@latest', {
         encoding: 'utf-8',
         stdio: options?.verbose ? 'inherit' : 'pipe',
         timeout: 120000, // 2 minute timeout for npm
@@ -598,7 +608,7 @@ export async function performUpdate(options?: {
 
         // Re-exec with reconcile subcommand
         try {
-          execSync(`"${omcPath}" update-reconcile`, {
+          execFileSync(omcPath, ['update-reconcile'], {
             encoding: 'utf-8',
             stdio: options?.verbose ? 'inherit' : 'pipe',
             timeout: 60000,
@@ -650,7 +660,7 @@ export async function performUpdate(options?: {
     } catch (npmError) {
       throw new Error(
         'Auto-update via npm failed. Please run manually:\n' +
-        '  npm install -g oh-my-claudecode@latest\n' +
+        '  npm install -g oh-my-claude-sisyphus@latest\n' +
         'Or use: /plugin install oh-my-claudecode\n' +
         `Error: ${npmError instanceof Error ? npmError.message : npmError}`
       );

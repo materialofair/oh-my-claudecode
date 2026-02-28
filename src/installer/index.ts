@@ -129,10 +129,19 @@ export function isHudEnabledInConfig(): boolean {
  * @returns true if the statusLine was set by OMC
  */
 export function isOmcStatusLine(statusLine: unknown): boolean {
-  if (!statusLine || typeof statusLine !== 'object') return false;
-  const sl = statusLine as Record<string, unknown>;
-  if (typeof sl.command !== 'string') return false;
-  return sl.command.includes('omc-hud');
+  if (!statusLine) return false;
+  // Legacy string format (pre-v4.5): "~/.claude/hud/omc-hud.mjs"
+  if (typeof statusLine === 'string') {
+    return statusLine.includes('omc-hud');
+  }
+  // Current object format: { type: "command", command: "node ...omc-hud.mjs" }
+  if (typeof statusLine === 'object') {
+    const sl = statusLine as Record<string, unknown>;
+    if (typeof sl.command === 'string') {
+      return sl.command.includes('omc-hud');
+    }
+  }
+  return false;
 }
 
 /**
@@ -379,8 +388,8 @@ export function mergeClaudeMd(existingContent: string | null, omcContent: string
     return `${beforeMarker}${START_MARKER}\n${versionMarker}${cleanOmcContent}\n${END_MARKER}${afterMarker}`;
   }
 
-  // Case 3: Corrupted markers (START without END or vice versa)
-  if (startIndex !== -1 || endIndex !== -1) {
+  // Case 3: Corrupted markers (exactly one present, or both present but in wrong order)
+  if ((startIndex !== -1) !== (endIndex !== -1) || (startIndex !== -1 && endIndex !== -1 && endIndex < startIndex)) {
     // Handle corrupted state - backup will be created by caller
     return `${START_MARKER}\n${versionMarker}${cleanOmcContent}\n${END_MARKER}\n\n<!-- User customizations (recovered from corrupted markers) -->\n${existingContent}`;
   }
@@ -779,7 +788,9 @@ export function install(options: InstallOptions = {}): InstallResult {
         '  }',
         '  ',
         '  // 2. Plugin cache (for production installs)',
-        '  const pluginCacheBase = join(home, ".claude/plugins/cache/omc/oh-my-claudecode");',
+        '  // Respect CLAUDE_CONFIG_DIR so installs under a custom config dir are found',
+        '  const configDir = process.env.CLAUDE_CONFIG_DIR || join(home, ".claude");',
+        '  const pluginCacheBase = join(configDir, "plugins", "cache", "omc", "oh-my-claudecode");',
         '  if (existsSync(pluginCacheBase)) {',
         '    try {',
         '      const versions = readdirSync(pluginCacheBase);',
@@ -899,13 +910,18 @@ export function install(options: InstallOptions = {}): InstallResult {
         // Use absolute node path so nvm/fnm users don't get "node not found"
         // errors when Claude Code invokes the statusLine in a non-interactive shell.
         const nodeBin = resolveNodeBinary();
-        const statusLineCommand = nodeBin + ' ' + hudScriptPath.replace(/\\/g, '/');
-        if (!existingSettings.statusLine) {
+        const statusLineCommand = '"' + nodeBin + '" "' + hudScriptPath.replace(/\\/g, '/') + '"';
+        // Auto-migrate legacy string format (pre-v4.5) to object format
+        const needsMigration = typeof existingSettings.statusLine === 'string'
+          && isOmcStatusLine(existingSettings.statusLine);
+        if (!existingSettings.statusLine || needsMigration) {
           existingSettings.statusLine = {
             type: 'command',
             command: statusLineCommand
           };
-          log('  Configured statusLine');
+          log(needsMigration
+            ? '  Migrated statusLine from legacy string to object format'
+            : '  Configured statusLine');
         } else if (options.force && isOmcStatusLine(existingSettings.statusLine)) {
           existingSettings.statusLine = {
             type: 'command',

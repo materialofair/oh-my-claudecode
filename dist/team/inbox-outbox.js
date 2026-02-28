@@ -68,7 +68,9 @@ export function rotateOutboxIfNeeded(teamName, workerName, maxLines) {
             return;
         // Keep the most recent half
         const keepCount = Math.floor(maxLines / 2);
-        const kept = lines.slice(-keepCount);
+        // When keepCount is 0 (maxLines <= 1), slice(-0) returns the full array — a no-op.
+        // Explicitly clear in that case instead.
+        const kept = keepCount === 0 ? [] : lines.slice(-keepCount);
         const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
         writeFileWithMode(tmpPath, kept.join('\n') + '\n');
         renameSync(tmpPath, filePath);
@@ -192,8 +194,10 @@ export function readNewInboxMessages(teamName, workerName) {
             bytesProcessed += lineBytes;
         }
         catch {
-            // Stop at first malformed line — don't skip past it
-            break;
+            // Malformed JSONL line: log a warning, advance cursor past it, and continue.
+            // Stopping here would permanently wedge the inbox cursor.
+            console.warn(`[inbox-outbox] Skipping malformed JSONL line for ${workerName}: ${cleanLine.slice(0, 80)}`);
+            bytesProcessed += lineBytes;
         }
     }
     // Advance cursor only through last successfully parsed content

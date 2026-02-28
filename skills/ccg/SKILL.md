@@ -3,136 +3,125 @@ name: ccg
 description: Claude-Codex-Gemini tri-model orchestration - fans out backend tasks to Codex and frontend/UI tasks to Gemini in parallel, then Claude synthesizes results
 ---
 
-# CCG (Claude-Codex-Gemini) Orchestration
+# CCG - Claude-Codex-Gemini Tri-Model Orchestration
 
-## Overview
+CCG spawns a tmux team with Codex and Gemini CLI workers running in parallel panes, then Claude synthesizes the results. Use this for tasks that benefit from multiple AI perspectives simultaneously.
 
-CCG is a tri-model orchestration pattern:
+## When to Use
 
-- **Claude** — Orchestrator/conductor: decomposes requests, fans out work, synthesizes results
-- **Codex** (OpenAI) — Backend/code engine: architecture, APIs, security, code analysis
-- **Gemini** (Google) — Frontend/design processor: UI components, styling, visual design, large-context tasks
+- Backend/analysis + frontend/UI work that can run truly in parallel
+- Code review from multiple perspectives (architecture + style simultaneously)
+- Research tasks where different models have complementary strengths
+- Any task you want to split across Codex (analytical) and Gemini (design/creative) workers
 
-Claude fans Codex and Gemini out **in parallel**, then synthesizes their outputs into a unified solution.
+## Requirements
 
-## Trigger
+- **Codex CLI**: `npm install -g @openai/codex` (or `@openai/codex`)
+- **Gemini CLI**: `npm install -g @google/gemini-cli`
+- **tmux**: Must be running inside a tmux session
+- If either CLI is unavailable, CCG falls back to Claude-only execution
 
-Activated when the user says `ccg` or `claude-codex-gemini` in their prompt.
+## How It Works
+
+```
+1. Claude decomposes the request into:
+   - Backend/analytical tasks → Codex worker
+   - Frontend/UI/design tasks → Gemini worker
+
+2. mcp__team__omc_run_team_start creates a tmux session with 2 workers:
+   omc-team-{name}
+   ├── Leader pane (Claude orchestrates)
+   ├── Worker pane 1: codex CLI (analytical tasks)
+   └── Worker pane 2: gemini CLI (design tasks)
+
+3. Workers read tasks from inbox files and write done.json on completion
+
+4. mcp__team__omc_run_team_wait blocks until all workers finish
+
+5. Claude reads taskResults and synthesizes into final output
+```
 
 ## Execution Protocol
 
-**ANNOUNCE immediately**: `"CCG MODE ENABLED — Orchestrating Claude + Codex + Gemini"`
+When invoked, Claude MUST follow this workflow:
 
-### Phase 1: Decompose
+### 1. Decompose Request
+Split the user's request into:
+- **Codex tasks**: code analysis, architecture review, backend logic, security review, test strategy
+- **Gemini tasks**: UI/UX design, documentation, visual analysis, large-context file review
+- **Synthesis task**: Claude combines results (always done by Claude, not delegated)
 
-Analyze the request and split into:
-- **Backend tasks** → Codex (APIs, data models, business logic, tests, security)
-- **Frontend tasks** → Gemini (UI components, styling, layout, responsive design)
-- **Synthesis tasks** → Claude (integration, cross-cutting concerns, final wiring)
+Choose a short `teamName` slug (e.g., `ccg-auth-review`).
 
-### Phase 2: Fan-Out (Parallel)
+### 2. Start the team (non-blocking)
 
-Run Codex and Gemini **simultaneously** using background mode.
-
-**Codex — backend**:
-1. Write prompt to `.omc/prompts/codex-{purpose}-{timestamp}.md`
-2. Call `ask_codex` MCP tool:
-   - `agent_role`: pick from `architect`, `executor`, `code-reviewer`, `security-reviewer`, `planner`, `critic`
-   - `prompt_file`: the file you just wrote
-   - `output_file`: `.omc/prompts/codex-{purpose}-{timestamp}-output.md`
-   - `context_files`: relevant source files
-   - `background: true` for non-blocking execution
-
-**Gemini — frontend**:
-1. Write prompt to `.omc/prompts/gemini-{purpose}-{timestamp}.md`
-2. Call `ask_gemini` MCP tool:
-   - `agent_role`: pick from `designer`, `writer`, `vision`
-   - `prompt_file`: the file you just wrote
-   - `output_file`: `.omc/prompts/gemini-{purpose}-{timestamp}-output.md`
-   - `files`: relevant source files
-   - `background: true` for non-blocking execution
-
-### Phase 3: Await Results
-
-Use `wait_for_job` (or poll with `check_job_status`) for both jobs. Wait for both to complete before synthesizing.
-
-### Phase 4: Synthesize
-
-Claude reads both output files and:
-1. Reconciles any conflicts (e.g., API shape vs component props)
-2. Integrates backend + frontend solutions into a cohesive whole
-3. Applies cross-cutting concerns (error handling, typing, auth)
-4. Implements any remaining integration glue code
-
-## MCP Tool Selection Guide
-
-### Use Codex (`ask_codex`) for:
-- REST/GraphQL API design and implementation
-- Database schema, migrations, data models
-- Backend business logic and services
-- Security audit and vulnerability analysis
-- Architecture review and refactoring
-- Test strategy, TDD, unit/integration tests
-- Build errors and TypeScript issues
-
-**Roles**: `architect`, `code-reviewer`, `security-reviewer`, `executor`, `planner`, `critic`, `test-engineer`
-
-### Use Gemini (`ask_gemini`) for:
-- React/Vue/Svelte component implementation
-- CSS, Tailwind, styled-components
-- Responsive layouts and visual design
-- UI/UX review and heuristic audits
-- Large-scale documentation (1M token context)
-- Image/screenshot/diagram analysis
-
-**Roles**: `designer`, `writer`, `vision`
-
-## Fallback
-
-If **Codex MCP unavailable** → use `Task(subagent_type="oh-my-claudecode:executor", model="sonnet")` for backend tasks.
-
-If **Gemini MCP unavailable** → use `Task(subagent_type="oh-my-claudecode:designer", model="sonnet")` for frontend tasks.
-
-If **both unavailable** → use Claude directly with the standard agent catalog.
-
-## Example
-
-**User**: `ccg Add a user profile page with a REST API endpoint and React frontend`
+Call `mcp__team__omc_run_team_start` — spawns workers in the background and returns a `jobId` immediately:
 
 ```
-CCG MODE ENABLED — Orchestrating Claude + Codex + Gemini
-
-Decomposition:
-  Backend  → Codex: /api/users/:id endpoint, Prisma user model, auth middleware
-  Frontend → Gemini: React UserProfile component, avatar, form, responsive layout
-
-Fan-out (parallel):
-  [Codex]  Implementing REST endpoint + data layer...
-  [Gemini] Designing UserProfile component + styling...
-
-[Both complete]
-
-Synthesis:
-  - Align API response type with React component props
-  - Wire fetch hook to /api/users/:id endpoint
-  - Add error boundary and loading state across layers
-  - Export unified UserProfilePage with data fetching
+mcp__team__omc_run_team_start({
+  "teamName": "ccg-{slug}",
+  "agentTypes": ["codex", "gemini"],
+  "tasks": [
+    {"subject": "Codex task: ...", "description": "Full description of analytical work..."},
+    {"subject": "Gemini task: ...", "description": "Full description of design/UI work..."}
+  ],
+  "cwd": "{cwd}"
+})
 ```
 
-## Integration with Other Skills
+Returns: `{ "jobId": "omc-...", "pid": 12345, "message": "Team started in background..." }`
 
-CCG composes with other OMC modes:
+### 3. Wait for completion
 
-| Combination | Effect |
-|-------------|--------|
-| `ccg ralph` | CCG loop with ralph persistence until verified complete |
-| `ccg ultrawork` | CCG with max parallelism within each model |
-| `ccg team` | CCG orchestration within a multi-agent team |
+Call `mcp__team__omc_run_team_wait` — blocks internally until done:
 
-## Cancellation
+```
+mcp__team__omc_run_team_wait({
+  "job_id": "{jobId}",
+  "timeout_ms": 60000
+})
+```
 
-Stop active CCG work: say `cancelomc` or run `/oh-my-claudecode:cancel`.
+> **Timeout guidance:** `timeout_ms` is optional; the default wait timeout is fine.
+> If wait times out, workers/panes keep running. Call `omc_run_team_wait` again to keep
+> waiting. Use `omc_run_team_cleanup` only for explicit cancel intent.
 
-## State
+Returns when done:
+```json
+{
+  "status": "completed|failed",
+  "result": {
+    "taskResults": [
+      {"taskId": "1", "status": "completed", "summary": "..."},
+      {"taskId": "2", "status": "completed", "summary": "..."}
+    ]
+  }
+}
+```
 
-CCG does not maintain persistent state files. Each invocation is stateless — Claude manages the workflow inline. MCP job IDs are tracked in-context during the session.
+### 4. Synthesize Results
+
+Parse `result.taskResults` and synthesize Codex + Gemini outputs into a unified response for the user.
+
+## Fallback (CLIs Not Available)
+
+CLI availability is checked by the MCP runtime automatically. If a CLI is not installed, the worker exits with `command not found`. In that case, fall back to Claude Task agents:
+
+```
+[CCG] Codex/Gemini CLI not found. Falling back to Claude-only execution.
+```
+
+Use standard Claude Task agents instead:
+- `Task(subagent_type="oh-my-claudecode:executor", model="sonnet", ...)` for analytical tasks
+- `Task(subagent_type="oh-my-claudecode:designer", model="sonnet", ...)` for design tasks
+
+## Invocation
+
+```
+/oh-my-claudecode:ccg [task description]
+```
+
+Example:
+```
+/oh-my-claudecode:ccg Review this PR - check architecture and code quality (Codex) and UI components (Gemini)
+```

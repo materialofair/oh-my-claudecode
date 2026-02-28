@@ -12,6 +12,15 @@ export declare function captureFileSnapshot(cwd: string): Set<string>;
  * @internal
  */
 export declare function sanitizePromptContent(content: string, maxLength: number): string;
+export declare function recordTaskCompletionUsage(args: {
+    config: BridgeConfig;
+    taskId: string;
+    promptFile: string;
+    outputFile: string;
+    provider: 'codex' | 'gemini';
+    startedAt: number;
+    startedAtIso: string;
+}): void;
 /** Main bridge daemon entry point */
 export declare function runBridge(config: BridgeConfig): Promise<void>;
 //# sourceMappingURL=mcp-team-bridge.d.ts.map

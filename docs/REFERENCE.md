@@ -13,7 +13,6 @@ Complete reference for oh-my-claudecode. For quick start, see the main [README.m
 - [Slash Commands](#slash-commands)
 - [Hooks System](#hooks-system)
 - [Magic Keywords](#magic-keywords)
-- [MCP Path Boundary Rules](#mcp-path-boundary-rules)
 - [Platform Support](#platform-support)
 - [Performance Monitoring](#performance-monitoring)
 - [Troubleshooting](#troubleshooting)
@@ -55,7 +54,7 @@ This integrates directly with Claude Code's plugin system and uses Node.js hooks
 Configure omc for the current project only:
 
 ```
-/oh-my-claudecode:omc-setup
+/oh-my-claudecode:omc-setup --local
 ```
 
 - Creates `./.claude/CLAUDE.md` in your current project
@@ -92,6 +91,31 @@ If both configurations exist, **project-scoped takes precedence** over global:
 ```
 ./.claude/CLAUDE.md  (project)   →  Overrides  →  ~/.claude/CLAUDE.md  (global)
 ```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OMC_STATE_DIR` | _(unset)_ | Centralized state directory. When set, OMC stores state at `$OMC_STATE_DIR/{project-id}/` instead of `{worktree}/.omc/`. This preserves state across worktree deletions. The project identifier is derived from the git remote URL (or worktree path for local-only repos). |
+| `OMC_BRIDGE_SCRIPT` | _(auto-detected)_ | Path to the Python bridge script |
+| `OMC_PARALLEL_EXECUTION` | `true` | Enable/disable parallel agent execution |
+| `OMC_CODEX_DEFAULT_MODEL` | _(provider default)_ | Default model for Codex CLI workers |
+| `OMC_GEMINI_DEFAULT_MODEL` | _(provider default)_ | Default model for Gemini CLI workers |
+| `DISABLE_OMC` | _(unset)_ | Set to any value to disable all OMC hooks |
+| `OMC_SKIP_HOOKS` | _(unset)_ | Comma-separated list of hook names to skip |
+
+#### Centralized State with `OMC_STATE_DIR`
+
+By default, OMC stores state in `{worktree}/.omc/`. This is lost when worktrees are deleted. To preserve state across worktree lifecycles, set `OMC_STATE_DIR`:
+
+```bash
+# In your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export OMC_STATE_DIR="$HOME/.claude/omc"
+```
+
+This resolves to `~/.claude/omc/{project-identifier}/` where the project identifier uses a hash of the git remote URL (stable across worktrees/clones) with a fallback to the directory path hash for local-only repos.
+
+If both a legacy `{worktree}/.omc/` directory and a centralized directory exist, OMC logs a notice and uses the centralized directory. You can then migrate data from the legacy directory and remove it.
 
 ### When to Re-run Setup
 
@@ -237,8 +261,8 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | `ralph` | Self-referential development until completion | `/oh-my-claudecode:ralph` |
 | `ralph-init` | Initialize PRD for structured task tracking | `/oh-my-claudecode:ralph-init` |
 | `ultraqa` | Autonomous QA cycling workflow | `/oh-my-claudecode:ultraqa` |
-| `plan` | Start planning session | `/oh-my-claudecode:plan` |
-| `ralplan` | Iterative planning (Planner+Architect+Critic) | `/oh-my-claudecode:ralplan` |
+| `plan` | Start planning session (consensus mode uses RALPLAN-DR structured deliberation) | `/oh-my-claudecode:plan` |
+| `ralplan` | Iterative planning (Planner+Architect+Critic) with structured deliberation; short mode default, `--deliberate` for high-risk pre-mortem + expanded test plan | `/oh-my-claudecode:ralplan` |
 | `review` | Review work plans with critic | `/oh-my-claudecode:review` |
 
 ### Enhancement Skills
@@ -292,8 +316,8 @@ All skills are available as slash commands with the prefix `/oh-my-claudecode:`.
 | `/oh-my-claudecode:ralph-init <task>` | Initialize PRD for structured task tracking |
 | `/oh-my-claudecode:ralph <task>` | Self-referential loop until task completion |
 | `/oh-my-claudecode:ultraqa <goal>` | Autonomous QA cycling workflow |
-| `/oh-my-claudecode:plan <description>` | Start planning session |
-| `/oh-my-claudecode:ralplan <description>` | Iterative planning with consensus |
+| `/oh-my-claudecode:plan <description>` | Start planning session (supports consensus structured deliberation) |
+| `/oh-my-claudecode:ralplan <description>` | Iterative planning with consensus structured deliberation (`--deliberate` for high-risk mode) |
 | `/oh-my-claudecode:review [plan-path]` | Review a plan with critic |
 | `/oh-my-claudecode:deepsearch <query>` | Thorough multi-strategy codebase search |
 | `/oh-my-claudecode:deepinit [path]` | Index codebase with hierarchical AGENTS.md files |
@@ -422,12 +446,12 @@ Just include these words anywhere in your prompt to activate enhanced modes:
 | Keyword | Effect |
 |---------|--------|
 | `ultrawork`, `ulw`, `uw` | Activates parallel agent orchestration |
-| ``, `eco`, `efficient`, `save-tokens`, `budget` | Token-efficient parallel execution |
+| `eco`, `efficient`, `save-tokens`, `budget` | Token-efficient parallel execution |
 | `autopilot`, `build me`, `I want a` | Full autonomous execution |
 | `ultrapilot`, `parallel build`, `swarm build` | Parallel autopilot (3-5x faster) |
 | `ralph`, `don't stop`, `must complete` | Persistence until verified complete |
 | `plan this`, `plan the` | Planning interview workflow |
-| `ralplan` | Iterative planning consensus |
+| `ralplan` | Iterative planning consensus with structured deliberation (`--deliberate` for high-risk mode) |
 | `search`, `find`, `locate` | Enhanced search mode |
 | `analyze`, `investigate`, `debug` | Deep analysis mode |
 | `sciomc` | Parallel research orchestration |
@@ -477,110 +501,19 @@ pipeline: analyze → fix → test this bug
 
 ---
 
-## MCP Path Boundary Rules
-
-The MCP tools (`ask_codex`, `ask_gemini`) enforce strict path boundaries for security. Both `prompt_file` and `output_file` are resolved relative to `working_directory`.
-
-### Default Behavior (Strict Mode)
-
-By default, both files must reside within the `working_directory`:
-
-| Parameter | Requirement |
-|-----------|-------------|
-| `prompt_file` | Must be within `working_directory` (after symlink resolution) |
-| `output_file` | Must be within `working_directory` (after symlink resolution) |
-| `working_directory` | Must be within the project worktree (unless bypassed) |
-
-### Environment Variable Overrides
-
-| Variable | Values | Description |
-|----------|--------|-------------|
-| `OMC_MCP_OUTPUT_PATH_POLICY` | `strict` (default), `redirect_output` | Controls output file path enforcement |
-| `OMC_MCP_OUTPUT_REDIRECT_DIR` | Path (default: `.omc/outputs`) | Directory for redirected outputs when policy is `redirect_output` |
-| `OMC_MCP_ALLOW_EXTERNAL_PROMPT` | `0` (default), `1` | Allow prompt files outside working directory |
-| `OMC_ALLOW_EXTERNAL_WORKDIR` | unset (default), `1` | Allow working_directory outside project worktree |
-| `OMC_DISCORD_WEBHOOK_URL` | URL | Discord webhook URL for notifications |
-| `OMC_DISCORD_NOTIFIER_BOT_TOKEN` | Token | Discord bot token for Bot API notifications |
-| `OMC_DISCORD_NOTIFIER_CHANNEL` | Channel ID | Discord channel ID for Bot API notifications |
-| `OMC_DISCORD_MENTION` | `<@uid>` or `<@&role_id>` | Mention to prepend to Discord messages |
-| `OMC_TELEGRAM_BOT_TOKEN` | Token | Telegram bot token for notifications |
-| `OMC_TELEGRAM_CHAT_ID` | Chat ID | Telegram chat ID for notifications |
-| `OMC_SLACK_WEBHOOK_URL` | URL | Slack incoming webhook URL for notifications |
-
-### Policy Descriptions
-
-**`OMC_MCP_OUTPUT_PATH_POLICY=strict` (Default)**
-- Output files must be within `working_directory`
-- Attempts to write outside the boundary fail with `E_PATH_OUTSIDE_WORKDIR_OUTPUT`
-- Most secure option - recommended for production
-
-**`OMC_MCP_OUTPUT_PATH_POLICY=redirect_output`**
-- Output files are automatically redirected to `OMC_MCP_OUTPUT_REDIRECT_DIR`
-- Only the filename is preserved; directory structure is flattened
-- Useful when you want to collect all outputs in a single location
-- Logs redirection at `[MCP Config]` level
-
-**`OMC_MCP_ALLOW_EXTERNAL_PROMPT=1`**
-- Allows reading prompt files from outside `working_directory`
-- **Security Warning**: Enables reading arbitrary files on the filesystem
-- Use only in trusted environments
-
-**`OMC_ALLOW_EXTERNAL_WORKDIR=1`**
-- Allows `working_directory` to be outside the project worktree
-- Bypasses the worktree boundary check
-- Use when running MCP tools against external projects
-
-### Error Tokens
-
-| Token | Meaning |
-|-------|---------|
-| `E_PATH_OUTSIDE_WORKDIR_PROMPT` | prompt_file is outside working_directory |
-| `E_PATH_OUTSIDE_WORKDIR_OUTPUT` | output_file is outside working_directory |
-| `E_PATH_RESOLUTION_FAILED` | Failed to resolve symlink or directory |
-| `E_WRITE_FAILED` | Failed to write output file (I/O error) |
-| `E_WORKDIR_INVALID` | working_directory does not exist or is inaccessible |
-
-### Example Valid/Invalid Patterns
-
-**Valid paths (working_directory: `/home/user/project`)**
-```
-prompt.txt                    -> /home/user/project/prompt.txt
-./prompts/task.md             -> /home/user/project/prompts/task.md
-../project/output.txt         -> /home/user/project/output.txt (resolves inside)
-.omc/outputs/response.md      -> /home/user/project/.omc/outputs/response.md
-```
-
-**Invalid paths (working_directory: `/home/user/project`)**
-```
-/etc/passwd                   -> Outside working directory (absolute)
-../../etc/shadow              -> Outside working directory (traverses too far)
-/tmp/output.txt               -> Outside working directory (different root)
-```
-
-### Troubleshooting Matrix
-
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `E_PATH_OUTSIDE_WORKDIR_PROMPT` error | prompt_file outside working_directory | Move file to working directory or change working_directory to a common ancestor |
-| `E_PATH_OUTSIDE_WORKDIR_OUTPUT` error | output_file outside working_directory | Use relative path within working directory, or set `OMC_MCP_OUTPUT_PATH_POLICY=redirect_output` |
-| `E_PATH_RESOLUTION_FAILED` error | Symlink resolution failed or directory inaccessible | Ensure target directory exists and is accessible |
-| `E_WRITE_FAILED` error | I/O error (permissions, disk full) | Check file permissions and disk space |
-| `working_directory is outside the project worktree` | working_directory not within git worktree | Set `OMC_ALLOW_EXTERNAL_WORKDIR=1` or use a working directory inside the project |
-| Output file not where expected | `redirect_output` policy active | Check `OMC_MCP_OUTPUT_REDIRECT_DIR` (default: `.omc/outputs`) |
-
----
-
 ## Platform Support
 
 ### Operating Systems
 
 | Platform | Install Method | Hook Type |
 |----------|---------------|-----------|
-| **Windows** | `npm install -g` | Node.js (.mjs) |
+| **Windows** | WSL2 recommended (see note) | Node.js (.mjs) |
 | **macOS** | curl or npm | Bash (.sh) |
 | **Linux** | curl or npm | Bash (.sh) |
 
 > **Note**: Bash hooks are fully portable across macOS and Linux (no GNU-specific dependencies).
+
+> **Windows**: Native Windows (win32) support is experimental. OMC requires tmux, which is not available on native Windows. **WSL2 is strongly recommended** for Windows users. See the [WSL2 installation guide](https://learn.microsoft.com/en-us/windows/wsl/install). Native Windows issues may have limited support.
 
 > **Advanced**: Set `OMC_USE_NODE_HOOKS=1` to use Node.js hooks on macOS/Linux.
 

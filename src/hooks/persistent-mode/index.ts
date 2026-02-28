@@ -10,8 +10,9 @@
  * Priority order: Ralph > Ultrawork > Todo Continuation
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
-import { join, dirname } from 'path';
+import { existsSync, readFileSync, unlinkSync, statSync, openSync, readSync, closeSync } from 'fs';
+import { atomicWriteJsonSync } from '../../lib/atomic-write.js';
+import { join } from 'path';
 import { homedir } from 'os';
 import { getClaudeConfigDir } from '../../utils/paths.js';
 import {
@@ -22,7 +23,7 @@ import {
   getUltraworkPersistenceMessage,
   type UltraworkState
 } from '../ultrawork/index.js';
-import { resolveToWorktreeRoot } from '../../lib/worktree-paths.js';
+import { resolveToWorktreeRoot, resolveSessionStatePath } from '../../lib/worktree-paths.js';
 import {
   readRalphState,
   writeRalphState,
@@ -38,7 +39,7 @@ import {
   detectArchitectRejection,
   clearVerificationState
 } from '../ralph/index.js';
-import { checkIncompleteTodos, getNextPendingTodo, StopContext, isUserAbort, isContextLimitStop, isRateLimitStop } from '../todo-continuation/index.js';
+import { checkIncompleteTodos, getNextPendingTodo, StopContext, isUserAbort, isContextLimitStop, isRateLimitStop, isExplicitCancelCommand } from '../todo-continuation/index.js';
 import { TODO_CONTINUATION_PROMPT } from '../../installer/hooks.js';
 import {
   isAutopilotActive
@@ -78,9 +79,51 @@ export interface PersistentModeResult {
 
 /** Maximum todo-continuation attempts before giving up (prevents infinite loops) */
 const MAX_TODO_CONTINUATION_ATTEMPTS = 5;
+const CANCEL_SIGNAL_TTL_MS = 30_000;
 
 /** Track todo-continuation attempts per session to prevent infinite loops */
 const todoContinuationAttempts = new Map<string, number>();
+
+/**
+ * Check whether this session is in an explicit cancel window.
+ * Used to prevent stop-hook re-enforcement races during /cancel.
+ */
+function isSessionCancelInProgress(directory: string, sessionId?: string): boolean {
+  if (!sessionId) return false;
+
+  let cancelSignalPath: string;
+  try {
+    cancelSignalPath = resolveSessionStatePath('cancel-signal', sessionId, directory);
+  } catch {
+    return false;
+  }
+
+  if (!existsSync(cancelSignalPath)) {
+    return false;
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(cancelSignalPath, 'utf-8')) as {
+      requested_at?: string;
+      expires_at?: string;
+    };
+
+    const now = Date.now();
+    const expiresAt = raw.expires_at ? new Date(raw.expires_at).getTime() : NaN;
+    const requestedAt = raw.requested_at ? new Date(raw.requested_at).getTime() : NaN;
+    const fallbackExpiry = Number.isFinite(requestedAt) ? requestedAt + CANCEL_SIGNAL_TTL_MS : NaN;
+    const effectiveExpiry = Number.isFinite(expiresAt) ? expiresAt : fallbackExpiry;
+
+    if (!Number.isFinite(effectiveExpiry) || effectiveExpiry <= now) {
+      unlinkSync(cancelSignalPath);
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Read last tool error from state directory.
@@ -204,22 +247,30 @@ export function getIdleNotificationCooldownSeconds(): number {
     const config = JSON.parse(readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
     const cooldown = (config?.notificationCooldown as Record<string, unknown> | undefined);
     const val = cooldown?.sessionIdleSeconds;
-    if (typeof val === 'number') return val;
+    if (typeof val === 'number' && Number.isFinite(val)) return Math.max(0, val);
   } catch {
     // ignore parse errors
   }
   return 60;
 }
 
+function getIdleNotificationCooldownPath(stateDir: string, sessionId?: string): string {
+  // Keep session segments filesystem-safe; fall back to legacy global path otherwise.
+  if (sessionId && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/.test(sessionId)) {
+    return join(stateDir, 'sessions', sessionId, 'idle-notif-cooldown.json');
+  }
+  return join(stateDir, 'idle-notif-cooldown.json');
+}
+
 /**
  * Check whether the session-idle notification cooldown has elapsed.
  * Returns true if the notification should be sent.
  */
-export function shouldSendIdleNotification(stateDir: string): boolean {
+export function shouldSendIdleNotification(stateDir: string, sessionId?: string): boolean {
   const cooldownSecs = getIdleNotificationCooldownSeconds();
   if (cooldownSecs === 0) return true; // cooldown disabled
 
-  const cooldownPath = join(stateDir, 'idle-notif-cooldown.json');
+  const cooldownPath = getIdleNotificationCooldownPath(stateDir, sessionId);
   try {
     if (!existsSync(cooldownPath)) return true;
     const data = JSON.parse(readFileSync(cooldownPath, 'utf-8')) as Record<string, unknown>;
@@ -236,16 +287,36 @@ export function shouldSendIdleNotification(stateDir: string): boolean {
 /**
  * Record that the session-idle notification was sent at the current timestamp.
  */
-export function recordIdleNotificationSent(stateDir: string): void {
-  const cooldownPath = join(stateDir, 'idle-notif-cooldown.json');
+export function recordIdleNotificationSent(stateDir: string, sessionId?: string): void {
+  const cooldownPath = getIdleNotificationCooldownPath(stateDir, sessionId);
   try {
-    const dir = dirname(cooldownPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    writeFileSync(cooldownPath, JSON.stringify({ lastSentAt: new Date().toISOString() }, null, 2));
+    atomicWriteJsonSync(cooldownPath, { lastSentAt: new Date().toISOString() });
   } catch {
     // ignore write errors
+  }
+}
+
+/** Max bytes to read from the tail of a transcript for architect approval detection. */
+const TRANSCRIPT_TAIL_BYTES = 32 * 1024; // 32 KB
+
+/**
+ * Read the tail of a potentially large transcript file.
+ * Architect approval/rejection markers appear near the end of the conversation,
+ * so reading only the last N bytes avoids loading megabyte-sized transcripts.
+ */
+function readTranscriptTail(transcriptPath: string): string {
+  const size = statSync(transcriptPath).size;
+  if (size <= TRANSCRIPT_TAIL_BYTES) {
+    return readFileSync(transcriptPath, 'utf-8');
+  }
+  const fd = openSync(transcriptPath, 'r');
+  try {
+    const offset = size - TRANSCRIPT_TAIL_BYTES;
+    const buf = Buffer.allocUnsafe(TRANSCRIPT_TAIL_BYTES);
+    const bytesRead = readSync(fd, buf, 0, TRANSCRIPT_TAIL_BYTES, offset);
+    return buf.subarray(0, bytesRead).toString('utf-8');
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -263,7 +334,7 @@ function checkArchitectApprovalInTranscript(sessionId: string): boolean {
   for (const transcriptPath of possiblePaths) {
     if (existsSync(transcriptPath)) {
       try {
-        const content = readFileSync(transcriptPath, 'utf-8');
+        const content = readTranscriptTail(transcriptPath);
         if (detectArchitectApproval(content)) {
           return true;
         }
@@ -289,7 +360,7 @@ function checkArchitectRejectionInTranscript(sessionId: string): { rejected: boo
   for (const transcriptPath of possiblePaths) {
     if (existsSync(transcriptPath)) {
       try {
-        const content = readFileSync(transcriptPath, 'utf-8');
+        const content = readTranscriptTail(transcriptPath);
         const result = detectArchitectRejection(content);
         if (result.rejected) {
           return result;
@@ -308,7 +379,8 @@ function checkArchitectRejectionInTranscript(sessionId: string): { rejected: boo
  */
 async function checkRalphLoop(
   sessionId?: string,
-  directory?: string
+  directory?: string,
+  cancelInProgress?: boolean
 ): Promise<PersistentModeResult | null> {
   const workingDir = resolveToWorktreeRoot(directory);
   const state = readRalphState(workingDir, sessionId);
@@ -320,6 +392,16 @@ async function checkRalphLoop(
   // Strict session isolation: only process state for matching session
   if (state.session_id !== sessionId) {
     return null;
+  }
+
+  // Explicit cancellation window: never re-arm Ralph internals while cancel is in progress.
+  // Uses cached cancel signal from checkPersistentModes to avoid TOCTOU re-reads.
+  if (cancelInProgress) {
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'none'
+    };
   }
 
   // Self-heal linked ultrawork: if ralph is active and marked linked but ultrawork
@@ -450,7 +532,7 @@ async function checkRalphLoop(
     };
   }
 
-  // Check max iterations
+  // Check max iterations (cancel already checked at function entry via cached flag)
   if (state.iteration >= state.max_iterations) {
     // Do not silently stop Ralph with unfinished work.
     // Extend the limit and continue enforcement so user-visible cancellation
@@ -514,9 +596,11 @@ ${newState.prompt ? `Original task: ${newState.prompt}` : ''}
 async function checkUltrawork(
   sessionId?: string,
   directory?: string,
-  _hasIncompleteTodos?: boolean
+  _hasIncompleteTodos?: boolean,
+  cancelInProgress?: boolean
 ): Promise<PersistentModeResult | null> {
-  const state = readUltraworkState(directory, sessionId);
+  const workingDir = resolveToWorktreeRoot(directory);
+  const state = readUltraworkState(workingDir, sessionId);
 
   if (!state || !state.active) {
     return null;
@@ -527,9 +611,18 @@ async function checkUltrawork(
     return null;
   }
 
+  // Uses cached cancel signal from checkPersistentModes to avoid TOCTOU re-reads.
+  if (cancelInProgress) {
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'none'
+    };
+  }
+
   // Reinforce ultrawork mode - ALWAYS continue while active.
   // This prevents false stops from bash errors, transient failures, etc.
-  const newState = incrementReinforcement(directory, sessionId);
+  const newState = incrementReinforcement(workingDir, sessionId);
   if (!newState) {
     return null;
   }
@@ -638,6 +731,28 @@ export async function checkPersistentModes(
     };
   }
 
+  // Explicit /cancel paths must always bypass continuation re-enforcement.
+  // This prevents cancel races where stop-hook persistence can re-arm Ralph/Ultrawork
+  // (self-heal, max-iteration extension, reinforcement) during shutdown.
+  if (isExplicitCancelCommand(stopContext)) {
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'none'
+    };
+  }
+
+  // Session-scoped cancel signal from state_clear during /cancel flow.
+  // Cache once and pass to sub-functions to avoid TOCTOU re-reads (issue #1058).
+  const cancelInProgress = isSessionCancelInProgress(workingDir, sessionId);
+  if (cancelInProgress) {
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'none'
+    };
+  }
+
   // Check for user abort - skip all continuation enforcement
   if (isUserAbort(stopContext)) {
     return {
@@ -666,7 +781,7 @@ export async function checkPersistentModes(
   const hasIncompleteTodos = todoResult.count > 0;
 
   // Priority 1: Ralph (explicit loop mode)
-  const ralphResult = await checkRalphLoop(sessionId, workingDir);
+  const ralphResult = await checkRalphLoop(sessionId, workingDir, cancelInProgress);
   if (ralphResult) {
     return ralphResult;
   }
@@ -692,13 +807,30 @@ export async function checkPersistentModes(
   }
 
   // Priority 2: Ultrawork Mode (performance mode with persistence)
-  const ultraworkResult = await checkUltrawork(sessionId, workingDir, hasIncompleteTodos);
+  const ultraworkResult = await checkUltrawork(sessionId, workingDir, hasIncompleteTodos, cancelInProgress);
   if (ultraworkResult?.shouldBlock) {
     return ultraworkResult;
   }
 
-  // NOTE: Priority 3 (Todo Continuation) removed to prevent false positives.
-  // Only explicit modes (ralph, autopilot, ultrawork, etc.) trigger continuation enforcement.
+  // Priority 3: Skill Active State (issue #1033)
+  // Skills like code-review, plan, tdd, etc. write skill-active-state.json
+  // when invoked via the Skill tool. This prevents premature stops mid-skill.
+  try {
+    const { checkSkillActiveState } = await import('../skill-state/index.js');
+    const skillResult = checkSkillActiveState(workingDir, sessionId);
+    if (skillResult.shouldBlock) {
+      return {
+        shouldBlock: true,
+        message: skillResult.message,
+        mode: 'ultrawork' as const, // Reuse ultrawork mode type for compatibility
+        metadata: {
+          phase: `skill:${skillResult.skillName || 'unknown'}`,
+        }
+      };
+    }
+  } catch {
+    // If skill-state module is unavailable, skip gracefully
+  }
 
   // No blocking needed
   return {

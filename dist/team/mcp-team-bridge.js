@@ -1,5 +1,9 @@
 // src/team/mcp-team-bridge.ts
 /**
+ * @deprecated The MCP x/g servers have been removed. This bridge now runs
+ * against tmux-based CLI workers (Codex CLI, Gemini CLI) directly.
+ * This file is retained for the tmux bridge daemon functionality.
+ *
  * MCP Team Bridge Daemon
  *
  * Core bridge process that runs in a tmux session alongside a Codex/Gemini CLI.
@@ -17,6 +21,7 @@ import { killSession } from './tmux-session.js';
 import { logAuditEvent } from './audit-log.js';
 import { getEffectivePermissions, findPermissionViolations } from './permissions.js';
 import { getTeamStatus } from './team-status.js';
+import { measureCharCounts, recordTaskUsage } from './usage-tracker.js';
 /** Simple logger */
 function log(message) {
     const ts = new Date().toISOString();
@@ -250,6 +255,22 @@ function readOutputSummary(outputFile) {
     catch {
         return '(error reading output)';
     }
+}
+export function recordTaskCompletionUsage(args) {
+    const completedAt = new Date().toISOString();
+    const wallClockMs = Math.max(0, Date.now() - args.startedAt);
+    const { promptChars, responseChars } = measureCharCounts(args.promptFile, args.outputFile);
+    recordTaskUsage(args.config.workingDirectory, args.config.teamName, {
+        taskId: args.taskId,
+        workerName: args.config.workerName,
+        provider: args.provider,
+        model: args.config.model ?? 'default',
+        startedAt: args.startedAtIso,
+        completedAt,
+        wallClockMs,
+        promptChars,
+        responseChars,
+    });
 }
 /** Maximum accumulated size for parseCodexOutput (1MB) */
 const MAX_CODEX_OUTPUT_SIZE = 1024 * 1024;
@@ -511,8 +532,10 @@ export async function runBridge(config) {
                     return;
                 }
                 // --- 7. Build prompt ---
+                const taskStartedAt = Date.now();
+                const taskStartedAtIso = new Date(taskStartedAt).toISOString();
                 const prompt = buildTaskPrompt(task, messages, config);
-                const _promptFile = writePromptFile(config, task.id, prompt);
+                const promptFile = writePromptFile(config, task.id, prompt);
                 const outputFile = getOutputPath(config, task.id);
                 log(`[bridge] Executing task ${task.id}: ${task.subject}`);
                 // --- 8. Execute CLI (with permission enforcement) ---
@@ -567,6 +590,20 @@ export async function runBridge(config) {
                                 timestamp: new Date().toISOString(),
                             });
                             log(`[bridge] Task ${task.id} failed: permission violations (enforce mode)`);
+                            try {
+                                recordTaskCompletionUsage({
+                                    config,
+                                    taskId: task.id,
+                                    promptFile,
+                                    outputFile,
+                                    provider,
+                                    startedAt: taskStartedAt,
+                                    startedAtIso: taskStartedAtIso,
+                                });
+                            }
+                            catch (usageErr) {
+                                log(`[bridge] usage tracking failed for task ${task.id}: ${usageErr.message}`);
+                            }
                             consecutiveErrors = 0; // Not a CLI error, don't count toward quarantine
                             // Skip normal completion flow
                         }
@@ -588,6 +625,20 @@ export async function runBridge(config) {
                                 summary: `${summary}\n[AUDIT WARNING: ${violations.length} permission violation(s) detected]`,
                                 timestamp: new Date().toISOString(),
                             });
+                            try {
+                                recordTaskCompletionUsage({
+                                    config,
+                                    taskId: task.id,
+                                    promptFile,
+                                    outputFile,
+                                    provider,
+                                    startedAt: taskStartedAt,
+                                    startedAtIso: taskStartedAtIso,
+                                });
+                            }
+                            catch (usageErr) {
+                                log(`[bridge] usage tracking failed for task ${task.id}: ${usageErr.message}`);
+                            }
                             log(`[bridge] Task ${task.id} completed (with ${violations.length} audit warning(s))`);
                         }
                     }
@@ -604,6 +655,20 @@ export async function runBridge(config) {
                             summary,
                             timestamp: new Date().toISOString()
                         });
+                        try {
+                            recordTaskCompletionUsage({
+                                config,
+                                taskId: task.id,
+                                promptFile,
+                                outputFile,
+                                provider,
+                                startedAt: taskStartedAt,
+                                startedAtIso: taskStartedAtIso,
+                            });
+                        }
+                        catch (usageErr) {
+                            log(`[bridge] usage tracking failed for task ${task.id}: ${usageErr.message}`);
+                        }
                         log(`[bridge] Task ${task.id} completed`);
                     }
                 }
@@ -641,6 +706,20 @@ export async function runBridge(config) {
                             error: `Task permanently failed after ${attempt} attempts: ${errorMsg}`,
                             timestamp: new Date().toISOString()
                         });
+                        try {
+                            recordTaskCompletionUsage({
+                                config,
+                                taskId: task.id,
+                                promptFile,
+                                outputFile,
+                                provider,
+                                startedAt: taskStartedAt,
+                                startedAtIso: taskStartedAtIso,
+                            });
+                        }
+                        catch (usageErr) {
+                            log(`[bridge] usage tracking failed for task ${task.id}: ${usageErr.message}`);
+                        }
                         log(`[bridge] Task ${task.id} permanently failed after ${attempt} attempts`);
                     }
                     else {
@@ -672,7 +751,7 @@ export async function runBridge(config) {
                 // Only check when we have no pending task and already notified idle.
                 // Guard: if inProgress > 0, other workers are still running — don't shutdown yet.
                 try {
-                    const teamStatus = getTeamStatus(teamName, workingDirectory);
+                    const teamStatus = getTeamStatus(teamName, workingDirectory, 30000, { includeUsage: false });
                     if (teamStatus.taskSummary.total > 0 && teamStatus.taskSummary.pending === 0 && teamStatus.taskSummary.inProgress === 0) {
                         log(`[bridge] All team tasks complete. Auto-terminating worker.`);
                         appendOutbox(teamName, workerName, {

@@ -31,7 +31,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `plan/SKILL.md` | plan | Strategic planning with interview workflow |
-| `ralplan/SKILL.md` | ralplan | Iterative planning (Planner+Architect+Critic) |
+| `ralplan/SKILL.md` | ralplan | Iterative planning (Planner+Architect+Critic) with RALPLAN-DR structured deliberation (`--deliberate` for high-risk) |
 | `review/SKILL.md` | review | Review plan with Critic |
 | `analyze/SKILL.md` | analyze | Deep analysis and investigation |
 | `ralph-init/SKILL.md` | ralph-init | Initialize PRD for structured ralph |
@@ -197,4 +197,7 @@ Some skills activate automatically based on context:
 | git-master | Git operations detected |
 | cancel | "stop", "cancel", "abort" |
 
-<!-- MANUAL: -->
+<!-- MANUAL:
+- Team runtime wait semantics: `omc_run_team_wait.timeout_ms` only limits the wait call and does not stop workers.
+- `timeoutSeconds` is removed from `omc_run_team_start`; use explicit `omc_run_team_cleanup` for intentional worker pane termination.
+-->

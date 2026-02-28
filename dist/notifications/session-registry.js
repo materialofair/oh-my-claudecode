@@ -184,17 +184,19 @@ function acquireRegistryLock() {
     return null;
 }
 /**
- * Acquire registry lock with retries across timeout windows.
- * Prevents dropped writes when a single lock-timeout window is exhausted.
+ * Acquire registry lock with retries up to a cumulative deadline.
+ * Returns null if the deadline is exceeded (e.g. lock holder is a hung process).
  */
-function acquireRegistryLockOrWait() {
-    while (true) {
+function acquireRegistryLockOrWait(maxWaitMs = LOCK_MAX_WAIT_MS) {
+    const deadline = Date.now() + maxWaitMs;
+    while (Date.now() < deadline) {
         const lock = acquireRegistryLock();
         if (lock !== null) {
             return lock;
         }
         sleepMs(LOCK_RETRY_MS);
     }
+    return null;
 }
 /**
  * Release registry lock.
@@ -214,10 +216,15 @@ function releaseRegistryLock(lock) {
     removeLockIfUnchanged(snapshot);
 }
 /**
- * Execute critical section with registry lock, waiting across timeout windows.
+ * Execute critical section with registry lock, waiting up to cumulative deadline.
+ * If the lock cannot be acquired within the deadline, proceeds best-effort without lock.
  */
 function withRegistryLockOrWait(onLocked) {
     const lock = acquireRegistryLockOrWait();
+    if (lock === null) {
+        // Lock timed out (hung lock holder). Proceed best-effort without lock.
+        return onLocked();
+    }
     try {
         return onLocked();
     }

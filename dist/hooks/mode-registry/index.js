@@ -8,9 +8,11 @@
  *
  * All modes store state in `.omc/state/` subdirectory for consistency.
  */
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, readdirSync, statSync, rmdirSync, rmSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, mkdirSync, readdirSync, statSync, rmdirSync, rmSync } from 'fs';
+import { atomicWriteJsonSync } from '../../lib/atomic-write.js';
 import { join, dirname } from 'path';
 import { listSessionIds, resolveSessionStatePath, getSessionStateDir } from '../../lib/worktree-paths.js';
+import { MODE_STATE_FILE_MAP, MODE_NAMES } from '../../lib/mode-names.js';
 /**
  * Stale marker threshold (1 hour)
  * Markers older than this are auto-removed to prevent crashed sessions from blocking indefinitely.
@@ -25,26 +27,26 @@ export const STALE_MARKER_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
  * All paths are relative to .omc/state/ directory.
  */
 const MODE_CONFIGS = {
-    autopilot: {
+    [MODE_NAMES.AUTOPILOT]: {
         name: 'Autopilot',
-        stateFile: 'autopilot-state.json',
+        stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.AUTOPILOT],
         activeProperty: 'active'
     },
-    ultrapilot: {
+    [MODE_NAMES.ULTRAPILOT]: {
         name: 'Ultrapilot',
-        stateFile: 'ultrapilot-state.json',
+        stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.ULTRAPILOT],
         markerFile: 'ultrapilot-ownership.json',
         activeProperty: 'active'
     },
-    swarm: {
+    [MODE_NAMES.SWARM]: {
         name: 'Swarm',
-        stateFile: 'swarm.db',
+        stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.SWARM],
         markerFile: 'swarm-active.marker',
         isSqlite: true
     },
-    pipeline: {
+    [MODE_NAMES.PIPELINE]: {
         name: 'Pipeline',
-        stateFile: 'pipeline-state.json',
+        stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.PIPELINE],
         activeProperty: 'active'
     },
     conductor: {
@@ -54,26 +56,26 @@ const MODE_CONFIGS = {
     },
     team: {
         name: 'Team',
-        stateFile: 'team-state.json',
+        stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.TEAM],
         activeProperty: 'active',
         hasGlobalState: false
     },
-    ralph: {
+    [MODE_NAMES.RALPH]: {
         name: 'Ralph',
-        stateFile: 'ralph-state.json',
+        stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.RALPH],
         markerFile: 'ralph-verification.json',
         activeProperty: 'active',
         hasGlobalState: false
     },
-    ultrawork: {
+    [MODE_NAMES.ULTRAWORK]: {
         name: 'Ultrawork',
-        stateFile: 'ultrawork-state.json',
+        stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.ULTRAWORK],
         activeProperty: 'active',
         hasGlobalState: false
     },
-    ultraqa: {
+    [MODE_NAMES.ULTRAQA]: {
         name: 'UltraQA',
-        stateFile: 'ultraqa-state.json',
+        stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.ULTRAQA],
         activeProperty: 'active'
     }
 };
@@ -82,7 +84,7 @@ export { MODE_CONFIGS };
 /**
  * Modes that are mutually exclusive (cannot run concurrently)
  */
-const EXCLUSIVE_MODES = ['autopilot', 'ultrapilot', 'swarm', 'pipeline'];
+const EXCLUSIVE_MODES = [MODE_NAMES.AUTOPILOT, MODE_NAMES.ULTRAPILOT, MODE_NAMES.SWARM, MODE_NAMES.PIPELINE];
 /**
  * Get the state directory path
  */
@@ -319,59 +321,133 @@ export function getAllModeStatuses(cwd, sessionId) {
 export function clearModeState(mode, cwd, sessionId) {
     const config = MODE_CONFIGS[mode];
     let success = true;
+    const markerFile = getMarkerFilePath(cwd, mode);
+    const isSessionScopedClear = Boolean(sessionId && !config.isSqlite);
     // Delete session-scoped state file if sessionId provided
-    if (sessionId && !config.isSqlite) {
+    if (isSessionScopedClear && sessionId) {
         const sessionStateFile = resolveSessionStatePath(mode, sessionId, cwd);
-        if (existsSync(sessionStateFile)) {
-            try {
-                unlinkSync(sessionStateFile);
-            }
-            catch {
+        try {
+            unlinkSync(sessionStateFile);
+        }
+        catch (err) {
+            if (err.code !== 'ENOENT') {
                 success = false;
             }
         }
-        // Session-scoped clear should not touch legacy/marker files
-        return success;
+        // Clear session-scoped marker artifacts (e.g., ralph-verification-state.json).
+        // Keep legacy/shared marker files untouched for isolation.
+        if (config.markerFile) {
+            const markerStateName = config.markerFile.replace(/\.json$/i, '');
+            const sessionMarkerFile = resolveSessionStatePath(markerStateName, sessionId, cwd);
+            try {
+                unlinkSync(sessionMarkerFile);
+            }
+            catch (err) {
+                if (err.code !== 'ENOENT') {
+                    success = false;
+                }
+            }
+        }
+        // Also try cleaning legacy marker for this mode (best-effort).
+        // Keep isolation by deleting only unowned markers or markers owned by this session.
+        if (markerFile) {
+            try {
+                const markerRaw = JSON.parse(readFileSync(markerFile, 'utf-8'));
+                const markerSessionId = markerRaw.session_id ?? markerRaw.sessionId;
+                if (!markerSessionId || markerSessionId === sessionId) {
+                    try {
+                        unlinkSync(markerFile);
+                    }
+                    catch (err) {
+                        if (err.code !== 'ENOENT') {
+                            success = false;
+                        }
+                    }
+                }
+            }
+            catch {
+                // If marker is not JSON (or unreadable), best-effort delete for cleanup.
+                try {
+                    unlinkSync(markerFile);
+                }
+                catch (err) {
+                    if (err.code !== 'ENOENT') {
+                        success = false;
+                    }
+                }
+            }
+        }
     }
-    // Delete local state file (legacy path)
+    // Delete local state file (legacy path) for non-session clears
     const stateFile = getStateFilePath(cwd, mode);
-    if (existsSync(stateFile)) {
+    if (!isSessionScopedClear) {
         try {
             unlinkSync(stateFile);
         }
-        catch {
-            success = false;
+        catch (err) {
+            if (err.code !== 'ENOENT') {
+                success = false;
+            }
         }
-    }
-    // For SQLite, also delete WAL and SHM files
-    if (config.isSqlite) {
-        const walFile = stateFile + '-wal';
-        const shmFile = stateFile + '-shm';
-        if (existsSync(walFile)) {
+        // For SQLite, also delete WAL and SHM files
+        if (config.isSqlite) {
+            const walFile = stateFile + '-wal';
+            const shmFile = stateFile + '-shm';
             try {
                 unlinkSync(walFile);
             }
-            catch {
-                success = false;
+            catch (e) {
+                if (e.code !== 'ENOENT')
+                    success = false;
             }
-        }
-        if (existsSync(shmFile)) {
             try {
                 unlinkSync(shmFile);
             }
-            catch {
-                success = false;
+            catch (e) {
+                if (e.code !== 'ENOENT')
+                    success = false;
             }
         }
     }
-    // Delete marker file if applicable
-    const markerFile = getMarkerFilePath(cwd, mode);
-    if (markerFile && existsSync(markerFile)) {
-        try {
-            unlinkSync(markerFile);
+    // Delete marker file if applicable, but respect ownership when session-scoped.
+    if (markerFile) {
+        if (isSessionScopedClear) {
+            // Only delete if the marker is unowned or owned by this session.
+            try {
+                const markerRaw = JSON.parse(readFileSync(markerFile, 'utf-8'));
+                const markerSessionId = markerRaw.session_id ?? markerRaw.sessionId;
+                if (!markerSessionId || markerSessionId === sessionId) {
+                    try {
+                        unlinkSync(markerFile);
+                    }
+                    catch (err) {
+                        if (err.code !== 'ENOENT') {
+                            success = false;
+                        }
+                    }
+                }
+            }
+            catch {
+                // Marker is not valid JSON or unreadable — best-effort delete for cleanup.
+                try {
+                    unlinkSync(markerFile);
+                }
+                catch (err) {
+                    if (err.code !== 'ENOENT') {
+                        success = false;
+                    }
+                }
+            }
         }
-        catch {
-            success = false;
+        else {
+            try {
+                unlinkSync(markerFile);
+            }
+            catch (err) {
+                if (err.code !== 'ENOENT') {
+                    success = false;
+                }
+            }
         }
     }
     // Note: Global state files are no longer used (local-only state migration)
@@ -387,14 +463,22 @@ export function clearAllModeStates(cwd) {
             success = false;
         }
     }
+    // Clear skill-active-state.json (issue #1033)
+    const skillStatePath = join(getStateDir(cwd), 'skill-active-state.json');
+    try {
+        unlinkSync(skillStatePath);
+    }
+    catch (err) {
+        if (err.code !== 'ENOENT') {
+            success = false;
+        }
+    }
     // Also clean up session directories
     try {
         const sessionIds = listSessionIds(cwd);
         for (const sid of sessionIds) {
             const sessionDir = getSessionStateDir(sid, cwd);
-            if (existsSync(sessionDir)) {
-                rmSync(sessionDir, { recursive: true, force: true });
-            }
+            rmSync(sessionDir, { recursive: true, force: true });
         }
     }
     catch {
@@ -512,12 +596,11 @@ export function createModeMarker(mode, cwd, metadata) {
         if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true });
         }
-        const content = JSON.stringify({
+        atomicWriteJsonSync(markerPath, {
             mode,
             startedAt: new Date().toISOString(),
             ...metadata
-        }, null, 2);
-        writeFileSync(markerPath, content);
+        });
         return true;
     }
     catch (error) {

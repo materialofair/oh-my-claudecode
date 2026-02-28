@@ -19,20 +19,23 @@ import { join } from "path";
 import { resolveToWorktreeRoot } from "../lib/worktree-paths.js";
 
 // Hot-path imports: needed on every/most hook invocations (keyword-detector, pre/post-tool-use)
-import { removeCodeBlocks, getAllKeywordsWithSizeCheck } from "./keyword-detector/index.js";
+import { removeCodeBlocks, getAllKeywordsWithSizeCheck, applyRalplanGate, sanitizeForKeywordDetection, NON_LATIN_SCRIPT_PATTERN } from "./keyword-detector/index.js";
 import { processOrchestratorPreTool, processOrchestratorPostTool } from "./omc-orchestrator/index.js";
 import { normalizeHookInput } from "./bridge-normalize.js";
 import {
   addBackgroundTask,
   getRunningTaskCount,
 } from "../hud/background-tasks.js";
+import { readHudState, writeHudState } from "../hud/state.js";
 import { loadConfig } from "../config/loader.js";
+import { writeSkillActiveState } from "./skill-state/index.js";
 import {
   ULTRAWORK_MESSAGE,
   ULTRATHINK_MESSAGE,
   SEARCH_MESSAGE,
   ANALYZE_MESSAGE,
   RALPH_MESSAGE,
+  PROMPT_TRANSLATION_MESSAGE,
 } from "../installer/hooks.js";
 // Agent dashboard is used in pre/post-tool-use hot path
 import {
@@ -298,6 +301,19 @@ async function processKeywordDetector(input: HookInput): Promise<HookOutput> {
   const directory = resolveToWorktreeRoot(input.directory);
   const messages: string[] = [];
 
+  // Record prompt submission time in HUD state
+  try {
+    const hudState = readHudState(directory) || {
+      timestamp: new Date().toISOString(),
+      backgroundTasks: [],
+    };
+    hudState.lastPromptTimestamp = new Date().toISOString();
+    hudState.timestamp = new Date().toISOString();
+    writeHudState(hudState, directory);
+  } catch {
+    // Silent failure - don't break keyword detection
+  }
+
   // Load config for task-size detection settings
   const config = loadConfig();
   const taskSizeConfig = config.taskSizeDetection ?? {};
@@ -310,19 +326,55 @@ async function processKeywordDetector(input: HookInput): Promise<HookOutput> {
     suppressHeavyModesForSmallTasks: taskSizeConfig.suppressHeavyModesForSmallTasks !== false,
   });
 
-  const keywords = sizeCheckResult.keywords;
+  // Apply ralplan-first gate BEFORE task-size suppression (issue #997).
+  // Reconstruct the full keyword set so the gate sees execution keywords
+  // that task-size suppression may have already removed for small tasks.
+  const fullKeywords = [...sizeCheckResult.keywords, ...sizeCheckResult.suppressedKeywords];
+  const gateResult = applyRalplanGate(fullKeywords, cleanedText);
 
-  // Notify user when heavy modes were suppressed for a small task
-  if (sizeCheckResult.suppressedKeywords.length > 0 && sizeCheckResult.taskSizeResult) {
-    const suppressed = sizeCheckResult.suppressedKeywords.join(', ');
-    const reason = sizeCheckResult.taskSizeResult.reason;
+  let keywords: typeof fullKeywords;
+  if (gateResult.gateApplied) {
+    // Gate fired: redirect to ralplan (task-size suppression is moot — we're planning, not executing)
+    keywords = gateResult.keywords;
+    const gated = gateResult.gatedKeywords.join(', ');
     messages.push(
-      `[TASK-SIZE: SMALL] Heavy orchestration mode(s) suppressed: ${suppressed}.\n` +
-      `Reason: ${reason}\n` +
-      `Running directly without heavy agent stacking. ` +
-      `Prefix with \`quick:\`, \`simple:\`, or \`tiny:\` to always use lightweight mode. ` +
-      `Use explicit mode keywords (e.g. \`ralph\`) only when you need full orchestration.`
+      `[RALPLAN GATE] Redirecting ${gated} → ralplan for scoping.\n` +
+      `Tip: add a concrete anchor to run directly next time:\n` +
+      `  \u2022 "ralph fix the bug in src/auth.ts"  (file path)\n` +
+      `  \u2022 "ralph implement #42"               (issue number)\n` +
+      `  \u2022 "ralph fix processKeyword"           (symbol name)\n` +
+      `Or prefix with \`force:\` / \`!\` to bypass.`
     );
+  } else {
+    // Gate did not fire: use task-size-suppressed result as normal
+    keywords = sizeCheckResult.keywords;
+
+    // Notify user when heavy modes were suppressed for a small task
+    if (sizeCheckResult.suppressedKeywords.length > 0 && sizeCheckResult.taskSizeResult) {
+      const suppressed = sizeCheckResult.suppressedKeywords.join(', ');
+      const reason = sizeCheckResult.taskSizeResult.reason;
+      messages.push(
+        `[TASK-SIZE: SMALL] Heavy orchestration mode(s) suppressed: ${suppressed}.\n` +
+        `Reason: ${reason}\n` +
+        `Running directly without heavy agent stacking. ` +
+        `Prefix with \`quick:\`, \`simple:\`, or \`tiny:\` to always use lightweight mode. ` +
+        `Use explicit mode keywords (e.g. \`ralph\`) only when you need full orchestration.`
+      );
+    }
+  }
+
+  const sanitizedText = sanitizeForKeywordDetection(cleanedText);
+  if (NON_LATIN_SCRIPT_PATTERN.test(sanitizedText)) {
+    messages.push(PROMPT_TRANSLATION_MESSAGE);
+  }
+
+  // Wake OpenClaw gateway for keyword-detector (non-blocking, fires for all prompts)
+  if (input.sessionId) {
+    _openclaw.wake("keyword-detector", {
+      sessionId: input.sessionId,
+      projectPath: directory,
+      prompt: cleanedText,
+    });
   }
 
   if (keywords.length === 0) {
@@ -379,6 +431,17 @@ async function processKeywordDetector(input: HookInput): Promise<HookOutput> {
         );
         break;
 
+      case "codex":
+      case "gemini": {
+        messages.push(
+          `[MAGIC KEYWORD: omc-teams]\n` +
+          `User intent: delegate to ${keywordType} CLI workers via omc-teams.\n` +
+          `Agent type: ${keywordType}. Parse N from user message (default 1).\n` +
+          `Invoke: /omc-teams N:${keywordType} "<task from user message>"`
+        );
+        break;
+      }
+
       default:
         // Skip unknown keywords
         break;
@@ -407,99 +470,23 @@ async function processStopContinuation(_input: HookInput): Promise<HookOutput> {
 }
 
 /**
- * Process Ralph hook (session.idle event)
- * Continues work loops until completion promise is detected and architect verifies
- */
-async function processRalph(input: HookInput): Promise<HookOutput> {
-  const sessionId = input.sessionId;
-  const directory = resolveToWorktreeRoot(input.directory);
-
-  if (!sessionId) {
-    return { continue: true };
-  }
-
-  // Lazy-load ralph module
-  const {
-    readRalphState,
-    incrementRalphIteration,
-    clearRalphState,
-    readVerificationState,
-    getArchitectVerificationPrompt,
-    clearVerificationState,
-  } = await import("./ralph/index.js");
-
-  // Read Ralph state
-  const state = readRalphState(directory);
-
-  if (!state || !state.active) {
-    return { continue: true };
-  }
-
-  // Strict session isolation: only process state for matching session
-  if (state.session_id !== sessionId) {
-    return { continue: true };
-  }
-
-  // Check for existing verification state (architect verification in progress)
-  const verificationState = readVerificationState(directory);
-
-  if (verificationState?.pending) {
-    // Check if architect has approved (by looking for the tag in transcript)
-    // This is handled more thoroughly in persistent-mode hook
-    // Here we just remind to spawn architect if verification is pending
-    const verificationPrompt =
-      getArchitectVerificationPrompt(verificationState);
-    return {
-      continue: true,
-      message: verificationPrompt,
-    };
-  }
-
-  // Check max iterations
-  if (state.iteration >= state.max_iterations) {
-    clearRalphState(directory);
-    clearVerificationState(directory);
-    return {
-      continue: true,
-      message: `[RALPH LOOP STOPPED] Max iterations (${state.max_iterations}) reached without completion.`,
-    };
-  }
-
-  // Increment and continue
-  const newState = incrementRalphIteration(directory);
-  if (!newState) {
-    return { continue: true };
-  }
-
-  const continuationPrompt = `[RALPH LOOP - ITERATION ${newState.iteration}/${newState.max_iterations}]
-
-The task is NOT complete yet. Continue working.
-
-IMPORTANT:
-- Review your progress so far
-- Continue from where you left off
-- When FULLY complete (after Architect verification), run \`/oh-my-claudecode:cancel\` to cleanly exit and clean up state files. If cancel fails, retry with \`/oh-my-claudecode:cancel --force\`.
-- Do not stop until the task is truly done
-
-Original task:
-${newState.prompt}`;
-
-  return {
-    continue: true,
-    message: continuationPrompt,
-  };
-}
-
-/**
  * Process persistent mode hook (enhanced stop continuation)
- * Unified handler for ultrawork, ralph, and todo-continuation
+ * Unified handler for ultrawork, ralph, and todo-continuation.
+ *
+ * NOTE: The legacy `processRalph` function was removed in issue #1058.
+ * Ralph is now handled exclusively by `checkRalphLoop` inside
+ * `persistent-mode/index.ts`, which has richer logic (PRD checks,
+ * team pipeline coordination, tool-error injection, cancel caching,
+ * ultrawork self-heal, and architect rejection handling).
  */
 async function processPersistentMode(input: HookInput): Promise<HookOutput> {
-  const sessionId = input.sessionId;
+  const rawSessionId = (input as Record<string, unknown>).session_id as string | undefined;
+  const sessionId = input.sessionId ?? rawSessionId;
   const directory = resolveToWorktreeRoot(input.directory);
 
   // Lazy-load persistent-mode and todo-continuation modules
   const { checkPersistentModes, createHookOutput, shouldSendIdleNotification, recordIdleNotificationSent } = await import("./persistent-mode/index.js");
+  const { isExplicitCancelCommand } = await import("./todo-continuation/index.js");
 
   // Extract stop context for abort detection (supports both camelCase and snake_case)
   const stopContext: StopContext = {
@@ -509,12 +496,25 @@ async function processPersistentMode(input: HookInput): Promise<HookOutput> {
     stopReason: (input as Record<string, unknown>).stopReason as
       | string
       | undefined,
+    end_turn_reason: (input as Record<string, unknown>).end_turn_reason as
+      | string
+      | undefined,
+    endTurnReason: (input as Record<string, unknown>).endTurnReason as
+      | string
+      | undefined,
     user_requested: (input as Record<string, unknown>).user_requested as
       | boolean
       | undefined,
     userRequested: (input as Record<string, unknown>).userRequested as
       | boolean
       | undefined,
+    prompt: input.prompt,
+    tool_name: (input as Record<string, unknown>).tool_name as
+      | string
+      | undefined,
+    toolName: input.toolName,
+    tool_input: (input as Record<string, unknown>).tool_input,
+    toolInput: input.toolInput,
   };
 
   const result = await checkPersistentModes(sessionId, directory, stopContext);
@@ -529,10 +529,10 @@ async function processPersistentMode(input: HookInput): Promise<HookOutput> {
       const isContextLimit = stopContext.stop_reason === "context_limit" || stopContext.stopReason === "context_limit";
       if (!isAbort && !isContextLimit) {
         // Per-session cooldown: prevent notification spam when the session idles repeatedly.
-        // Mirrors the cooldown logic in scripts/persistent-mode.cjs (closes #842).
+        // Uses session-scoped state so one session does not suppress another.
         const stateDir = join(directory, ".omc", "state");
-        if (shouldSendIdleNotification(stateDir)) {
-          recordIdleNotificationSent(stateDir);
+        if (shouldSendIdleNotification(stateDir, sessionId)) {
+          recordIdleNotificationSent(stateDir, sessionId);
           import("../notifications/index.js").then(({ notify }) =>
             notify("session-idle", {
               sessionId,
@@ -540,6 +540,8 @@ async function processPersistentMode(input: HookInput): Promise<HookOutput> {
               profileName: process.env.OMC_NOTIFY_PROFILE,
             }).catch(() => {})
           ).catch(() => {});
+          // Wake OpenClaw gateway for stop event (non-blocking)
+          _openclaw.wake("stop", { sessionId, projectPath: directory });
         }
       }
 
@@ -547,6 +549,11 @@ async function processPersistentMode(input: HookInput): Promise<HookOutput> {
       // Stop can fire for normal "idle" turns while the session is still active.
       // Reply cleanup is handled in the true SessionEnd hook only.
     }
+    return output;
+  }
+
+  // Explicit cancel should suppress team continuation prompts.
+  if (isExplicitCancelCommand(stopContext)) {
     return output;
   }
 
@@ -602,6 +609,8 @@ async function processSessionStart(input: HookInput): Promise<HookOutput> {
         profileName: process.env.OMC_NOTIFY_PROFILE,
       }).catch(() => {})
     ).catch(() => {});
+    // Wake OpenClaw gateway for session-start (non-blocking)
+    _openclaw.wake("session-start", { sessionId, projectPath: directory });
   }
 
   // Start reply listener daemon if configured (non-blocking, swallows errors)
@@ -802,6 +811,23 @@ export const _notify = {
 };
 
 /**
+ * @internal Object wrapper for OpenClaw gateway dispatch.
+ * Mirrors the _notify pattern for testability (tests spy on _openclaw.wake
+ * instead of mocking dynamic imports).
+ *
+ * Fire-and-forget: the lazy import + double .catch() ensures OpenClaw
+ * never blocks hooks or surfaces errors.
+ */
+export const _openclaw = {
+  wake: (event: import("../openclaw/types.js").OpenClawHookEvent, context: import("../openclaw/types.js").OpenClawContext) => {
+    if (process.env.OMC_OPENCLAW !== "1") return;
+    import("../openclaw/index.js").then(({ wakeOpenClaw }) =>
+      wakeOpenClaw(event, context).catch(() => {})
+    ).catch(() => {});
+  },
+};
+
+/**
  * Process pre-tool-use hook
  * Checks delegation enforcement and tracks background tasks
  */
@@ -829,6 +855,32 @@ function processPreToolUse(input: HookInput): HookOutput {
   // Fire-and-forget: notify users that input is needed BEFORE the tool blocks
   if (input.toolName === "AskUserQuestion" && input.sessionId) {
     _notify.askUserQuestion(input.sessionId, directory, input.toolInput);
+    // Wake OpenClaw gateway for ask-user-question (non-blocking)
+    _openclaw.wake("ask-user-question", {
+      sessionId: input.sessionId,
+      projectPath: directory,
+      question: (() => {
+        const ti = input.toolInput as { questions?: Array<{ question?: string }> } | undefined;
+        return ti?.questions?.map(q => q.question || "").filter(Boolean).join("; ") || "";
+      })(),
+    });
+  }
+
+  // Activate skill state when Skill tool is invoked (issue #1033)
+  // This writes skill-active-state.json so the Stop hook can prevent premature
+  // session termination while a skill is executing.
+  if (input.toolName === "Skill") {
+    const skillName = getInvokedSkillName(input.toolInput);
+    if (skillName) {
+      // Use the statically-imported synchronous write so it completes before
+      // the Stop hook can fire. The previous fire-and-forget .then() raced with
+      // the Stop hook in short-lived processes.
+      try {
+        writeSkillActiveState(directory, skillName, input.sessionId);
+      } catch {
+        // Skill-state write is best-effort; don't fail the hook on error.
+      }
+    }
   }
 
   // Notify when a new agent is spawned via Task tool (issue #761)
@@ -953,6 +1005,15 @@ function processPreToolUse(input: HookInput): HookOutput {
     }
   }
 
+  // Wake OpenClaw gateway for pre-tool-use (non-blocking, fires only for allowed tools)
+  if (input.sessionId) {
+    _openclaw.wake("pre-tool-use", {
+      sessionId: input.sessionId,
+      projectPath: directory,
+      toolName: input.toolName,
+    });
+  }
+
   return {
     continue: true,
     ...(enforcementResult.message ? { message: enforcementResult.message } : {}),
@@ -1028,6 +1089,15 @@ async function processPostToolUse(input: HookInput): Promise<HookOutput> {
     if (dashboard) {
       messages.push(dashboard);
     }
+  }
+
+  // Wake OpenClaw gateway for post-tool-use (non-blocking, fires for all tools)
+  if (input.sessionId) {
+    _openclaw.wake("post-tool-use", {
+      sessionId: input.sessionId,
+      projectPath: directory,
+      toolName: input.toolName,
+    });
   }
 
   if (messages.length > 0) {
@@ -1125,7 +1195,8 @@ export async function processHook(
         return await processStopContinuation(input);
 
       case "ralph":
-        return await processRalph(input);
+        // Ralph is now handled by the unified persistent-mode handler (issue #1058).
+        return await processPersistentMode(input);
 
       case "persistent-mode":
         return await processPersistentMode(input);
