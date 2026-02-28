@@ -16,6 +16,7 @@ const __dirname = dirname(__filename);
 
 /** Claude config directory (respects CLAUDE_CONFIG_DIR env var) */
 const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+const NPM_PACKAGE_NAME = 'claudecode-omc';
 
 // Import timeout-protected stdin reader (prevents hangs on Linux/Windows, see issue #240, #524)
 let readStdin;
@@ -176,7 +177,7 @@ async function checkNpmUpdate(currentVersion) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
-    const response = await fetch('https://registry.npmjs.org/oh-my-claudecode/latest', {
+    const response = await fetch(`https://registry.npmjs.org/${NPM_PACKAGE_NAME}/latest`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -190,7 +191,13 @@ async function checkNpmUpdate(currentVersion) {
     try {
       const dir = join(configDir, '.omc');
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      writeFileSync(cacheFile, JSON.stringify({ timestamp: now, latestVersion, currentVersion, updateAvailable }));
+      writeFileSync(cacheFile, JSON.stringify({
+        timestamp: now,
+        packageName: NPM_PACKAGE_NAME,
+        latestVersion,
+        currentVersion,
+        updateAvailable,
+      }));
     } catch {}
 
     return updateAvailable ? { currentVersion, latestVersion } : null;

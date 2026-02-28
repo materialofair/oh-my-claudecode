@@ -156,7 +156,14 @@ async function main(watchMode = false): Promise<void> {
       const updateCacheFile = join(homedir(), '.omc', 'update-check.json');
       if (existsSync(updateCacheFile)) {
         const cached = JSON.parse(readFileSync(updateCacheFile, 'utf-8'));
-        if (cached?.latestVersion && omcVersion && compareVersions(omcVersion, cached.latestVersion) < 0) {
+        const cachePackageName = typeof cached?.packageName === 'string' ? cached.packageName : null;
+        const matchesCurrentPackage = cachePackageName === 'claudecode-omc';
+        if (
+          matchesCurrentPackage &&
+          cached?.latestVersion &&
+          omcVersion &&
+          compareVersions(omcVersion, cached.latestVersion) < 0
+        ) {
           updateAvailable = cached.latestVersion;
         }
       }
