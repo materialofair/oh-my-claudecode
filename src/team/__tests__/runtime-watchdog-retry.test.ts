@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { watchdogCliWorkers, type TeamRuntime } from '../runtime.js';
+import type { TeamRuntime } from '../runtime.js';
 import { DEFAULT_MAX_TASK_RETRIES, readTaskFailure, writeTaskFailure } from '../task-file-ops.js';
+
+let watchdogCliWorkers: typeof import('../runtime.js').watchdogCliWorkers;
 
 const tmuxMocks = vi.hoisted(() => ({
   isWorkerAlive: vi.fn(),
@@ -129,20 +131,24 @@ async function waitFor(
   predicate: () => boolean,
   timeoutMs = DEFAULT_WATCHDOG_WAIT_TIMEOUT_MS
 ): Promise<void> {
-  await vi.waitFor(
-    () => {
-      expect(predicate(), 'watchdog condition should become true').toBe(true);
-    },
-    { timeout: timeoutMs, interval: WATCHDOG_WAIT_INTERVAL_MS }
-  );
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, WATCHDOG_WAIT_INTERVAL_MS));
+  }
+
+  expect(predicate(), 'watchdog condition should become true').toBe(true);
 }
 
-describe('watchdogCliWorkers dead-pane retry behavior', () => {
+describe('watchdogCliWorkers dead-pane retry behavior', { timeout: 10000 }, () => {
   let cwd: string;
   let warnSpy: ReturnType<typeof vi.spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useRealTimers();
+    vi.resetModules();
     cwd = mkdtempSync(join(tmpdir(), 'runtime-watchdog-retry-'));
     tmuxMocks.isWorkerAlive.mockReset();
     tmuxMocks.spawnWorkerInPane.mockReset();
@@ -151,6 +157,7 @@ describe('watchdogCliWorkers dead-pane retry behavior', () => {
     tmuxMocks.spawnWorkerInPane.mockResolvedValue(undefined);
     tmuxMocks.sendToWorker.mockResolvedValue(true);
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    ({ watchdogCliWorkers } = await import('../runtime.js'));
   });
 
   afterEach(() => {
