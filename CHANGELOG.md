@@ -1,3 +1,16 @@
+# oh-my-claudecode v4.5.7: Agent Prefix Routing Fix
+
+Fixes intermittent "Agent type not found" errors when using `oh-my-claudecode:` prefixed agent types by implementing prefix stripping in the pre-tool-use hook.
+
+---
+
+### Fixed
+
+- **Agent prefix routing**: Pre-tool-use hook now strips `oh-my-claudecode:` prefix from `subagent_type` before the tool call reaches Claude Code, preventing "Agent type 'oh-my-claudecode:architect' not found" errors. The prefix is now correctly normalized at the hook level rather than relying on post-validation normalization.
+- **Test coverage**: Added comprehensive test suite (`pre-tool-agent-prefix.test.ts`) to ensure prefix stripping works for all OMC agent types and doesn't affect other tool calls.
+
+---
+
 # oh-my-claudecode v4.4.0: Skill Ecosystem Improvements
 
 Adds `skill-development` as the official authorship guide for writing OMC skills, fixes Codex branding in ported skills, and adapts the quality analyzer workflow for Claude Code tooling.

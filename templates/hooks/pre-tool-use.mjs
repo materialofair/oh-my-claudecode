@@ -95,6 +95,32 @@ async function main() {
   // Extract tool name (handle both cases)
   const toolName = data.tool_name || data.toolName || '';
 
+  // Handle Agent/Task tool - strip oh-my-claudecode: prefix from subagent_type
+  if (toolName === 'Agent' || toolName === 'Task' || toolName === 'agent' || toolName === 'task') {
+    const toolInput = data.tool_input || data.toolInput || {};
+    const subagentType = toolInput.subagent_type || toolInput.subagentType || '';
+
+    // Strip oh-my-claudecode: prefix if present
+    if (subagentType.startsWith('oh-my-claudecode:')) {
+      const strippedType = subagentType.replace(/^oh-my-claudecode:/, '');
+      const modifiedInput = {
+        ...toolInput,
+        subagent_type: strippedType
+      };
+
+      console.log(JSON.stringify({
+        continue: true,
+        modifiedInput: modifiedInput,
+        suppressOutput: true
+      }));
+      return;
+    }
+
+    // No prefix to strip, continue as-is
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+    return;
+  }
+
   // Handle Bash tool separately - check for file modification patterns
   if (toolName === 'Bash' || toolName === 'bash') {
     const toolInput = data.tool_input || data.toolInput || {};
