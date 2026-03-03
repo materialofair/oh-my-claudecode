@@ -1,9 +1,9 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-28 | Updated: 2026-02-27 -->
+<!-- Generated: 2026-01-28 | Updated: 2026-03-03 -->
 
 # skills
 
-40 skill directories for workflow automation and specialized behaviors (42 runtime skill names including compatibility aliases).
+41 skill directories for workflow automation and specialized behaviors (43 runtime skill names including compatibility aliases).
 
 ## Purpose
 
@@ -35,6 +35,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | `review/SKILL.md` | review | Review plan with Critic |
 | `analyze/SKILL.md` | analyze | Deep analysis and investigation |
 | `ralph-init/SKILL.md` | ralph-init | Initialize PRD for structured ralph |
+| `quick-init-project/SKILL.md` | quick-init-project | Intelligent project bootstrap with mode selection (fullstack/frontend/backend/demo) and data-driven tech stack recommendations |
 
 ### Code Quality Skills
 
