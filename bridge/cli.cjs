@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-#!/usr/bin/env node
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -3265,8 +3264,34 @@ function getDefaultTierModels() {
     HIGH: getDefaultModelHigh()
   };
 }
+function isBedrock() {
+  if (process.env.CLAUDE_CODE_USE_BEDROCK === "1") {
+    return true;
+  }
+  const modelId = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL || "";
+  if (modelId && /^((us|eu|ap|global)\.anthropic\.|anthropic\.claude)/i.test(modelId)) {
+    return true;
+  }
+  return false;
+}
+function isVertexAI() {
+  if (process.env.CLAUDE_CODE_USE_VERTEX === "1") {
+    return true;
+  }
+  const modelId = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL || "";
+  if (modelId && modelId.toLowerCase().startsWith("vertex_ai/")) {
+    return true;
+  }
+  return false;
+}
 function isNonClaudeProvider() {
   if (process.env.OMC_ROUTING_FORCE_INHERIT === "true") {
+    return true;
+  }
+  if (isBedrock()) {
+    return true;
+  }
+  if (isVertexAI()) {
     return true;
   }
   const modelId = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL || "";
@@ -3677,7 +3702,7 @@ function generateConfigSchema() {
         properties: {
           enabled: { type: "boolean", default: true, description: "Enable intelligent model routing" },
           defaultTier: { type: "string", enum: ["LOW", "MEDIUM", "HIGH"], default: "MEDIUM", description: "Default tier when no rules match" },
-          forceInherit: { type: "boolean", default: false, description: "Force all agents to inherit the parent model, bypassing OMC model routing. When true, no model parameter is passed to Task calls, so agents use the user's Claude Code model setting. Auto-enabled when a non-Claude provider is detected (CC Switch, custom ANTHROPIC_BASE_URL, etc.)." }
+          forceInherit: { type: "boolean", default: false, description: "Force all agents to inherit the parent model, bypassing OMC model routing. When true, no model parameter is passed to Task calls, so agents use the user's Claude Code model setting. Auto-enabled for non-Claude providers (CC Switch, custom ANTHROPIC_BASE_URL), AWS Bedrock, and Google Vertex AI." }
         }
       },
       externalModels: {

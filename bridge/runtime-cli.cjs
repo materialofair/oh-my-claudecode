@@ -1864,8 +1864,34 @@ function getDefaultModelMedium() {
 function getDefaultModelLow() {
   return process.env.OMC_MODEL_LOW || BUILTIN_MODEL_LOW;
 }
+function isBedrock() {
+  if (process.env.CLAUDE_CODE_USE_BEDROCK === "1") {
+    return true;
+  }
+  const modelId = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL || "";
+  if (modelId && /^((us|eu|ap|global)\.anthropic\.|anthropic\.claude)/i.test(modelId)) {
+    return true;
+  }
+  return false;
+}
+function isVertexAI() {
+  if (process.env.CLAUDE_CODE_USE_VERTEX === "1") {
+    return true;
+  }
+  const modelId = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL || "";
+  if (modelId && modelId.toLowerCase().startsWith("vertex_ai/")) {
+    return true;
+  }
+  return false;
+}
 function isNonClaudeProvider() {
   if (process.env.OMC_ROUTING_FORCE_INHERIT === "true") {
+    return true;
+  }
+  if (isBedrock()) {
+    return true;
+  }
+  if (isVertexAI()) {
     return true;
   }
   const modelId = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL || "";
