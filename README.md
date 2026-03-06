@@ -311,10 +311,36 @@ Tag behavior:
 
 ---
 
+## Testing
+
+oh-my-claudecode includes an intelligent test generation system:
+
+```bash
+# Generate tests for a file
+omc test gen src/components/Button.tsx
+
+# Detect project tech stack
+omc test detect-stack
+
+# Use the skill for advanced features
+/test-gen src/services/payment.ts --coverage-analysis
+```
+
+**Features:**
+- Automatic tech stack detection (React, Vue, Svelte, Node.js)
+- Smart test generation with complexity analysis
+- Support for Vitest, Jest, React Testing Library
+- Integration with `/tdd` and `/autopilot` workflows
+
+See [Testing Documentation](docs/testing/README.md) for details.
+
+---
+
 ## Documentation
 
 - **[Full Reference](docs/REFERENCE.md)** - Complete feature documentation
 - **[CLI Reference](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference)** - All `omc` commands, flags, and tools
+- **[Testing Guide](docs/testing/README.md)** - LLM-driven test generation system
 - **[Notifications Guide](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#notifications)** - Discord, Telegram, Slack, and webhook setup
 - **[Recommended Workflows](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows)** - Battle-tested skill chains for common tasks
 - **[Release Notes](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#release-notes)** - What's new in each version
