@@ -1,4 +1,4 @@
-import type { TechStack } from '../types';
+import type { TechStack } from '../types.js';
 
 export async function detectFromPackageJson(packageJson: any): Promise<TechStack> {
   const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };

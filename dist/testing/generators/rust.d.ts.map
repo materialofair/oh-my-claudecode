@@ -1,0 +1,1 @@
+{"version":3,"file":"rust.d.ts","sourceRoot":"","sources":["../../../src/testing/generators/rust.ts"],"names":[],"mappings":"AAAA,UAAU,eAAe;IACvB,QAAQ,EAAE,MAAM,CAAC;IACjB,IAAI,EAAE,MAAM,CAAC;CACd;AAED,UAAU,cAAc;IACtB,QAAQ,EAAE,MAAM,CAAC;IACjB,YAAY,EAAE,MAAM,CAAC;CACtB;AAED,wBAAsB,gBAAgB,CAAC,OAAO,EAAE,eAAe,GAAG,OAAO,CAAC,cAAc,CAAC,CAcxF"}

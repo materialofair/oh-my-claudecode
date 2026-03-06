@@ -107,6 +107,196 @@ If `--contract` flag is provided or file is an OpenAPI spec:
 - Works with `/tdd` for test-first development
 - Integrates with `/ultraqa` for test-verify-fix loops
 - Called automatically by `/autopilot` when generating code
+- **Phase 3**: Integrates with `/ralph` for automated test-fix-verify loops
+
+## Phase 3 Workflows
+
+### Promptfoo LLM Testing
+
+```
+User: Generate Promptfoo config for my code review prompt
+Agent: /test-gen prompts/code-review.txt --promptfoo
+
+Agent: Generating Promptfoo configuration...
+✅ Generated: promptfoo.config.yaml
+
+Config includes:
+- Prompt file: prompts/code-review.txt
+- Provider: anthropic:claude-3-5-sonnet-20241022
+- Test cases: Ready for customization
+
+Next steps:
+1. Add test cases to promptfoo.config.yaml
+2. Run: npx promptfoo eval
+3. View results: npx promptfoo view
+```
+
+### E2E Test Generation
+
+```
+User: Generate E2E tests for the login flow
+Agent: /test-gen "User logs in, navigates to dashboard, clicks on settings" --e2e
+
+Agent: Generating Playwright E2E tests...
+✅ Generated: tests/e2e/user-flow.spec.ts
+
+Test includes:
+- Navigate to login page
+- Navigate to dashboard
+- Click settings link
+
+Would you like me to:
+1. Add more detailed assertions?
+2. Generate additional E2E flows?
+3. Set up Playwright config?
+```
+
+### Giskard Behavioral Testing
+
+```
+User: Generate behavioral tests for my classifier
+Agent: /test-gen src/models/classifier.ts --giskard
+
+Agent: Generating Giskard behavioral tests...
+✅ Grated: tests/behavioral/perturbation.test.ts
+
+Tests include:
+- Typo perturbations
+- Negation perturbations
+- Synonym perturbations
+
+Agent: These tests verify model robustness under input variations.
+Would you like me to:
+1. Add robustness tests?
+2. Customize perturbation types?
+3. Run the behavioral tests?
+```
+
+### CI/CD Workflow Generation
+
+```
+User: Set up CI/CD for testing
+Agent: /test-gen --cicd
+
+Agent: Generating GitHub Actions workflow...
+✅ Generated: .github/workflows/test.yml
+
+Workflow includes:
+- Node.js setup with pnpm
+- Test execution
+- Coverage reporting (Codecov)
+- Test artifact uploads
+
+Would you like me to:
+1. Add matrix builds for multiple Node versions?
+2. Add deployment steps?
+3. Commit the workflow?
+```
+
+### Test Quality Scoring
+
+```
+User: Check the quality of my tests
+Agent: /test-gen tests/utils/parser.test.ts --quality
+
+Agent: Analyzing test quality...
+📊 Test Quality Score: 85/100
+
+Breakdown:
+- Completeness: 90/100
+- Assertions: 80/100
+- Independence: 95/100
+- Naming: 75/100
+
+💡 Recommendations:
+- Test edge cases like null, undefined, empty values
+- Use descriptive test names that explain what is being tested
+- Improve assertion quality with more specific matchers
+
+Would you like me to:
+1. Fix the identified issues?
+2. Generate additional test cases?
+3. Re-score after improvements?
+```
+
+### Ralph Mode Integration
+
+```
+User: ralph mode - implement authentication with comprehensive testing
+Agent: Starting Ralph mode with testing integration...
+
+Agent: Phase 1 - Implementation
+✅ Generated: src/auth/authenticate.ts
+
+Agent: Phase 2 - Test Generation
+✅ Generated: src/auth/authenticate.test.ts
+
+Agent: Phase 3 - Quality Check
+📊 Test Quality Score: 72/100
+⚠️  Below threshold (80)
+
+Agent: Phase 4 - Test Improvement
+✅ Added edge case tests
+✅ Improved assertion specificity
+✅ Added descriptive test names
+
+Agent: Phase 5 - Re-verification
+📊 Test Quality Score: 88/100
+✅ Meets quality threshold
+
+Agent: Phase 6 - E2E Tests
+✅ Generated: tests/e2e/auth-flow.spec.ts
+
+Agent: Phase 7 - Behavioral Tests
+✅ Generated: tests/behavioral/auth-robustness.test.ts
+
+Agent: Phase 8 - CI/CD Setup
+✅ Generated: .github/workflows/test.yml
+
+All tests passing. Quality threshold met. Ready to commit.
+```
+
+### Autopilot Testing Phase
+
+```
+User: autopilot - build a REST API for tasks
+Agent: Starting Autopilot with comprehensive testing...
+
+Agent: Phase 1 - Planning
+✅ Architecture designed
+
+Agent: Phase 2 - Implementation
+✅ Generated API endpoints
+
+Agent: Phase 3 - Unit Tests
+✅ Generated unit tests for all endpoints
+
+Agent: Phase 4 - Integration Tests
+✅ Generated integration tests
+
+Agent: Phase 5 - Contract Tests
+✅ Generated contract tests from OpenAPI spec
+
+Agent: Phase 6 - E2E Tests
+✅ Generated E2E tests for critical flows
+
+Agent: Phase 7 - Quality Scoring
+📊 Average Test Quality: 86/100
+✅ All tests meet quality threshold
+
+Agent: Phase 8 - Behavioral Tests
+✅ Generated robustness tests
+
+Agent: Phase 9 - CI/CD Setup
+✅ Generated GitHub Actions workflow
+
+Agent: Phase 10 - Verification
+✅ All tests passing
+✅ Coverage: 92%
+✅ Build successful
+
+Ready for deployment.
+```
 
 ## Examples
 

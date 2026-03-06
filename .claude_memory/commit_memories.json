@@ -1145,5 +1145,1121 @@
       "language": "javascript",
       "total_files": 470
     }
+  },
+  {
+    "timestamp": "2026-03-03T16:47:57.230772",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "package-lock.json",
+        "package.json"
+      ],
+      "change_types": {
+        "feature": 1,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 0,
+        "config": 1
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.4,
+        "risk_level": "medium",
+        "risk_factors": [
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 0
+    }
+  },
+  {
+    "timestamp": "2026-03-03T16:49:08.051215",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "package.json"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 0,
+        "config": 1
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.4,
+        "risk_level": "medium",
+        "risk_factors": [
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 0
+    }
+  },
+  {
+    "timestamp": "2026-03-03T21:37:38.642696",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "CHANGELOG.md",
+        "dist/__tests__/pre-tool-agent-prefix.test.d.ts",
+        "dist/__tests__/pre-tool-agent-prefix.test.d.ts.map",
+        "dist/__tests__/pre-tool-agent-prefix.test.js",
+        "dist/__tests__/pre-tool-agent-prefix.test.js.map",
+        "dist/hud/index.d.ts.map",
+        "dist/hud/index.js",
+        "dist/hud/index.js.map",
+        "docs/fixes/agent-prefix-routing-fix.md",
+        "package.json",
+        "src/__tests__/pre-tool-agent-prefix.test.ts",
+        "templates/hooks/pre-tool-use.mjs"
+      ],
+      "change_types": {
+        "feature": 4,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 2,
+        "test": 5,
+        "config": 1
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.7,
+        "risk_level": "medium",
+        "risk_factors": [
+          "large_changeset",
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 4
+    }
+  },
+  {
+    "timestamp": "2026-03-06T09:00:43.975480",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "README.de.md",
+        "README.es.md",
+        "README.fr.md",
+        "README.it.md",
+        "README.ja.md",
+        "README.ko.md",
+        "README.md",
+        "README.pt.md",
+        "README.ru.md",
+        "README.tr.md",
+        "README.vi.md",
+        "README.zh.md",
+        "bridge/cli.cjs",
+        "bridge/mcp-server.cjs",
+        "bridge/runtime-cli.cjs",
+        "bridge/team-mcp.cjs",
+        "bridge/team.js",
+        "dist/__tests__/auto-update.test.js",
+        "dist/__tests__/auto-update.test.js.map",
+        "dist/__tests__/hud/usage-api.test.js.map",
+        "dist/__tests__/installer.test.js.map",
+        "dist/__tests__/skills.test.js.map",
+        "dist/features/auto-update.js",
+        "dist/features/auto-update.js.map",
+        "dist/hooks/bridge.d.ts.map",
+        "dist/hooks/bridge.js.map",
+        "dist/hooks/learner/bridge.d.ts.map",
+        "dist/hooks/learner/bridge.js.map",
+        "dist/hooks/mode-registry/index.d.ts.map",
+        "dist/hooks/mode-registry/index.js",
+        "dist/hooks/mode-registry/index.js.map",
+        "dist/hooks/mode-registry/types.d.ts",
+        "dist/hooks/mode-registry/types.d.ts.map",
+        "dist/hud/usage-api.d.ts.map",
+        "dist/hud/usage-api.js.map",
+        "dist/installer/index.d.ts.map",
+        "dist/installer/index.js.map",
+        "dist/lib/mode-names.d.ts",
+        "dist/lib/mode-names.d.ts.map",
+        "dist/lib/mode-names.js",
+        "dist/lib/mode-names.js.map",
+        "docs/MIGRATION.md",
+        "docs/ko/MIGRATION.md",
+        "package-lock.json",
+        "package.json",
+        "skills/omc-setup/SKILL.md",
+        "src/__tests__/auto-update.test.ts",
+        "src/cli/README.md",
+        "src/features/auto-update.ts",
+        "src/hooks/mode-registry/index.ts",
+        "src/hooks/mode-registry/types.ts",
+        "src/lib/mode-names.ts",
+        "templates/hooks/session-start.mjs"
+      ],
+      "change_types": {
+        "feature": 30,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 16,
+        "test": 6,
+        "config": 1
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.7,
+        "risk_level": "medium",
+        "risk_factors": [
+          "large_changeset",
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 12
+    }
+  },
+  {
+    "timestamp": "2026-03-06T12:34:37.769456",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "docs/plans/2026-03-06-llm-testing-system-design.md"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 1,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 0
+    }
+  },
+  {
+    "timestamp": "2026-03-06T12:59:23.887231",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "docs/plans/2026-03-06-llm-testing-system-phase1.md"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 1,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 0
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:01:38.553000",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/index.ts",
+        "src/testing/types.ts",
+        "tests/testing/setup.test.ts",
+        "vitest.config.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 4,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.4,
+        "risk_level": "medium",
+        "risk_factors": [
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 4
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:03:54.923013",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/detectors/index.ts",
+        "src/testing/detectors/package-json.ts",
+        "tests/testing/detectors/package-json.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.4,
+        "risk_level": "medium",
+        "risk_factors": [
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:06:36.404388",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/generators/nodejs.ts",
+        "tests/testing/generators/nodejs.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:07:27.369086",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/generators/react.ts",
+        "tests/testing/generators/react.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:12:17.180275",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/cli/index.ts",
+        "src/testing/cli/commands.ts",
+        "tests/testing/cli/commands.test.ts"
+      ],
+      "change_types": {
+        "feature": 1,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.4,
+        "risk_level": "medium",
+        "risk_factors": [
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:14:36.249573",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "skills/test-gen.md",
+        "tests/skills/test-gen.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 1
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:15:58.984467",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "README.md",
+        "agents/test-engineer.md",
+        "docs/testing/README.md"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 1,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 0
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:19:15.796283",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "tests/skills/test-gen.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 1,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 1
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:22:18.530232",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/index.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 1,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.4,
+        "risk_level": "medium",
+        "risk_factors": [
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 1
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:23:23.950232",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "skills/test-gen/skill.md"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 1,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 0
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:52:28.522183",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/analyzers/complexity.ts",
+        "tests/testing/analyzers/complexity.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:53:45.577598",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/analyzers/coverage.ts",
+        "src/testing/analyzers/types.ts",
+        "tests/testing/analyzers/coverage.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:54:10.877853",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/detectors/python.ts",
+        "src/testing/generators/python.ts",
+        "tests/testing/generators/python.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:58:32.898691",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/detectors/rust.ts",
+        "src/testing/generators/rust.ts",
+        "tests/testing/generators/rust.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:59:35.032822",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/detectors/go.ts",
+        "src/testing/generators/go.ts",
+        "tests/testing/generators/go.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-06T13:59:41.063055",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/generators/contract.ts",
+        "tests/testing/generators/contract.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T14:05:12.988197",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "skills/ultraqa.md",
+        "src/testing/cli/ultraqa-integration.ts",
+        "tests/testing/cli/ultraqa-integration.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 1,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T14:09:50.453159",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "agents/test-engineer.md",
+        "src/testing/cli/agent-integration.ts",
+        "tests/testing/cli/agent-integration.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T14:13:41.691343",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/cli/index.ts",
+        "src/testing/cli/commands.ts",
+        "src/testing/detectors/index.ts",
+        "tests/testing/cli/multi-language.test.ts"
+      ],
+      "change_types": {
+        "feature": 1,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.4,
+        "risk_level": "medium",
+        "risk_factors": [
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 4
+    }
+  },
+  {
+    "timestamp": "2026-03-06T14:14:08.044567",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "README.md",
+        "docs/testing/PHASE2.md",
+        "docs/testing/README.md",
+        "skills/test-gen/skill.md"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 1,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 0
+    }
+  },
+  {
+    "timestamp": "2026-03-06T14:48:47.834497",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "docs/plans/2026-03-06-llm-testing-system-phase3.md"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 1,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 0
+    }
+  },
+  {
+    "timestamp": "2026-03-06T14:59:58.044944",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/generators/e2e.ts",
+        "tests/testing/generators/e2e.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T15:11:03.822512",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/integrations/promptfoo/config-generator.ts",
+        "src/testing/integrations/promptfoo/types.ts",
+        "tests/testing/integrations/promptfoo/config-generator.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-06T15:16:18.088210",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/integrations/giskard/behavioral-tests.ts",
+        "src/testing/integrations/giskard/types.ts",
+        "tests/testing/integrations/giskard/behavioral-tests.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 3,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-06T15:19:42.818026",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/integrations/ralph.ts",
+        "tests/testing/integrations/ralph.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T15:20:44.922813",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/integrations/autopilot.ts",
+        "tests/testing/integrations/autopilot.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 2,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 2
+    }
+  },
+  {
+    "timestamp": "2026-03-06T15:31:39.670512",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "src/testing/performance/cache-manager.ts",
+        "src/testing/performance/parallel-generator.ts",
+        "tests/testing/performance/cache-manager.test.ts",
+        "tests/testing/performance/parallel-generator.test.ts"
+      ],
+      "change_types": {
+        "feature": 0,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 4,
+        "config": 0
+      },
+      "commit_intent": "general",
+      "potential_impact": "low",
+      "risk_assessment": {
+        "risk_score": 0.0,
+        "risk_level": "low",
+        "risk_factors": []
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 4
+    }
   }
 ]

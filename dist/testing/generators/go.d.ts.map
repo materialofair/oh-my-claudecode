@@ -1,0 +1,1 @@
+{"version":3,"file":"go.d.ts","sourceRoot":"","sources":["../../../src/testing/generators/go.ts"],"names":[],"mappings":"AAAA,UAAU,aAAa;IACrB,QAAQ,EAAE,MAAM,CAAC;IACjB,IAAI,EAAE,MAAM,CAAC;IACb,WAAW,EAAE,MAAM,CAAC;CACrB;AAED,UAAU,YAAY;IACpB,YAAY,EAAE,MAAM,CAAC;IACrB,QAAQ,EAAE,MAAM,CAAC;CAClB;AAED,wBAAsB,cAAc,CAAC,OAAO,EAAE,aAAa,GAAG,OAAO,CAAC,YAAY,CAAC,CAalF"}

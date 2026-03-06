@@ -31,3 +31,31 @@ export interface GapAnalysisResult {
   gaps: CoverageGap[];
   totalGaps: number;
 }
+
+export interface TestQualityMetrics {
+  assertionCount: number;
+  hasEdgeCases: boolean;
+  hasAssertions: boolean;
+  hasSpecificAssertions: boolean;
+  hasSharedState: boolean;
+  hasDescriptiveNames: boolean;
+  hasMocks: boolean;
+  hasSetup: boolean;
+  hasTeardown: boolean;
+}
+
+export interface TestQualityScore {
+  completenessScore: number;
+  assertionQuality: number;
+  independenceScore: number;
+  namingScore: number;
+  overallScore: number;
+  assertionCount: number;
+  hasEdgeCases: boolean;
+  hasAssertions: boolean;
+  hasSpecificAssertions: boolean;
+  hasSharedState: boolean;
+  hasDescriptiveNames: boolean;
+  metrics: TestQualityMetrics;
+  recommendations: string[];
+}

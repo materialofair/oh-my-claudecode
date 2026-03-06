@@ -1515,6 +1515,125 @@ testCommand
     }
   });
 
+// Phase 3 commands
+
+testCommand
+  .command('promptfoo <prompt-file>')
+  .description('Generate Promptfoo config for LLM prompt testing')
+  .option('-p, --provider <provider>', 'LLM provider (e.g., anthropic:claude-3-5-sonnet-20241022)', 'anthropic:claude-3-5-sonnet-20241022')
+  .option('-o, --output <path>', 'Output config file path', './promptfoo.config.yaml')
+  .action(async (promptFile: string, options: { provider?: string; output?: string }) => {
+    const { testPromptfooCommand } = await import('../testing/cli/commands.js');
+    const result = await testPromptfooCommand({
+      promptFile,
+      provider: options.provider,
+      output: options.output,
+    });
+
+    if (result.success) {
+      console.log(chalk.green(`✅ Promptfoo config generated: ${result.configPath}`));
+    } else {
+      console.error(chalk.red(`❌ Error: ${result.error}`));
+      process.exit(1);
+    }
+  });
+
+testCommand
+  .command('e2e <flow-description>')
+  .description('Generate Playwright E2E tests from user flow description')
+  .option('-b, --base-url <url>', 'Base URL for the application', 'http://localhost:3000')
+  .option('-n, --test-name <name>', 'Test name', 'User flow test')
+  .option('-o, --output <path>', 'Output test file path', './tests/e2e/user-flow.spec.ts')
+  .action(async (flowDescription: string, options: { baseUrl?: string; testName?: string; output?: string }) => {
+    const { testE2ECommand } = await import('../testing/cli/commands.js');
+    const result = await testE2ECommand({
+      flowDescription,
+      baseUrl: options.baseUrl,
+      testName: options.testName,
+      output: options.output,
+    });
+
+    if (result.success) {
+      console.log(chalk.green(`✅ E2E test generated: ${result.testFilePath}`));
+    } else {
+      console.error(chalk.red(`❌ Error: ${result.error}`));
+      process.exit(1);
+    }
+  });
+
+testCommand
+  .command('giskard <file>')
+  .description('Generate Giskard behavioral tests for robustness testing')
+  .option('-t, --test-type <type>', 'Test type (perturbation, robustness)', 'perturbation')
+  .option('-o, --output <path>', 'Output test file path', './tests/behavioral/perturbation.test.ts')
+  .action(async (file: string, options: { testType?: string; output?: string }) => {
+    const { testGiskardCommand } = await import('../testing/cli/commands.js');
+    const result = await testGiskardCommand({
+      filePath: file,
+      testType: options.testType as 'perturbation' | 'robustness',
+      output: options.output,
+    });
+
+    if (result.success) {
+      console.log(chalk.green(`✅ Giskard behavioral tests generated: ${result.testFilePath}`));
+    } else {
+      console.error(chalk.red(`❌ Error: ${result.error}`));
+      process.exit(1);
+    }
+  });
+
+testCommand
+  .command('cicd')
+  .description('Generate GitHub Actions CI/CD workflow for testing')
+  .option('-l, --language <lang>', 'Primary language (nodejs, python, go, rust)', 'nodejs')
+  .option('-o, --output <path>', 'Output workflow file path', './.github/workflows/test.yml')
+  .action(async (options: { language?: string; output?: string }) => {
+    const { testCICDCommand } = await import('../testing/cli/commands.js');
+    const result = await testCICDCommand({
+      language: options.language as 'nodejs' | 'python' | 'go' | 'rust',
+      output: options.output,
+    });
+
+    if (result.success) {
+      console.log(chalk.green(`✅ CI/CD workflow generated: ${result.workflowPath}`));
+    } else {
+      console.error(chalk.red(`❌ Error: ${result.error}`));
+      process.exit(1);
+    }
+  });
+
+testCommand
+  .command('quality <test-file>')
+  .description('Score test quality and get improvement recommendations')
+  .option('-t, --test-type <type>', 'Test type (unit, integration, e2e)', 'unit')
+  .action(async (testFile: string, options: { testType?: string }) => {
+    const { testQualityCommand } = await import('../testing/cli/commands.js');
+    const result = await testQualityCommand({
+      testFilePath: testFile,
+      testType: options.testType as 'unit' | 'integration' | 'e2e',
+    });
+
+    if (result.success && result.score) {
+      console.log(chalk.blue('📊 Test Quality Score:'));
+      console.log(`  Overall:      ${result.score.overallScore}/100`);
+      console.log(`  Completeness: ${result.score.completenessScore}/100`);
+      console.log(`  Assertions:   ${result.score.assertionQuality}/100`);
+      console.log(`  Independence: ${result.score.independenceScore}/100`);
+      console.log(`  Naming:       ${result.score.namingScore}/100`);
+      console.log(`  Assertion Count: ${result.score.assertionCount}`);
+
+      if (result.score.recommendations.length > 0) {
+        console.log(chalk.yellow('\n💡 Recommendations:'));
+        result.score.recommendations.forEach((rec: string) => {
+          console.log(`  - ${rec}`);
+        });
+      }
+    } else {
+      console.error(chalk.red(`❌ Error: ${result.error}`));
+      process.exit(1);
+    }
+  });
+
 /**
  * Team command - CLI API for team worker lifecycle operations
  * Exposes OMC's `omc team api` interface.

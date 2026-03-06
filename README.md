@@ -337,6 +337,13 @@ omc test contract api/openapi.yaml
 # Detect project tech stack
 omc test detect-stack
 
+# Phase 3: Advanced features
+omc test promptfoo src/prompts/code-review.txt
+omc test e2e "User logs in, navigates to dashboard"
+omc test giskard src/models/classifier.ts
+omc test cicd -l nodejs
+omc test quality tests/utils/parser.test.ts
+
 # Use the skill for advanced features
 /test-gen src/services/payment.ts --coverage-analysis
 ```
@@ -346,6 +353,7 @@ omc test detect-stack
 - Coverage analysis and gap identification
 - Complexity-based test generation routing
 - API contract testing (Pact/Supertest/MSW)
+- **Phase 3**: Promptfoo LLM testing, E2E generation, Giskard behavioral tests, CI/CD workflows, test quality scoring
 - Integrated with `/ultraqa`, `/tdd`, and `/autopilot` workflows
 
 See [Testing Documentation](docs/testing/README.md) for details.

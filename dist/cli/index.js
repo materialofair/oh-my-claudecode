@@ -1290,6 +1290,207 @@ program
     }
 });
 /**
+ * Test commands - Testing utilities for test generation
+ */
+const testCommand = program
+    .command('test')
+    .description('Testing utilities');
+testCommand
+    .command('gen <file>')
+    .description('Generate tests for a file (.ts, .tsx, .jsx, .py, .go, .rs)')
+    .option('-o, --output <path>', 'Output test file path')
+    .option('-l, --language <lang>', 'Language override (typescript, react, python, go, rust)')
+    .action(async (file, options) => {
+    const { testGenCommand } = await import('../testing/cli/commands.js');
+    const result = await testGenCommand({
+        filePath: file,
+        output: options.output,
+        language: options.language,
+    });
+    if (result.success) {
+        console.log(chalk.green(`✅ Test generated: ${result.testFilePath}`));
+    }
+    else {
+        console.error(chalk.red(`❌ Error: ${result.error}`));
+        process.exit(1);
+    }
+});
+testCommand
+    .command('detect-stack')
+    .description('Detect project tech stack')
+    .action(async () => {
+    const { testDetectStackCommand } = await import('../testing/cli/commands.js');
+    const result = await testDetectStackCommand({
+        projectRoot: process.cwd(),
+    });
+    console.log(chalk.blue('📊 Detected Tech Stack:'));
+    console.log(JSON.stringify(result.stack, null, 2));
+});
+testCommand
+    .command('analyze')
+    .description('Analyze test coverage for the project')
+    .action(async () => {
+    const { testAnalyzeCoverageCommand } = await import('../testing/cli/commands.js');
+    const result = await testAnalyzeCoverageCommand({
+        projectRoot: process.cwd(),
+    });
+    console.log(chalk.blue('📊 Coverage Analysis:'));
+    console.log(`  Total:      ${result.totalCoverage}%`);
+    console.log(`  Lines:      ${result.lineCoverage}%`);
+    console.log(`  Functions:  ${result.functionCoverage}%`);
+    console.log(`  Branches:   ${result.branchCoverage}%`);
+    console.log(`  Statements: ${result.statementCoverage}%`);
+});
+testCommand
+    .command('contract <openapi-spec>')
+    .description('Generate contract tests from an OpenAPI spec')
+    .option('-f, --framework <framework>', 'Test framework (pact, supertest, msw)', 'pact')
+    .option('-c, --consumer <name>', 'Consumer name')
+    .option('-p, --provider <name>', 'Provider name')
+    .action(async (specPath, options) => {
+    const { testContractCommand } = await import('../testing/cli/commands.js');
+    const result = await testContractCommand({
+        specPath,
+        framework: options.framework,
+        consumer: options.consumer,
+        provider: options.provider,
+    });
+    if (result.success) {
+        console.log(chalk.green(`✅ Contract test generated: ${result.testFilePath}`));
+    }
+    else {
+        console.error(chalk.red('❌ Failed to generate contract test'));
+        process.exit(1);
+    }
+});
+testCommand
+    .command('complexity <file>')
+    .description('Analyze code complexity for a file')
+    .action(async (file) => {
+    const { testComplexityCommand } = await import('../testing/cli/commands.js');
+    const result = await testComplexityCommand({ filePath: file });
+    console.log(chalk.blue(`📊 Complexity Analysis: ${result.complexity}`));
+    console.log(`  Lines:                ${result.metrics.lines}`);
+    console.log(`  Cyclomatic Complexity: ${result.metrics.cyclomaticComplexity}`);
+    console.log(`  Nesting Level:        ${result.metrics.nestingLevel}`);
+    console.log(`  External Deps:        ${result.metrics.externalDependencies}`);
+    if (result.reasons.length > 0) {
+        console.log(`  Reasons:              ${result.reasons.join(', ')}`);
+    }
+});
+// Phase 3 commands
+testCommand
+    .command('promptfoo <prompt-file>')
+    .description('Generate Promptfoo config for LLM prompt testing')
+    .option('-p, --provider <provider>', 'LLM provider (e.g., anthropic:claude-3-5-sonnet-20241022)', 'anthropic:claude-3-5-sonnet-20241022')
+    .option('-o, --output <path>', 'Output config file path', './promptfoo.config.yaml')
+    .action(async (promptFile, options) => {
+    const { testPromptfooCommand } = await import('../testing/cli/commands.js');
+    const result = await testPromptfooCommand({
+        promptFile,
+        provider: options.provider,
+        output: options.output,
+    });
+    if (result.success) {
+        console.log(chalk.green(`✅ Promptfoo config generated: ${result.configPath}`));
+    }
+    else {
+        console.error(chalk.red(`❌ Error: ${result.error}`));
+        process.exit(1);
+    }
+});
+testCommand
+    .command('e2e <flow-description>')
+    .description('Generate Playwright E2E tests from user flow description')
+    .option('-b, --base-url <url>', 'Base URL for the application', 'http://localhost:3000')
+    .option('-n, --test-name <name>', 'Test name', 'User flow test')
+    .option('-o, --output <path>', 'Output test file path', './tests/e2e/user-flow.spec.ts')
+    .action(async (flowDescription, options) => {
+    const { testE2ECommand } = await import('../testing/cli/commands.js');
+    const result = await testE2ECommand({
+        flowDescription,
+        baseUrl: options.baseUrl,
+        testName: options.testName,
+        output: options.output,
+    });
+    if (result.success) {
+        console.log(chalk.green(`✅ E2E test generated: ${result.testFilePath}`));
+    }
+    else {
+        console.error(chalk.red(`❌ Error: ${result.error}`));
+        process.exit(1);
+    }
+});
+testCommand
+    .command('giskard <file>')
+    .description('Generate Giskard behavioral tests for robustness testing')
+    .option('-t, --test-type <type>', 'Test type (perturbation, robustness)', 'perturbation')
+    .option('-o, --output <path>', 'Output test file path', './tests/behavioral/perturbation.test.ts')
+    .action(async (file, options) => {
+    const { testGiskardCommand } = await import('../testing/cli/commands.js');
+    const result = await testGiskardCommand({
+        filePath: file,
+        testType: options.testType,
+        output: options.output,
+    });
+    if (result.success) {
+        console.log(chalk.green(`✅ Giskard behavioral tests generated: ${result.testFilePath}`));
+    }
+    else {
+        console.error(chalk.red(`❌ Error: ${result.error}`));
+        process.exit(1);
+    }
+});
+testCommand
+    .command('cicd')
+    .description('Generate GitHub Actions CI/CD workflow for testing')
+    .option('-l, --language <lang>', 'Primary language (nodejs, python, go, rust)', 'nodejs')
+    .option('-o, --output <path>', 'Output workflow file path', './.github/workflows/test.yml')
+    .action(async (options) => {
+    const { testCICDCommand } = await import('../testing/cli/commands.js');
+    const result = await testCICDCommand({
+        language: options.language,
+        output: options.output,
+    });
+    if (result.success) {
+        console.log(chalk.green(`✅ CI/CD workflow generated: ${result.workflowPath}`));
+    }
+    else {
+        console.error(chalk.red(`❌ Error: ${result.error}`));
+        process.exit(1);
+    }
+});
+testCommand
+    .command('quality <test-file>')
+    .description('Score test quality and get improvement recommendations')
+    .option('-t, --test-type <type>', 'Test type (unit, integration, e2e)', 'unit')
+    .action(async (testFile, options) => {
+    const { testQualityCommand } = await import('../testing/cli/commands.js');
+    const result = await testQualityCommand({
+        testFilePath: testFile,
+        testType: options.testType,
+    });
+    if (result.success && result.score) {
+        console.log(chalk.blue('📊 Test Quality Score:'));
+        console.log(`  Overall:      ${result.score.overallScore}/100`);
+        console.log(`  Completeness: ${result.score.completenessScore}/100`);
+        console.log(`  Assertions:   ${result.score.assertionQuality}/100`);
+        console.log(`  Independence: ${result.score.independenceScore}/100`);
+        console.log(`  Naming:       ${result.score.namingScore}/100`);
+        console.log(`  Assertion Count: ${result.score.assertionCount}`);
+        if (result.score.recommendations.length > 0) {
+            console.log(chalk.yellow('\n💡 Recommendations:'));
+            result.score.recommendations.forEach((rec) => {
+                console.log(`  - ${rec}`);
+            });
+        }
+    }
+    else {
+        console.error(chalk.red(`❌ Error: ${result.error}`));
+        process.exit(1);
+    }
+});
+/**
  * Team command - CLI API for team worker lifecycle operations
  * Exposes OMC's `omc team api` interface.
  *

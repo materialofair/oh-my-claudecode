@@ -5,12 +5,12 @@ import type {
   PromptfooTestCase,
   GenerateConfigOptions,
   GenerateTestCasesOptions,
-} from './types';
+} from './types.js';
 
 export async function generatePromptfooConfig(options: GenerateConfigOptions): Promise<PromptfooConfig> {
   const { promptFile, testCases, provider, outputPath } = options;
 
-  const tests: PromptfooTestCase[] = testCases.map((tc) => {
+  const tests: PromptfooTestCase[] = testCases.map((tc: { input: string; expected: string }) => {
     const [assertType, assertValue] = tc.expected.split(':');
     return {
       vars: { input: tc.input },
@@ -36,7 +36,7 @@ export async function generatePromptfooConfig(options: GenerateConfigOptions): P
 export async function generateTestCases(options: GenerateTestCasesOptions): Promise<PromptfooTestCase[]> {
   const { codeExamples, assertionType } = options;
 
-  return codeExamples.map((example) => ({
+  return codeExamples.map((example: { code: string; language: string }) => ({
     vars: {
       code: example.code,
       language: example.language,

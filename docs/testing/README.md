@@ -27,7 +27,7 @@ Or use the skill:
 - **Framework support**: Vitest, Jest, React Testing Library, pytest, unittest, Go testing, cargo test
 - **UltraQA integration**: Automatic test generation in QA cycles
 
-## Phase 2 Features (NEW)
+## Phase 2 Features
 
 Phase 2 adds advanced capabilities:
 
@@ -39,6 +39,19 @@ Phase 2 adds advanced capabilities:
 - **UltraQA Integration**: Automatic test generation in QA cycles
 
 See [Phase 2 Documentation](./PHASE2.md) for details.
+
+## Phase 3 Features (NEW)
+
+Phase 3 completes the testing ecosystem with advanced integrations:
+
+- **Promptfoo Integration**: LLM prompt testing and evaluation
+- **Giskard Behavioral Tests**: Robustness and perturbation testing
+- **Playwright E2E Generation**: User flow to test automation
+- **CI/CD Templates**: GitHub Actions workflow generation
+- **Test Quality Scoring**: Automated test quality assessment
+- **Ralph/Autopilot Integration**: Automated testing loops
+
+See [Phase 3 Documentation](./PHASE3.md) for details.
 
 ## Architecture
 
@@ -71,7 +84,9 @@ src/testing/
 
 ## CLI Commands
 
-### Generate Tests
+### Phase 1 & 2 Commands
+
+#### Generate Tests
 
 ```bash
 omc test gen <file> [--output <path>]
@@ -100,7 +115,7 @@ omc test gen pkg/math/math.go
 omc test gen src/math.rs
 ```
 
-### Detect Tech Stack
+#### Detect Tech Stack
 
 ```bash
 omc test detect-stack
@@ -115,7 +130,7 @@ Displays the detected tech stack for the current project.
 - Databases (PostgreSQL/MySQL/MongoDB)
 - API types (REST/GraphQL/gRPC)
 
-### Analyze Coverage
+#### Analyze Coverage
 
 ```bash
 omc test analyze
@@ -128,7 +143,7 @@ Analyzes test coverage and identifies gaps in the current project.
 - List of coverage gaps with file, line range, and reason
 - Option to generate supplementary tests for gaps
 
-### Contract Testing
+#### Contract Testing
 
 ```bash
 omc test contract <spec-file> [--framework <pact|supertest|msw>]
@@ -146,6 +161,93 @@ omc test contract api/openapi.yaml --framework=pact
 
 # Generate Supertest contract tests
 omc test contract api/openapi.yaml --framework=supertest
+```
+
+### Phase 3 Commands (NEW)
+
+#### Promptfoo Integration
+
+```bash
+omc test promptfoo <prompt-file> [options]
+```
+
+Generate Promptfoo config for LLM prompt testing.
+
+**Options:**
+- `-p, --provider <provider>`: LLM provider (default: `anthropic:claude-3-5-sonnet-20241022`)
+- `-o, --output <path>`: Output config file path (default: `./promptfoo.config.yaml`)
+
+**Example:**
+```bash
+omc test promptfoo src/prompts/code-review.txt
+```
+
+#### E2E Test Generation
+
+```bash
+omc test e2e <flow-description> [options]
+```
+
+Generate Playwright E2E tests from user flow description.
+
+**Options:**
+- `-b, --base-url <url>`: Base URL (default: `http://localhost:3000`)
+- `-n, --test-name <name>`: Test name (default: `User flow test`)
+- `-o, --output <path>`: Output file (default: `./tests/e2e/user-flow.spec.ts`)
+
+**Example:**
+```bash
+omc test e2e "User logs in, navigates to dashboard, clicks on settings"
+```
+
+#### Giskard Behavioral Tests
+
+```bash
+omc test giskard <file> [options]
+```
+
+Generate Giskard behavioral tests for robustness testing.
+
+**Options:**
+- `-t, --test-type <type>`: Test type - `perturbation` or `robustness` (default: `perturbation`)
+- `-o, --output <path>`: Output file (default: `./tests/behavioral/perturbation.test.ts`)
+
+**Example:**
+```bash
+omc test giskard src/models/classifier.ts
+```
+
+#### CI/CD Workflow Generation
+
+```bash
+omc test cicd [options]
+```
+
+Generate GitHub Actions CI/CD workflow for testing.
+
+**Options:**
+- `-l, --language <lang>`: Primary language - `nodejs`, `python`, `go`, `rust` (default: `nodejs`)
+- `-o, --output <path>`: Output file (default: `./.github/workflows/test.yml`)
+
+**Example:**
+```bash
+omc test cicd -l nodejs
+```
+
+#### Test Quality Scoring
+
+```bash
+omc test quality <test-file> [options]
+```
+
+Score test quality and get improvement recommendations.
+
+**Options:**
+- `-t, --test-type <type>`: Test type - `unit`, `integration`, `e2e` (default: `unit`)
+
+**Example:**
+```bash
+omc test quality tests/utils/parser.test.ts
 ```
 
 ## Skill Usage
@@ -499,14 +601,21 @@ pnpm build
 - ✅ UltraQA integration with automatic test generation
 - ✅ Multi-language CLI support with auto-detection
 
-### Phase 3 (Planned)
-- Giskard integration for behavior testing
-- E2E test generation (Playwright/Cypress)
-- CI/CD integration (GitHub Actions)
-- Ralph mode test-fix-verify loops
-- Autopilot automatic testing
-- Performance optimization
+### Phase 3 (Complete)
+- ✅ Promptfoo integration for LLM prompt testing
+- ✅ Giskard integration for behavioral testing
+- ✅ E2E test generation (Playwright)
+- ✅ CI/CD integration (GitHub Actions)
+- ✅ Test quality scoring with recommendations
+- ✅ Ralph mode test-fix-verify loops
+- ✅ Autopilot automatic testing phase
+
+### Phase 4 (Planned)
 - Vue/Svelte component test generation
+- Cypress E2E test generation
+- Performance test generation
+- Visual regression testing
+- Mutation testing integration
 
 ## Contributing
 

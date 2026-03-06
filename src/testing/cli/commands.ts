@@ -188,3 +188,214 @@ export async function testComplexityCommand(options: ComplexityCommandOptions): 
   const code = await fs.readFile(options.filePath, 'utf-8');
   return analyzeComplexity({ code, filePath: options.filePath });
 }
+
+// Phase 3: Promptfoo integration command
+
+interface PromptfooCommandOptions {
+  promptFile: string;
+  provider?: string;
+  output?: string;
+}
+
+interface PromptfooCommandResult {
+  success: boolean;
+  configPath?: string;
+  error?: string;
+}
+
+export async function testPromptfooCommand(options: PromptfooCommandOptions): Promise<PromptfooCommandResult> {
+  try {
+    const { generatePromptfooConfig, savePromptfooConfig } = await import('../integrations/promptfoo/config-generator.js');
+
+    const config = await generatePromptfooConfig({
+      promptFile: options.promptFile,
+      testCases: [],
+      provider: options.provider || 'anthropic:claude-3-5-sonnet-20241022',
+    });
+
+    const outputPath = options.output || './promptfoo.config.yaml';
+    await savePromptfooConfig(config, outputPath);
+
+    return {
+      success: true,
+      configPath: outputPath,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// Phase 3: E2E test generation command
+
+interface E2ECommandOptions {
+  flowDescription: string;
+  baseUrl?: string;
+  testName?: string;
+  output?: string;
+}
+
+interface E2ECommandResult {
+  success: boolean;
+  testFilePath?: string;
+  error?: string;
+}
+
+export async function testE2ECommand(options: E2ECommandOptions): Promise<E2ECommandResult> {
+  try {
+    const { generateFromUserFlow } = await import('../generators/e2e.js');
+
+    const result = await generateFromUserFlow({
+      flowDescription: options.flowDescription,
+      baseUrl: options.baseUrl || 'http://localhost:3000',
+      testName: options.testName || 'User flow test',
+    });
+
+    const testFilePath = options.output || './tests/e2e/user-flow.spec.ts';
+    await fs.writeFile(testFilePath, result.testCode, 'utf-8');
+
+    return {
+      success: true,
+      testFilePath,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// Phase 3: Giskard behavioral test generation command
+
+interface GiskardCommandOptions {
+  filePath: string;
+  testType?: 'perturbation' | 'robustness';
+  output?: string;
+}
+
+interface GiskardCommandResult {
+  success: boolean;
+  testFilePath?: string;
+  error?: string;
+}
+
+export async function testGiskardCommand(options: GiskardCommandOptions): Promise<GiskardCommandResult> {
+  try {
+    const { generatePerturbationTests } = await import('../integrations/giskard/behavioral-tests.js');
+
+    const code = await fs.readFile(options.filePath, 'utf-8');
+
+    // Generate perturbation tests
+    const result = await generatePerturbationTests({
+      testCases: [
+        { input: 'sample input', expectedOutput: 'expected' }
+      ],
+      perturbations: ['typo', 'negation', 'synonym'],
+    });
+
+    const testFilePath = options.output || './tests/behavioral/perturbation.test.ts';
+    const testCode = `// Generated Giskard behavioral tests
+import { describe, it, expect } from 'vitest';
+
+describe('Behavioral Tests', () => {
+${result.tests.map(test => `
+  it('${test.expectedBehavior}', async () => {
+    // Original: ${test.original}
+    // Perturbed (${test.perturbationType}): ${test.perturbed}
+    // TODO: Add test implementation
+  });
+`).join('')}
+});
+`;
+
+    await fs.writeFile(testFilePath, testCode, 'utf-8');
+
+    return {
+      success: true,
+      testFilePath,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// Phase 3: CI/CD workflow generation command
+
+interface CICDCommandOptions {
+  language?: 'nodejs' | 'python' | 'go' | 'rust';
+  output?: string;
+}
+
+interface CICDCommandResult {
+  success: boolean;
+  workflowPath?: string;
+  error?: string;
+}
+
+export async function testCICDCommand(options: CICDCommandOptions): Promise<CICDCommandResult> {
+  try {
+    const { generateGitHubActionsWorkflow } = await import('../integrations/cicd.js');
+
+    const workflow = await generateGitHubActionsWorkflow({
+      language: options.language || 'nodejs',
+      coverage: true,
+      artifacts: true,
+    });
+
+    const workflowPath = options.output || './.github/workflows/test.yml';
+    const dir = path.dirname(workflowPath);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(workflowPath, workflow, 'utf-8');
+
+    return {
+      success: true,
+      workflowPath,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// Phase 3: Test quality scoring command
+
+interface QualityCommandOptions {
+  testFilePath: string;
+  testType?: 'unit' | 'integration' | 'e2e';
+}
+
+interface QualityCommandResult {
+  success: boolean;
+  score?: any;
+  error?: string;
+}
+
+export async function testQualityCommand(options: QualityCommandOptions): Promise<QualityCommandResult> {
+  try {
+    const { scoreTestQuality } = await import('../analyzers/quality-scorer.js');
+
+    const testCode = await fs.readFile(options.testFilePath, 'utf-8');
+    const score = await scoreTestQuality({
+      testCode,
+      testType: options.testType || 'unit',
+    });
+
+    return {
+      success: true,
+      score,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
