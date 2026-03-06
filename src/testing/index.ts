@@ -1,8 +1,9 @@
-export * from './types';
+export * from './types.js';
+import { detectTechStack } from './detectors/index.js';
 
 export const TestingModule = {
   detectStack: async () => {
-    throw new Error('Not implemented');
+    return detectTechStack(process.cwd());
   },
   generateTests: async () => {
     throw new Error('Not implemented');
