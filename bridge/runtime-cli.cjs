@@ -1101,24 +1101,27 @@ function atomicWriteJson(filePath, data, mode = 384) {
 function ensureDirWithMode(dirPath, mode = 448) {
   if (!(0, import_fs4.existsSync)(dirPath)) (0, import_fs4.mkdirSync)(dirPath, { recursive: true, mode });
 }
-function safeRealpath(p) {
-  try {
-    return (0, import_fs4.realpathSync)(p);
-  } catch {
-    const parent = (0, import_path7.dirname)(p);
-    const name = (0, import_path7.basename)(p);
+function canonicalizePath(p) {
+  const absInput = (0, import_path7.resolve)(p);
+  const tail = [];
+  let probe = absInput;
+  while (true) {
     try {
-      return (0, import_path7.resolve)((0, import_fs4.realpathSync)(parent), name);
+      const realBase = (0, import_fs4.realpathSync)(probe);
+      return tail.reduce((acc, seg) => (0, import_path7.resolve)(acc, seg), realBase);
     } catch {
-      return (0, import_path7.resolve)(p);
+      const parent = (0, import_path7.dirname)(probe);
+      if (parent === probe) return absInput;
+      tail.unshift((0, import_path7.basename)(probe));
+      probe = parent;
     }
   }
 }
 function validateResolvedPath(resolvedPath, expectedBase) {
-  const absResolved = safeRealpath(resolvedPath);
-  const absBase = safeRealpath(expectedBase);
+  const absResolved = canonicalizePath(resolvedPath);
+  const absBase = canonicalizePath(expectedBase);
   const rel = (0, import_path7.relative)(absBase, absResolved);
-  if (rel.startsWith("..") || (0, import_path7.resolve)(absBase, rel) !== absResolved) {
+  if (rel !== "" && (rel.startsWith("..") || (0, import_path7.isAbsolute)(rel) || (0, import_path7.resolve)(absBase, rel) !== absResolved)) {
     throw new Error(`Path traversal detected: "${resolvedPath}" escapes base "${expectedBase}"`);
   }
 }

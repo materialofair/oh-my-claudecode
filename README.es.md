@@ -97,7 +97,7 @@ Para trabajo mixto de Codex + Gemini en un solo comando, usa la habilidad **`/cc
 
 Los trabajadores se inician bajo demanda y terminan cuando su tarea se completa — sin uso de recursos en espera. Requiere las CLIs `codex` / `gemini` instaladas y una sesión tmux activa.
 
-> **Nota: Nombre del paquete** — El proyecto usa la marca **oh-my-claudecode** (repositorio, plugin, comandos), pero el paquete npm se publica como [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus). Si instalas las herramientas CLI via npm/bun, usa `npm install -g oh-my-claude-sisyphus`.
+> **Nota: Nombre del paquete** — El proyecto usa la marca **oh-my-claudecode** (repositorio, plugin, comandos), y el paquete npm se publica como [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc). Si instalas las herramientas CLI via npm/bun, usa `npm install -g claudecode-omc`.
 
 ### Actualizar
 

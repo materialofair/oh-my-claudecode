@@ -606,7 +606,7 @@ console.log('Installed:',v||'(not found)');
 "
 
 # Check npm for latest version
-LATEST_VERSION=$(npm view oh-my-claude-sisyphus version 2>/dev/null)
+LATEST_VERSION=$(npm view claudecode-omc version 2>/dev/null)
 
 if [ -n "$INSTALLED_VERSION" ] && [ -n "$LATEST_VERSION" ]; then
   # Simple version comparison (assumes semantic versioning)
@@ -679,8 +679,8 @@ If `OMC_CLI_INSTALLED` is `"false"`, use the AskUserQuestion tool to prompt the 
 **Question:** "Would you like to install the OMC CLI globally for standalone monitoring and analytics? (`omc`, `omc cost`, `omc sessions`)"
 
 **Options:**
-1. **Yes (Recommended)** - Install `oh-my-claude-sisyphus` via `npm install -g`
-2. **No - Skip** - Skip installation (can install manually later with `npm install -g oh-my-claude-sisyphus`)
+1. **Yes (Recommended)** - Install `claudecode-omc` via `npm install -g`
+2. **No - Skip** - Skip installation (can install manually later with `npm install -g claudecode-omc`)
 
 If user chooses **Yes**:
 
@@ -688,10 +688,10 @@ If user chooses **Yes**:
 # Check if npm is available
 if ! command -v npm &>/dev/null; then
   echo "WARNING: npm not found. Cannot install OMC CLI automatically."
-  echo "Install Node.js/npm first, then run: npm install -g oh-my-claude-sisyphus"
+  echo "Install Node.js/npm first, then run: npm install -g claudecode-omc"
 else
   # Install the CLI globally
-  if npm install -g oh-my-claude-sisyphus 2>&1; then
+  if npm install -g claudecode-omc 2>&1; then
     echo "OMC CLI installed successfully."
     # Verify installation
     if command -v omc &>/dev/null; then
@@ -702,8 +702,8 @@ else
     fi
   else
     echo "WARNING: Failed to install OMC CLI (permission issue or network error)."
-    echo "You can install manually later: npm install -g oh-my-claude-sisyphus"
-    echo "Or with sudo: sudo npm install -g oh-my-claude-sisyphus"
+    echo "You can install manually later: npm install -g claudecode-omc"
+    echo "Or with sudo: sudo npm install -g claudecode-omc"
   fi
 fi
 ```

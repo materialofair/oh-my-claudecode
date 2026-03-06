@@ -101,7 +101,7 @@ omc team shutdown auth-review
 
 워커는 요청 시 생성되고 작업 완료 후 종료됩니다 — 유휴 리소스 낭비 없음. `codex` / `gemini` CLI가 설치되어 있고 활성 tmux 세션이 필요합니다.
 
-> **참고: 패키지 이름** — 프로젝트 브랜드명은 **oh-my-claudecode** (저장소, 플러그인, 명령어)이지만, npm 패키지는 [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus)로 배포됩니다. npm/bun으로 CLI 도구를 설치할 때는 `npm install -g oh-my-claude-sisyphus`를 사용하세요.
+> **참고: 패키지 이름** — 프로젝트 브랜드명은 **oh-my-claudecode** (저장소, 플러그인, 명령어)이며, npm 패키지는 [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc)로 배포됩니다. npm/bun으로 CLI 도구를 설치할 때는 `npm install -g claudecode-omc`를 사용하세요.
 
 ### 업데이트
 

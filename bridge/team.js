@@ -179,7 +179,7 @@ var STALE_THRESHOLD_MS = 24 * 60 * 60 * 1e3;
 
 // src/team/fs-utils.ts
 import { writeFileSync, existsSync as existsSync2, mkdirSync, renameSync, openSync, writeSync, closeSync, realpathSync, constants } from "fs";
-import { dirname as dirname4, resolve as resolve2, relative as relative2, basename as basename4 } from "path";
+import { dirname as dirname4, resolve as resolve2, relative as relative2, basename as basename4, isAbsolute as isAbsolute4 } from "path";
 
 // src/team/state-paths.ts
 import { join as join6 } from "path";

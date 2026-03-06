@@ -9,6 +9,7 @@
 /** All supported execution mode identifiers. */
 export const MODE_NAMES = {
   AUTOPILOT: 'autopilot',
+  CONDUCTOR: 'conductor',
   TEAM: 'team',
   RALPH: 'ralph',
   ULTRAWORK: 'ultrawork',
@@ -34,6 +35,7 @@ export type ModeName = typeof MODE_NAMES[keyof typeof MODE_NAMES];
  */
 export const ALL_MODE_NAMES: readonly ModeName[] = [
   MODE_NAMES.AUTOPILOT,
+  MODE_NAMES.CONDUCTOR,
   MODE_NAMES.TEAM,
   MODE_NAMES.RALPH,
   MODE_NAMES.ULTRAWORK,
@@ -46,6 +48,7 @@ export const ALL_MODE_NAMES: readonly ModeName[] = [
  */
 export const MODE_STATE_FILE_MAP: Readonly<Record<ModeName, string>> = {
   [MODE_NAMES.AUTOPILOT]: 'autopilot-state.json',
+  [MODE_NAMES.CONDUCTOR]: 'conductor-state.json',
   [MODE_NAMES.TEAM]: 'team-state.json',
   [MODE_NAMES.RALPH]: 'ralph-state.json',
   [MODE_NAMES.ULTRAWORK]: 'ultrawork-state.json',

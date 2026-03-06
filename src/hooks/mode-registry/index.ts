@@ -54,6 +54,12 @@ const MODE_CONFIGS: Record<ExecutionMode, ModeConfig> = {
     stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.AUTOPILOT],
     activeProperty: "active",
   },
+  [MODE_NAMES.CONDUCTOR]: {
+    name: "Conductor",
+    stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.CONDUCTOR],
+    activeProperty: "active",
+    hasGlobalState: false,
+  },
   [MODE_NAMES.TEAM]: {
     name: "Team",
     stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.TEAM],
