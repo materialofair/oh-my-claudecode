@@ -15,9 +15,9 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { getClaudeConfigDir } from '../../utils/paths.js';
 import { readUltraworkState, writeUltraworkState, incrementReinforcement, deactivateUltrawork, getUltraworkPersistenceMessage } from '../ultrawork/index.js';
-import { resolveToWorktreeRoot, resolveSessionStatePath } from '../../lib/worktree-paths.js';
-import { readRalphState, writeRalphState, incrementRalphIteration, clearRalphState, getPrdCompletionStatus, getRalphContext, readVerificationState, recordArchitectFeedback, getArchitectVerificationPrompt, getArchitectRejectionContinuationPrompt, detectArchitectApproval, detectArchitectRejection, clearVerificationState } from '../ralph/index.js';
-import { checkIncompleteTodos, getNextPendingTodo, isUserAbort, isContextLimitStop, isRateLimitStop, isExplicitCancelCommand } from '../todo-continuation/index.js';
+import { resolveToWorktreeRoot, resolveSessionStatePath, getOmcRoot } from '../../lib/worktree-paths.js';
+import { readRalphState, writeRalphState, incrementRalphIteration, clearRalphState, getPrdCompletionStatus, getRalphContext, readVerificationState, recordArchitectFeedback, getArchitectVerificationPrompt, getArchitectRejectionContinuationPrompt, detectArchitectApproval, detectArchitectRejection, clearVerificationState, } from '../ralph/index.js';
+import { checkIncompleteTodos, getNextPendingTodo, isUserAbort, isContextLimitStop, isRateLimitStop, isExplicitCancelCommand, isAuthenticationError } from '../todo-continuation/index.js';
 import { TODO_CONTINUATION_PROMPT } from '../../installer/hooks.js';
 import { isAutopilotActive } from '../autopilot/index.js';
 import { checkAutopilot } from '../autopilot/enforcement.js';
@@ -66,7 +66,7 @@ function isSessionCancelInProgress(directory, sessionId) {
  * Returns null if file doesn't exist or error is stale (>60 seconds old).
  */
 export function readLastToolError(directory) {
-    const stateDir = join(directory, '.omc', 'state');
+    const stateDir = join(getOmcRoot(directory), 'state');
     const errorPath = join(stateDir, 'last-tool-error.json');
     try {
         if (!existsSync(errorPath)) {
@@ -96,7 +96,7 @@ export function readLastToolError(directory) {
  * Clear tool error state file atomically.
  */
 export function clearToolErrorState(directory) {
-    const stateDir = join(directory, '.omc', 'state');
+    const stateDir = join(getOmcRoot(directory), 'state');
     const errorPath = join(stateDir, 'last-tool-error.json');
     try {
         if (existsSync(errorPath)) {
@@ -428,7 +428,10 @@ async function checkRalphLoop(sessionId, directory, cancelInProgress) {
             }
         }
         // Verification still pending - remind to spawn architect
-        const verificationPrompt = getArchitectVerificationPrompt(verificationState);
+        // Get current story for story-aware verification
+        const prdInfo = getPrdCompletionStatus(workingDir);
+        const currentStory = prdInfo.nextStory ?? undefined;
+        const verificationPrompt = getArchitectVerificationPrompt(verificationState, currentStory);
         return {
             shouldBlock: true,
             message: verificationPrompt,
@@ -458,7 +461,7 @@ async function checkRalphLoop(sessionId, directory, cancelInProgress) {
     // Get PRD context for injection
     const ralphContext = getRalphContext(workingDir);
     const prdInstruction = prdStatus.hasPrd
-        ? `2. Check prd.json - are ALL stories marked passes: true?`
+        ? `2. Check prd.json - verify the current story's acceptance criteria are met, then mark it passes: true. Are ALL stories complete?`
         : `2. Check your todo list - are ALL items marked complete?`;
     const continuationPrompt = `<ralph-continuation>
 ${errorGuidance ? errorGuidance + '\n' : ''}
@@ -643,6 +646,17 @@ export async function checkPersistentModes(sessionId, directory, stopContext // 
             mode: 'none'
         };
     }
+    // CRITICAL: Never block authentication/authorization failures.
+    // Expired OAuth/unauthorized responses can otherwise trigger an infinite
+    // continuation loop (especially with staged Team mode prompts).
+    // Fix for: issue #1308
+    if (isAuthenticationError(stopContext)) {
+        return {
+            shouldBlock: false,
+            message: '[PERSISTENT MODE PAUSED - AUTHENTICATION ERROR] Authentication failure detected (for example 401/403 or expired OAuth token). Re-authenticate, then resume manually.',
+            mode: 'none'
+        };
+    }
     // First, check for incomplete todos (we need this info for ultrawork)
     // Note: stopContext already checked above, but pass it for consistency
     const todoResult = await checkIncompleteTodos(sessionId, workingDir, stopContext);
@@ -704,14 +718,13 @@ export async function checkPersistentModes(sessionId, directory, stopContext // 
     };
 }
 /**
- * Create hook output for Claude Code
- * NOTE: Always returns continue: true with soft enforcement via message injection.
- * Never returns continue: false to avoid blocking user intent.
+ * Create hook output for Claude Code.
+ * Returns `continue: false` when `shouldBlock` is true to hard-block the stop event.
+ * Returns `continue: true` for terminal states, escape hatches, and errors.
  */
 export function createHookOutput(result) {
-    // Always allow stop, but inject message for soft enforcement
     return {
-        continue: true,
+        continue: !result.shouldBlock,
         message: result.message || undefined
     };
 }

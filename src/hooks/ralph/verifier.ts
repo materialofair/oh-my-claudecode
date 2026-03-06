@@ -14,7 +14,8 @@
 
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { resolveSessionStatePath, ensureSessionStateDir } from '../../lib/worktree-paths.js';
+import { resolveSessionStatePath, ensureSessionStateDir, getOmcRoot } from '../../lib/worktree-paths.js';
+import type { UserStory } from './prd.js';
 
 export interface VerificationState {
   /** Whether verification is pending */
@@ -45,7 +46,7 @@ function getVerificationStatePath(directory: string, sessionId?: string): string
   if (sessionId) {
     return resolveSessionStatePath('ralph-verification', sessionId, directory);
   }
-  return join(directory, '.omc', 'ralph-verification.json');
+  return join(getOmcRoot(directory), 'ralph-verification.json');
 }
 
 /**
@@ -73,7 +74,7 @@ export function writeVerificationState(directory: string, state: VerificationSta
   if (sessionId) {
     ensureSessionStateDir(sessionId, directory);
   } else {
-    const stateDir = join(directory, '.omc');
+    const stateDir = getOmcRoot(directory);
     if (!existsSync(stateDir)) {
       try {
         mkdirSync(stateDir, { recursive: true });
@@ -167,8 +168,19 @@ export function recordArchitectFeedback(
 
 /**
  * Generate architect verification prompt
+ * When a currentStory is provided, includes its specific acceptance criteria for targeted verification.
  */
-export function getArchitectVerificationPrompt(state: VerificationState): string {
+export function getArchitectVerificationPrompt(state: VerificationState, currentStory?: UserStory): string {
+  const storySection = currentStory ? `
+**Current Story: ${currentStory.id} - ${currentStory.title}**
+${currentStory.description}
+
+**Acceptance Criteria to Verify:**
+${currentStory.acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+IMPORTANT: Verify EACH acceptance criterion above is met. Do not verify based on general impressions — check each criterion individually with concrete evidence.
+` : '';
+
   return `<ralph-verification>
 
 [ARCHITECT VERIFICATION REQUIRED - Attempt ${state.verification_attempts + 1}/${state.max_verification_attempts}]
@@ -182,7 +194,7 @@ ${state.original_task}
 ${state.completion_claim}
 
 ${state.architect_feedback ? `**Previous Architect Feedback (rejected):**\n${state.architect_feedback}\n` : ''}
-
+${storySection}
 ## MANDATORY VERIFICATION STEPS
 
 1. **Spawn Architect Agent** for verification:
@@ -190,9 +202,11 @@ ${state.architect_feedback ? `**Previous Architect Feedback (rejected):**\n${sta
    Task(subagent_type="architect", prompt="Verify this task completion claim...")
    \`\`\`
 
-2. **Architect must check:**
+2. **Architect must check:**${currentStory ? `
+   - Verify EACH acceptance criterion listed above is met with fresh evidence
+   - Run the relevant tests/builds to confirm criteria pass` : `
    - Are ALL requirements from the original task met?
-   - Is the implementation complete, not partial?
+   - Is the implementation complete, not partial?`}
    - Are there any obvious bugs or issues?
    - Does the code compile/run without errors?
    - Are tests passing (if applicable)?

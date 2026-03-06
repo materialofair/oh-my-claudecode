@@ -10,7 +10,7 @@ export type VerbosityLevel = "verbose" | "agent" | "session" | "minimal";
 /** Events that can trigger notifications */
 export type NotificationEvent = "session-start" | "session-stop" | "session-end" | "session-idle" | "ask-user-question" | "agent-call";
 /** Supported notification platforms */
-export type NotificationPlatform = "discord" | "discord-bot" | "telegram" | "slack" | "webhook";
+export type NotificationPlatform = "discord" | "discord-bot" | "telegram" | "slack" | "slack-bot" | "webhook";
 /** Discord webhook configuration */
 export interface DiscordNotificationConfig {
     enabled: boolean;
@@ -52,6 +52,20 @@ export interface SlackNotificationConfig {
     username?: string;
     /** Optional mention to prepend to messages (e.g. "<@U12345678>" for user, "<!subteam^S12345>" for group, "<!channel>" / "<!here>" / "<!everyone>") */
     mention?: string;
+    /** Slack signing secret for verifying incoming WebSocket/Events API messages */
+    signingSecret?: string;
+}
+/** Slack Bot API configuration (Socket Mode for inbound, Web API for outbound) */
+export interface SlackBotNotificationConfig {
+    enabled: boolean;
+    /** Slack app-level token for Socket Mode (xapp-...) */
+    appToken?: string;
+    /** Slack bot token for Web API (xoxb-...) */
+    botToken?: string;
+    /** Channel ID for sending messages and listening */
+    channelId?: string;
+    /** Optional mention to prepend to messages */
+    mention?: string;
 }
 /** Generic webhook configuration */
 export interface WebhookNotificationConfig {
@@ -64,7 +78,7 @@ export interface WebhookNotificationConfig {
     method?: "POST" | "PUT";
 }
 /** Platform config union */
-export type PlatformConfig = DiscordNotificationConfig | DiscordBotNotificationConfig | TelegramNotificationConfig | SlackNotificationConfig | WebhookNotificationConfig;
+export type PlatformConfig = DiscordNotificationConfig | DiscordBotNotificationConfig | TelegramNotificationConfig | SlackNotificationConfig | SlackBotNotificationConfig | WebhookNotificationConfig;
 /** Per-event notification configuration */
 export interface EventNotificationConfig {
     /** Whether this event triggers notifications */
@@ -74,6 +88,7 @@ export interface EventNotificationConfig {
     "discord-bot"?: DiscordBotNotificationConfig;
     telegram?: TelegramNotificationConfig;
     slack?: SlackNotificationConfig;
+    "slack-bot"?: SlackBotNotificationConfig;
     webhook?: WebhookNotificationConfig;
 }
 /** Top-level notification configuration (stored in .omc-config.json) */
@@ -87,6 +102,7 @@ export interface NotificationConfig {
     "discord-bot"?: DiscordBotNotificationConfig;
     telegram?: TelegramNotificationConfig;
     slack?: SlackNotificationConfig;
+    "slack-bot"?: SlackBotNotificationConfig;
     webhook?: WebhookNotificationConfig;
     /** Per-event configuration */
     events?: {
@@ -144,6 +160,12 @@ export interface NotificationPayload {
     agentType?: string;
     /** Captured tmux pane content (last N lines) */
     tmuxTail?: string;
+    /** Reply channel name (from OPENCLAW_REPLY_CHANNEL env var) */
+    replyChannel?: string;
+    /** Reply target (from OPENCLAW_REPLY_TARGET env var) */
+    replyTarget?: string;
+    /** Reply thread ID (from OPENCLAW_REPLY_THREAD env var) */
+    replyThread?: string;
 }
 /** Named notification profiles (keyed by profile name) */
 export type NotificationProfilesConfig = Record<string, NotificationConfig>;
@@ -174,5 +196,56 @@ export interface ReplyConfig {
     includePrefix: boolean;
     /** Authorized Discord user IDs (REQUIRED for Discord, empty = Discord disabled) */
     authorizedDiscordUserIds: string[];
+}
+/** Type of custom integration */
+export type CustomIntegrationType = 'webhook' | 'cli';
+/** Configuration for webhook-based custom integrations */
+export interface WebhookIntegrationConfig {
+    /** Webhook URL (must be HTTPS for production) */
+    url: string;
+    /** HTTP method */
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    /** HTTP headers to include */
+    headers: Record<string, string>;
+    /** Body template with {{variable}} interpolation */
+    bodyTemplate: string;
+    /** Timeout in milliseconds (1000-60000) */
+    timeout: number;
+}
+/** Configuration for CLI-based custom integrations */
+export interface CliIntegrationConfig {
+    /** Command to execute (single executable, no spaces) */
+    command: string;
+    /** Arguments array (supports {{variable}} interpolation) */
+    args: string[];
+    /** Timeout in milliseconds (1000-60000) */
+    timeout: number;
+}
+/** Custom integration definition */
+export interface CustomIntegration {
+    /** Unique identifier for this integration (alphanumeric with hyphens/underscores) */
+    id: string;
+    /** Integration type: webhook or cli */
+    type: CustomIntegrationType;
+    /** Preset name if created from a preset (openclaw, n8n, etc.) */
+    preset?: string;
+    /** Whether this integration is enabled */
+    enabled: boolean;
+    /** Type-specific configuration */
+    config: WebhookIntegrationConfig | CliIntegrationConfig;
+    /** Events that trigger this integration */
+    events: NotificationEvent[];
+}
+/** Custom integrations configuration section */
+export interface CustomIntegrationsConfig {
+    /** Global enable/disable for all custom integrations */
+    enabled: boolean;
+    /** List of custom integrations */
+    integrations: CustomIntegration[];
+}
+/** Extended notification config including custom integrations */
+export interface ExtendedNotificationConfig extends NotificationConfig {
+    /** Custom webhook/CLI integrations (new in notification refactor) */
+    customIntegrations?: CustomIntegrationsConfig;
 }
 //# sourceMappingURL=types.d.ts.map

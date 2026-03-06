@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { VERSION, CLAUDE_CONFIG_DIR, AGENTS_DIR, COMMANDS_DIR, SKILLS_DIR, HOOKS_DIR, isRunningAsPlugin, isProjectScopedPlugin, } from '../installer/index.js';
+import { getRuntimePackageVersion } from '../lib/version.js';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { readdirSync, readFileSync, existsSync } from 'fs';
@@ -240,6 +241,9 @@ describe('Installer Constants', () => {
             const __dirname = dirname(fileURLToPath(import.meta.url));
             const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf-8'));
             expect(VERSION).toBe(pkg.version);
+        });
+        it('should stay in sync with runtime package version helper', () => {
+            expect(VERSION).toBe(getRuntimePackageVersion());
         });
     });
     describe('File Paths', () => {

@@ -79,6 +79,43 @@ export function validateMention(raw) {
     return undefined;
 }
 /**
+ * Validate Slack channel name or ID format.
+ * Accepts:
+ *   - Channel ID: C or G followed by 8-11 uppercase alphanumeric chars (e.g. "C1234567890")
+ *   - Channel name: optional # prefix, lowercase letters/numbers/hyphens/underscores (max 80 chars)
+ * Rejects control characters, shell metacharacters, and path traversal sequences.
+ * Returns the channel string if valid, undefined otherwise.
+ */
+export function validateSlackChannel(raw) {
+    const channel = normalizeOptional(raw);
+    if (!channel)
+        return undefined;
+    // Channel ID: C or G followed by alphanumeric (e.g., C1234567890)
+    if (/^[CG][A-Z0-9]{8,11}$/.test(channel))
+        return channel;
+    // Channel name: optional # prefix, lowercase letters, numbers, hyphens, underscores (max 80 chars)
+    if (/^#?[a-z0-9][a-z0-9_-]{0,79}$/.test(channel))
+        return channel;
+    return undefined;
+}
+/**
+ * Validate Slack username format.
+ * Accepts alphanumeric characters, spaces, hyphens, underscores, periods, apostrophes (max 80 chars).
+ * Rejects control characters, shell metacharacters, and path traversal sequences.
+ * Returns the username string if valid, undefined otherwise.
+ */
+export function validateSlackUsername(raw) {
+    const username = normalizeOptional(raw);
+    if (!username)
+        return undefined;
+    if (username.length > 80)
+        return undefined;
+    // Allow reasonable display names: letters, digits, spaces, hyphens, underscores, periods, apostrophes
+    if (/^[a-zA-Z0-9][a-zA-Z0-9 _.'"-]{0,79}$/.test(username))
+        return username;
+    return undefined;
+}
+/**
  * Validate Slack mention format.
  * Accepts: <@UXXXXXXXX> (user), <!channel>, <!here>, <!everyone>, <!subteam^SXXXXXXXXX> (user group).
  * Returns the mention string if valid, undefined otherwise.
@@ -156,12 +193,25 @@ export function buildConfigFromEnv() {
         };
         hasAnyPlatform = true;
     }
-    // Slack
+    // Slack Webhook
     const slackWebhook = process.env.OMC_SLACK_WEBHOOK_URL;
     if (slackWebhook) {
         config.slack = {
             enabled: true,
             webhookUrl: slackWebhook,
+            mention: validateSlackMention(process.env.OMC_SLACK_MENTION),
+        };
+        hasAnyPlatform = true;
+    }
+    // Slack Bot (app token + bot token + channel)
+    const slackBotToken = process.env.OMC_SLACK_BOT_TOKEN;
+    const slackBotChannel = process.env.OMC_SLACK_BOT_CHANNEL;
+    if (slackBotToken && slackBotChannel) {
+        config["slack-bot"] = {
+            enabled: true,
+            appToken: process.env.OMC_SLACK_APP_TOKEN,
+            botToken: slackBotToken,
+            channelId: slackBotChannel,
             mention: validateSlackMention(process.env.OMC_SLACK_MENTION),
         };
         hasAnyPlatform = true;
@@ -243,6 +293,27 @@ function mergeEnvIntoFileConfig(fileConfig, envConfig) {
             mention: validateSlackMention(merged.slack.mention),
         };
     }
+    // Merge slack-bot
+    if (!merged["slack-bot"] && envConfig["slack-bot"]) {
+        merged["slack-bot"] = envConfig["slack-bot"];
+    }
+    else if (merged["slack-bot"] && envConfig["slack-bot"]) {
+        merged["slack-bot"] = {
+            ...merged["slack-bot"],
+            appToken: merged["slack-bot"].appToken || envConfig["slack-bot"].appToken,
+            botToken: merged["slack-bot"].botToken || envConfig["slack-bot"].botToken,
+            channelId: merged["slack-bot"].channelId || envConfig["slack-bot"].channelId,
+            mention: merged["slack-bot"].mention !== undefined
+                ? validateSlackMention(merged["slack-bot"].mention)
+                : envConfig["slack-bot"].mention,
+        };
+    }
+    else if (merged["slack-bot"]) {
+        merged["slack-bot"] = {
+            ...merged["slack-bot"],
+            mention: validateSlackMention(merged["slack-bot"].mention),
+        };
+    }
     return merged;
 }
 /**
@@ -284,6 +355,9 @@ function applyEnvMerge(config) {
     if (envSlackMention) {
         if (merged.slack && merged.slack.mention == null) {
             merged = { ...merged, slack: { ...merged.slack, mention: envSlackMention } };
+        }
+        if (merged["slack-bot"] && merged["slack-bot"].mention == null) {
+            merged = { ...merged, "slack-bot": { ...merged["slack-bot"], mention: envSlackMention } };
         }
     }
     return merged;
@@ -412,7 +486,7 @@ function isPlatformActivated(platform) {
         return process.env.OMC_TELEGRAM === "1";
     if (platform === "discord" || platform === "discord-bot")
         return process.env.OMC_DISCORD === "1";
-    if (platform === "slack")
+    if (platform === "slack" || platform === "slack-bot")
         return process.env.OMC_SLACK === "1";
     if (platform === "webhook")
         return process.env.OMC_WEBHOOK === "1";
@@ -434,6 +508,7 @@ export function isEventEnabled(config, event) {
             (isPlatformActivated("discord-bot") && config["discord-bot"]?.enabled) ||
             (isPlatformActivated("telegram") && config.telegram?.enabled) ||
             (isPlatformActivated("slack") && config.slack?.enabled) ||
+            (isPlatformActivated("slack-bot") && config["slack-bot"]?.enabled) ||
             (isPlatformActivated("webhook") && config.webhook?.enabled));
     }
     // Check event-specific platform overrides
@@ -441,6 +516,7 @@ export function isEventEnabled(config, event) {
         (isPlatformActivated("discord-bot") && eventConfig["discord-bot"]?.enabled) ||
         (isPlatformActivated("telegram") && eventConfig.telegram?.enabled) ||
         (isPlatformActivated("slack") && eventConfig.slack?.enabled) ||
+        (isPlatformActivated("slack-bot") && eventConfig["slack-bot"]?.enabled) ||
         (isPlatformActivated("webhook") && eventConfig.webhook?.enabled)) {
         return true;
     }
@@ -449,6 +525,7 @@ export function isEventEnabled(config, event) {
         (isPlatformActivated("discord-bot") && config["discord-bot"]?.enabled) ||
         (isPlatformActivated("telegram") && config.telegram?.enabled) ||
         (isPlatformActivated("slack") && config.slack?.enabled) ||
+        (isPlatformActivated("slack-bot") && config["slack-bot"]?.enabled) ||
         (isPlatformActivated("webhook") && config.webhook?.enabled));
 }
 /**
@@ -487,6 +564,7 @@ export function getEnabledPlatforms(config, event) {
     checkPlatform("discord-bot");
     checkPlatform("telegram");
     checkPlatform("slack");
+    checkPlatform("slack-bot");
     checkPlatform("webhook");
     return platforms;
 }
@@ -534,12 +612,16 @@ export function getReplyListenerPlatformConfig(config) {
         return {};
     const telegramConfig = getEnabledReplyPlatformConfig(config, "telegram");
     const discordBotConfig = getEnabledReplyPlatformConfig(config, "discord-bot");
+    const slackBotConfig = getEnabledReplyPlatformConfig(config, "slack-bot");
     return {
         telegramBotToken: telegramConfig?.botToken || config.telegram?.botToken,
         telegramChatId: telegramConfig?.chatId || config.telegram?.chatId,
         discordBotToken: discordBotConfig?.botToken || config["discord-bot"]?.botToken,
         discordChannelId: discordBotConfig?.channelId || config["discord-bot"]?.channelId,
         discordMention: discordBotConfig?.mention || config["discord-bot"]?.mention,
+        slackAppToken: slackBotConfig?.appToken || config["slack-bot"]?.appToken,
+        slackBotToken: slackBotConfig?.botToken || config["slack-bot"]?.botToken,
+        slackChannelId: slackBotConfig?.channelId || config["slack-bot"]?.channelId,
     };
 }
 /**
@@ -587,11 +669,12 @@ export function getReplyConfig() {
     const notifConfig = getNotificationConfig();
     if (!notifConfig?.enabled)
         return null;
-    // Check if any reply-capable platform (discord-bot or telegram) is enabled.
+    // Check if any reply-capable platform (discord-bot, telegram, or slack-bot) is enabled.
     // Supports event-level platform config (not just top-level defaults).
     const hasDiscordBot = !!getEnabledReplyPlatformConfig(notifConfig, "discord-bot");
     const hasTelegram = !!getEnabledReplyPlatformConfig(notifConfig, "telegram");
-    if (!hasDiscordBot && !hasTelegram)
+    const hasSlackBot = !!getEnabledReplyPlatformConfig(notifConfig, "slack-bot");
+    if (!hasDiscordBot && !hasTelegram && !hasSlackBot)
         return null;
     // Read reply-specific config
     const raw = readRawConfig();
@@ -613,5 +696,119 @@ export function getReplyConfig() {
         includePrefix: process.env.OMC_REPLY_INCLUDE_PREFIX !== "false" && (replyRaw?.includePrefix !== false),
         authorizedDiscordUserIds,
     };
+}
+import { validateCustomIntegration, checkDuplicateIds } from "./validation.js";
+const LEGACY_OPENCLAW_CONFIG = join(getClaudeConfigDir(), "omc_config.openclaw.json");
+/**
+ * Detect if legacy OpenClaw configuration exists.
+ */
+export function detectLegacyOpenClawConfig() {
+    return existsSync(LEGACY_OPENCLAW_CONFIG);
+}
+/**
+ * Read and migrate legacy OpenClaw config to new custom integration format.
+ */
+export function migrateLegacyOpenClawConfig() {
+    if (!existsSync(LEGACY_OPENCLAW_CONFIG))
+        return null;
+    try {
+        const legacy = JSON.parse(readFileSync(LEGACY_OPENCLAW_CONFIG, "utf-8"));
+        // Get first gateway (legacy format supported multiple, we take the first)
+        const gateways = legacy.gateways;
+        if (!gateways || Object.keys(gateways).length === 0)
+            return null;
+        const gateway = Object.values(gateways)[0];
+        const gatewayName = Object.keys(gateways)[0];
+        // Get enabled hooks as events
+        const hooks = legacy.hooks;
+        const events = [];
+        if (hooks) {
+            for (const [hookName, hookConfig] of Object.entries(hooks)) {
+                if (hookConfig?.enabled) {
+                    // Normalize hook name to event name
+                    const eventName = hookName.replace(/([A-Z])/g, '-$1').toLowerCase();
+                    events.push(eventName);
+                }
+            }
+        }
+        const integration = {
+            id: `migrated-${gatewayName}`,
+            type: "webhook",
+            preset: "openclaw",
+            enabled: legacy.enabled !== false,
+            config: {
+                url: gateway.url || "",
+                method: gateway.method || "POST",
+                headers: gateway.headers || { "Content-Type": "application/json" },
+                bodyTemplate: JSON.stringify({
+                    event: "{{event}}",
+                    instruction: "Session {{sessionId}} {{event}}",
+                    timestamp: "{{timestamp}}",
+                    context: {
+                        projectPath: "{{projectPath}}",
+                        projectName: "{{projectName}}",
+                        sessionId: "{{sessionId}}"
+                    }
+                }, null, 2),
+                timeout: gateway.timeout || 10000,
+            },
+            events: events,
+        };
+        return integration;
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * Read custom integrations configuration from .omc-config.json.
+ */
+export function getCustomIntegrationsConfig() {
+    const raw = readRawConfig();
+    if (!raw)
+        return null;
+    const customIntegrations = raw.customIntegrations;
+    if (!customIntegrations)
+        return null;
+    // Validate and filter out invalid integrations
+    const validIntegrations = [];
+    for (const integration of customIntegrations.integrations || []) {
+        const result = validateCustomIntegration(integration);
+        if (result.valid) {
+            validIntegrations.push(integration);
+        }
+        else {
+            console.warn(`[notifications] Invalid custom integration "${integration.id}": ${result.errors.join(", ")}`);
+        }
+    }
+    // Check for duplicate IDs
+    const duplicates = checkDuplicateIds(validIntegrations);
+    if (duplicates.length > 0) {
+        console.warn(`[notifications] Duplicate custom integration IDs found: ${duplicates.join(", ")}`);
+    }
+    return {
+        enabled: customIntegrations.enabled !== false,
+        integrations: validIntegrations,
+    };
+}
+/**
+ * Get all custom integrations enabled for a specific event.
+ */
+export function getCustomIntegrationsForEvent(event) {
+    const config = getCustomIntegrationsConfig();
+    if (!config?.enabled)
+        return [];
+    return config.integrations.filter((i) => i.enabled && i.events.includes(event));
+}
+/**
+ * Check if custom integrations are enabled (globally or for a specific event).
+ */
+export function hasCustomIntegrationsEnabled(event) {
+    const config = getCustomIntegrationsConfig();
+    if (!config?.enabled)
+        return false;
+    if (!event)
+        return config.integrations.some((i) => i.enabled);
+    return config.integrations.some((i) => i.enabled && i.events.includes(event));
 }
 //# sourceMappingURL=config.js.map

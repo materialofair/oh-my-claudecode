@@ -8,11 +8,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
 
+> **Codex 사용자분들께:** [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex)를 확인해보세요 — OpenAI Codex CLI를 위한 동일한 오케스트레이션 경험을 제공합니다.
+
 **Claude Code를 위한 멀티 에이전트 오케스트레이션. 학습 곡선 제로.**
 
 *Claude Code를 배우지 마세요. 그냥 OMC를 쓰세요.*
 
-[시작하기](#빠른-시작) • [문서](https://yeachan-heo.github.io/oh-my-claudecode-website) • [마이그레이션 가이드](docs/MIGRATION.md)
+[시작하기](#빠른-시작) • [문서](https://yeachan-heo.github.io/oh-my-claudecode-website) • [CLI 레퍼런스](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference) • [워크플로우](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows) • [마이그레이션 가이드](docs/MIGRATION.md)
 
 ---
 
@@ -36,9 +38,19 @@ autopilot: build a REST API for managing tasks
 
 끝입니다. 나머지는 모두 자동입니다.
 
+### 어디서 시작해야 할지 모르겠다면?
+
+요구사항이 불확실하거나, 막연한 아이디어만 있거나, 설계를 세밀하게 관리하고 싶다면:
+
+```
+/deep-interview "I want to build a task management app"
+```
+
+딥 인터뷰는 소크라테스식 질문법을 사용하여 코드를 작성하기 전에 사고를 명확하게 합니다. 숨겨진 가정을 드러내고 가중치 기반 차원으로 명확성을 측정하여, 실행 시작 전에 무엇을 만들어야 하는지 정확히 알 수 있게 합니다.
+
 ## Team Mode (권장)
 
-**v4.1.7**부터 **Team**이 OMC의 표준 오케스트레이션 방식입니다. **swarm** 및 **ultrapilot** 같은 레거시 엔트리포인트는 계속 지원되지만, 이제 **내부적으로 Team으로 라우팅**됩니다.
+**v4.1.7**부터 **Team**이 OMC의 표준 오케스트레이션 방식입니다. 레거시 `swarm` 키워드/스킬은 제거되었으니 `team`을 직접 사용하세요.
 
 ```bash
 /team 3:executor "fix all TypeScript errors"
@@ -62,13 +74,17 @@ Team은 단계별 파이프라인으로 실행됩니다:
 
 ### tmux CLI 워커 — Codex & Gemini (v4.4.0+)
 
-**v4.4.0에서 Codex/Gemini MCP 서버**(`x`, `g` 프로바이더)가 **제거됩니다**. `/omc-teams`를 사용하여 tmux 분할 창에서 실제 CLI 프로세스를 실행하세요:
+**v4.4.0에서 Codex/Gemini MCP 서버**(`x`, `g` 프로바이더)가 **제거됩니다**. CLI 우선 Team 런타임(`omc team ...`)으로 tmux 분할 창에서 실제 CLI 프로세스를 실행하세요:
 
 ```bash
-/omc-teams 2:codex   "review auth module for security issues"
-/omc-teams 2:gemini  "redesign UI components for accessibility"
-/omc-teams 1:claude  "implement the payment flow"
+omc team 2:codex "review auth module for security issues"
+omc team 2:gemini "redesign UI components for accessibility"
+omc team 1:claude "implement the payment flow"
+omc team status auth-review
+omc team shutdown auth-review
 ```
+
+`/omc-teams`는 레거시 호환 스킬로 유지되며, 현재는 내부적으로 `omc team ...`으로 라우팅됩니다.
 
 하나의 명령으로 Codex + Gemini 작업을 처리하려면 **`/ccg`** 스킬을 사용하세요:
 
@@ -76,16 +92,16 @@ Team은 단계별 파이프라인으로 실행됩니다:
 /ccg Review this PR — architecture (Codex) and UI components (Gemini)
 ```
 
-| 스킬 | 워커 | 최적 용도 |
+| 실행 표면 | 워커 | 최적 용도 |
 |-------|---------|----------|
-| `/omc-teams N:codex` | N개 Codex CLI 창 | 코드 리뷰, 보안 분석, 아키텍처 |
-| `/omc-teams N:gemini` | N개 Gemini CLI 창 | UI/UX 디자인, 문서, 대용량 컨텍스트 |
-| `/omc-teams N:claude` | N개 Claude CLI 창 | tmux에서 Claude CLI를 통한 일반 작업 |
-| `/ccg` | Codex 1개 + Gemini 1개 | 병렬 트라이-모델 오케스트레이션 |
+| `omc team N:codex "..."` | N개 Codex CLI 창 | 코드 리뷰, 보안 분석, 아키텍처 |
+| `omc team N:gemini "..."` | N개 Gemini CLI 창 | UI/UX 디자인, 문서, 대용량 컨텍스트 |
+| `omc team N:claude "..."` | N개 Claude CLI 창 | tmux에서 Claude CLI를 통한 일반 작업 |
+| `/ccg` | ask-codex + ask-gemini | Codex+Gemini 조언을 Claude가 통합 |
 
 워커는 요청 시 생성되고 작업 완료 후 종료됩니다 — 유휴 리소스 낭비 없음. `codex` / `gemini` CLI가 설치되어 있고 활성 tmux 세션이 필요합니다.
 
-> **참고: 패키지 이름** — 프로젝트 브랜드명은 **oh-my-claudecode** (저장소, 플러그인, 명령어)이지만, npm 패키지는 [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc)로 배포됩니다. npm/bun으로 CLI 도구를 설치할 때는 `npm install -g claudecode-omc`를 사용하세요.
+> **참고: 패키지 이름** — 프로젝트 브랜드명은 **oh-my-claudecode** (저장소, 플러그인, 명령어)이지만, npm 패키지는 [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus)로 배포됩니다. npm/bun으로 CLI 도구를 설치할 때는 `npm install -g oh-my-claude-sisyphus`를 사용하세요.
 
 ### 업데이트
 
@@ -117,6 +133,7 @@ omc doctor
 ## 왜 oh-my-claudecode인가?
 
 - **설정 불필요** - 똑똑한 기본값으로 바로 작동합니다
+- **Team 우선 오케스트레이션** - Team은 표준 멀티 에이전트 인터페이스입니다 (swarm/ultrapilot은 호환성 파사드)
 - **자연어 인터페이스** - 외울 명령어 없이, 원하는 것만 설명하세요
 - **자동 병렬화** - 복잡한 작업을 전문 에이전트들에게 분산합니다
 - **지속적 실행** - 작업이 완전히 검증될 때까지 포기하지 않습니다
@@ -134,7 +151,7 @@ omc doctor
 | 모드 | 특징 | 용도 |
 |------|---------|---------|
 | **Team (권장)** | 단계별 파이프라인 | 공유 작업 목록에서 협력하는 Claude 에이전트 |
-| **omc-teams** | tmux CLI 워커 | Codex/Gemini CLI 작업; 요청 시 실행, 완료 후 종료 |
+| **omc team (CLI)** | tmux CLI 워커 | Codex/Gemini CLI 작업; 요청 시 실행, 완료 후 종료 |
 | **ccg** | 트라이-모델 병렬 | Codex(분석) + Gemini(디자인), Claude가 통합 |
 | **Autopilot** | 자율 실행 | 최소한의 설정으로 end-to-end 기능 개발 |
 | **Ultrawork** | 최대 병렬 | Team이 필요 없는 병렬 수정/리팩토링 |
@@ -150,7 +167,7 @@ omc doctor
 
 ### 개발자 경험
 
-- **매직 키워드** - 명시적 제어를 위한 `ralph`, `ulw`, `plan`
+- **매직 키워드** - 명시적 제어를 위한 `ralph`, `ulw`, `team`
 - **HUD 상태바** - 상태바에서 실시간 오케스트레이션 메트릭 확인
 - **스킬 학습** - 세션에서 재사용 가능한 패턴 추출
 - **분석 및 비용 추적** - 모든 세션의 토큰 사용량 이해
@@ -166,17 +183,21 @@ omc doctor
 | 키워드 | 효과 | 예시 |
 |---------|--------|---------|
 | `team` | 표준 Team 오케스트레이션 | `/team 3:executor "fix all TypeScript errors"` |
-| `omc-teams` | tmux CLI 워커 (codex/gemini/claude) | `/omc-teams 2:codex "security review"` |
+| `omc team` | tmux CLI 워커 (codex/gemini/claude) | `omc team 2:codex "security review"` |
 | `ccg` | 트라이-모델 Codex+Gemini 오케스트레이션 | `/ccg review this PR` |
 | `autopilot` | 완전 자율 실행 | `autopilot: build a todo app` |
 | `ralph` | 지속 모드 | `ralph: refactor auth` |
 | `ulw` | 최대 병렬화 | `ulw fix all errors` |
 | `plan` | 계획 인터뷰 | `plan the API` |
 | `ralplan` | 반복적 계획 합의 | `ralplan this feature` |
-| `swarm` | 레거시 키워드 (Team으로 라우팅) | `swarm 5 agents: fix lint errors` |
-| `ultrapilot` | 레거시 키워드 (Team으로 라우팅) | `ultrapilot: build a fullstack app` |
+| `deep-interview` | 소크라테스식 요구사항 명확화 | `deep-interview "vague idea"` |
+| `swarm` | **지원 종료** — `team`을 사용하세요 | `swarm 5 agents: fix lint errors` |
+| `ultrapilot` | **지원 종료** — `team`을 사용하세요 | `ultrapilot: build a fullstack app` |
 
-**ralph는 ultrawork를 포함합니다:** ralph 모드를 활성화하면 자동으로 ultrawork의 병렬 실행이 포함됩니다. 키워드를 결합할 필요가 없습니다.
+**참고:**
+- **ralph는 ultrawork를 포함합니다:** ralph 모드를 활성화하면 자동으로 ultrawork의 병렬 실행이 포함됩니다. 키워드를 결합할 필요가 없습니다.
+- `/omc-teams`는 레거시 호환 경로로 남아 있으며 내부적으로 `omc team ...`으로 라우팅됩니다.
+- `swarm N agents` 구문은 에이전트 수 추출을 위해 여전히 인식되지만, v4.1.7+에서 런타임은 Team 기반입니다.
 
 ---
 
@@ -218,47 +239,17 @@ omc config-stop-callback discord --clear-tags
 
 ---
 
-## 알림 (Notifications)
-
-세션 라이프사이클 이벤트에 대해 실시간 알림을 받을 수 있습니다.
-
-지원 이벤트:
-- `session-start`
-- `session-stop` (persistent 모드가 대기/블록 상태로 들어갈 때)
-- `session-end`
-- `ask-user-question`
-
-### 설정
-쉘 프로필(예: `~/.zshrc`, `~/.bashrc`)에 환경 변수를 추가하세요:
-
-```bash
-# Discord Bot
-export OMC_DISCORD_NOTIFIER_BOT_TOKEN="your_bot_token"
-export OMC_DISCORD_NOTIFIER_CHANNEL="your_channel_id"
-
-# Telegram
-export OMC_TELEGRAM_BOT_TOKEN="your_bot_token"
-export OMC_TELEGRAM_CHAT_ID="your_chat_id"
-
-# Slack
-export OMC_SLACK_WEBHOOK_URL="your_webhook_url"
-export OMC_SLACK_MENTION="<@U1234567890>"  # optional
-
-# Optional webhooks
-export OMC_DISCORD_WEBHOOK_URL="your_webhook_url"
-```
-
-> 참고: `claude`를 실행하는 동일한 쉘에서 환경 변수가 로드되어 있어야 합니다.
-
----
-
 ## 문서
 
 - **[전체 레퍼런스](docs/REFERENCE.md)** - 완전한 기능 문서
-- **[성능 모니터링](docs/PERFORMANCE-MONITORING.md)** - 에이전트 추적, 디버깅 및 최적화
+- **[CLI 레퍼런스](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference)** - 모든 `omc` 명령어, 플래그 및 도구
+- **[알림 가이드](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#notifications)** - Discord, Telegram, Slack 및 webhook 설정
+- **[추천 워크플로우](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows)** - 일반 작업을 위한 검증된 스킬 체인
+- **[릴리스 노트](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#release-notes)** - 각 버전의 새로운 기능
 - **[웹사이트](https://yeachan-heo.github.io/oh-my-claudecode-website)** - 인터랙티브 가이드와 예제
 - **[마이그레이션 가이드](docs/MIGRATION.md)** - v2.x에서 업그레이드
 - **[아키텍처](docs/ARCHITECTURE.md)** - 내부 작동 원리
+- **[성능 모니터링](docs/PERFORMANCE-MONITORING.md)** - 에이전트 추적, 디버깅 및 최적화
 
 ---
 
@@ -288,7 +279,7 @@ MIT
 
 <div align="center">
 
-**영감을 받은 프로젝트:** [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) • [claude-hud](https://github.com/ryanjoachim/claude-hud) • [Superpowers](https://github.com/NexTechFusion/Superpowers) • [everything-claude-code](https://github.com/affaan-m/everything-claude-code)
+**영감을 받은 프로젝트:** [oh-my-opencode](https://github.com/code-yeongyu/oh-my-opencode) • [claude-hud](https://github.com/ryanjoachim/claude-hud) • [Superpowers](https://github.com/obra/superpowers) • [everything-claude-code](https://github.com/affaan-m/everything-claude-code) • [Ouroboros](https://github.com/Q00/ouroboros)
 
 **학습 곡선 제로. 최대 파워.**
 

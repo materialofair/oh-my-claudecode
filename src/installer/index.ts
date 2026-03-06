@@ -267,21 +267,20 @@ export function isProjectScopedPlugin(): boolean {
  * fall back to __dirname which is natively available in CJS.
  */
 function getPackageDir(): string {
-  try {
-    if (import.meta?.url) {
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = dirname(__filename);
-      // From dist/installer/index.js, go up to package root
-      return join(__dirname, '..', '..');
-    }
-  } catch {
-    // import.meta.url unavailable — fall through to CJS path
-  }
-  // CJS bundle path: from bridge/ go up 1 level to package root
+  // CJS bundle path (bridge/cli.cjs): from bridge/ go up 1 level to package root
   if (typeof __dirname !== 'undefined') {
     return join(__dirname, '..');
   }
-  return process.cwd();
+  // ESM path (works in dev via ts/dist)
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    // From dist/installer/index.js, go up to package root
+    return join(__dirname, '..', '..');
+  } catch {
+    // import.meta.url unavailable — last resort
+    return process.cwd();
+  }
 }
 
 /**
@@ -795,15 +794,20 @@ export function install(options: InstallOptions = {}): InstallResult {
         '    try {',
         '      const versions = readdirSync(pluginCacheBase);',
         '      if (versions.length > 0) {',
+        '        const sortedVersions = versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).reverse();',
+        '        const latestInstalledVersion = sortedVersions[0];',
+        '        pluginCacheVersion = latestInstalledVersion;',
+        '        pluginCacheDir = join(pluginCacheBase, latestInstalledVersion);',
+        '        ',
         '        // Filter to only versions with built dist/hud/index.js',
         '        // This prevents picking an unbuilt new version after plugin update',
-        '        const builtVersions = versions.filter(version => {',
+        '        const builtVersions = sortedVersions.filter(version => {',
         '          const pluginPath = join(pluginCacheBase, version, "dist/hud/index.js");',
         '          return existsSync(pluginPath);',
         '        });',
         '        ',
         '        if (builtVersions.length > 0) {',
-        '          const latestVersion = builtVersions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).reverse()[0];',
+        '          const latestVersion = builtVersions[0];',
         '          pluginCacheVersion = latestVersion;',
         '          pluginCacheDir = join(pluginCacheBase, latestVersion);',
         '          const pluginPath = join(pluginCacheDir, "dist/hud/index.js");',
@@ -857,12 +861,12 @@ export function install(options: InstallOptions = {}): InstallResult {
         '  ',
         '  // 6. Fallback: provide detailed error message with fix instructions',
         '  if (pluginCacheDir && existsSync(pluginCacheDir)) {',
-        '    // Plugin exists but dist/ folder is missing - needs build',
+        '    // Plugin exists but HUD could not be loaded',
         '    const distDir = join(pluginCacheDir, "dist");',
         '    if (!existsSync(distDir)) {',
         '      console.log(`[OMC HUD] Plugin installed but not built. Run: cd "${pluginCacheDir}" && npm install && npm run build`);',
         '    } else {',
-        '      console.log(`[OMC HUD] Plugin dist/ exists but HUD not found. Run: cd "${pluginCacheDir}" && npm run build`);',
+        '      console.log(`[OMC HUD] Plugin HUD load failed. Run: cd "${pluginCacheDir}" && npm install && npm run build`);',
         '    }',
         '  } else if (existsSync(pluginCacheBase)) {',
         '    // Plugin cache directory exists but no versions',

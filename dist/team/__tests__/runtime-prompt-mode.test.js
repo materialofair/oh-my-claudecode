@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -6,8 +6,8 @@ import { tmpdir } from 'os';
  * Tests for Gemini prompt-mode (headless) spawn flow.
  *
  * Gemini CLI v0.29.7+ uses an Ink-based TUI that does not receive keystrokes
- * via tmux send-keys. The fix passes the initial instruction via the `-p` flag
- * (prompt mode) so the TUI is bypassed entirely. Trust-confirm and send-keys
+ * via tmux send-keys. The fix passes the initial instruction via the `-i` flag
+ * (interactive mode) so the TUI is bypassed entirely. Trust-confirm and send-keys
  * notification are skipped for prompt-mode agents.
  *
  * See: https://github.com/anthropics/claude-code/issues/1000
@@ -15,6 +15,7 @@ import { tmpdir } from 'os';
 // Track all tmux calls made during spawn
 const tmuxCalls = vi.hoisted(() => ({
     args: [],
+    capturePaneText: '❯ ready\n',
 }));
 vi.mock('child_process', async (importOriginal) => {
     const actual = await importOriginal();
@@ -25,7 +26,7 @@ vi.mock('child_process', async (importOriginal) => {
             cb(null, '%42\n', '');
         }
         else if (args[0] === 'capture-pane') {
-            cb(null, '', '');
+            cb(null, tmuxCalls.capturePaneText, '');
         }
         else if (args[0] === 'display-message') {
             // pane_dead check → "0" means alive; pane_in_mode → "0" means not in copy mode
@@ -43,7 +44,7 @@ vi.mock('child_process', async (importOriginal) => {
             return { stdout: '%42\n', stderr: '' };
         }
         if (args[0] === 'capture-pane') {
-            return { stdout: '', stderr: '' };
+            return { stdout: tmuxCalls.capturePaneText, stderr: '' };
         }
         if (args[0] === 'display-message') {
             return { stdout: '0', stderr: '' };
@@ -52,10 +53,14 @@ vi.mock('child_process', async (importOriginal) => {
     };
     return {
         ...actual,
-        spawnSync: vi.fn((_cmd, args) => {
-            if (args?.[0] === '--version')
-                return { status: 0 };
-            return { status: 1 };
+        spawnSync: vi.fn((cmd, args = []) => {
+            if (args[0] === '--version')
+                return { status: 0, stdout: '', stderr: '' };
+            if (cmd === 'which' || cmd === 'where') {
+                const bin = args[0] ?? 'unknown';
+                return { status: 0, stdout: `/usr/bin/${bin}\n`, stderr: '' };
+            }
+            return { status: 0, stdout: '', stderr: '' };
         }),
         execFile: mockExecFile,
     };
@@ -77,6 +82,9 @@ function makeRuntime(cwd, agentType) {
         workerPaneIds: [],
         activeWorkers: new Map(),
         cwd,
+        resolvedBinaryPaths: {
+            [agentType]: `/usr/local/bin/${agentType}`,
+        },
     };
 }
 function setupTaskDir(cwd) {
@@ -96,18 +104,20 @@ describe('spawnWorkerForTask – prompt mode (Gemini & Codex)', () => {
     let cwd;
     beforeEach(() => {
         tmuxCalls.args = [];
+        tmuxCalls.capturePaneText = '❯ ready\n';
+        delete process.env.OMC_SHELL_READY_TIMEOUT_MS;
         cwd = mkdtempSync(join(tmpdir(), 'runtime-gemini-prompt-'));
         setupTaskDir(cwd);
     });
-    it('gemini worker launch args include -p flag with inbox path', async () => {
+    it('gemini worker launch args include -i flag with inbox path', async () => {
         const runtime = makeRuntime(cwd, 'gemini');
         await spawnWorkerForTask(runtime, 'worker-1', 0);
         // Find the send-keys call that launches the worker (contains -l flag)
         const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
-        // Should contain -p flag for prompt mode
-        expect(launchCmd).toContain("'-p'");
+        // Should contain -i flag for interactive mode
+        expect(launchCmd).toContain("'-i'");
         // Should contain the inbox path reference
         expect(launchCmd).toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
         rmSync(cwd, { recursive: true, force: true });
@@ -141,8 +151,8 @@ describe('spawnWorkerForTask – prompt mode (Gemini & Codex)', () => {
         const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
-        // Should NOT contain -p flag (codex uses positional argument, not a flag)
-        expect(launchCmd).not.toContain("'-p'");
+        // Should NOT contain -i flag (codex uses positional argument, not a flag)
+        expect(launchCmd).not.toContain("'-i'");
         // Should contain the inbox path as a positional argument
         expect(launchCmd).toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
         rmSync(cwd, { recursive: true, force: true });
@@ -157,6 +167,149 @@ describe('spawnWorkerForTask – prompt mode (Gemini & Codex)', () => {
         // Only one send-keys call: the launch command itself
         expect(sendKeysCalls.length).toBe(1);
         rmSync(cwd, { recursive: true, force: true });
+    });
+    it('non-prompt worker waits for pane readiness before sending inbox instruction', async () => {
+        const runtime = makeRuntime(cwd, 'claude');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const captureCalls = tmuxCalls.args.filter(args => args[0] === 'capture-pane');
+        expect(captureCalls.length).toBeGreaterThan(0);
+        const readInstructionCalls = tmuxCalls.args.filter(args => args[0] === 'send-keys' && args.includes('-l') && (args[args.length - 1] ?? '').includes('Read and execute your task from:'));
+        expect(readInstructionCalls.length).toBe(1);
+        rmSync(cwd, { recursive: true, force: true });
+    });
+    it('non-prompt worker throws when pane never becomes ready and resets task to pending', async () => {
+        const runtime = makeRuntime(cwd, 'claude');
+        tmuxCalls.capturePaneText = 'still booting\n';
+        process.env.OMC_SHELL_READY_TIMEOUT_MS = '40';
+        await expect(spawnWorkerForTask(runtime, 'worker-1', 0)).rejects.toThrow('worker_pane_not_ready:worker-1');
+        const taskPath = join(cwd, '.omc/state/team/test-team/tasks/1.json');
+        const task = JSON.parse(readFileSync(taskPath, 'utf-8'));
+        expect(task.status).toBe('pending');
+        expect(task.owner).toBeNull();
+        rmSync(cwd, { recursive: true, force: true });
+    });
+    it('returns empty and skips spawn when task is already in_progress (claim already taken)', async () => {
+        const taskPath = join(cwd, '.omc/state/team/test-team/tasks/1.json');
+        writeFileSync(taskPath, JSON.stringify({
+            id: '1',
+            subject: 'Test task',
+            description: 'Do something',
+            status: 'in_progress',
+            owner: 'worker-2',
+        }), 'utf-8');
+        const runtime = makeRuntime(cwd, 'codex');
+        const paneId = await spawnWorkerForTask(runtime, 'worker-1', 0);
+        expect(paneId).toBe('');
+        expect(tmuxCalls.args.some(args => args[0] === 'split-window')).toBe(false);
+        expect(tmuxCalls.args.some(args => args[0] === 'send-keys')).toBe(false);
+        expect(runtime.activeWorkers.size).toBe(0);
+        const task = JSON.parse(readFileSync(taskPath, 'utf-8'));
+        expect(task.status).toBe('in_progress');
+        expect(task.owner).toBe('worker-2');
+    });
+});
+describe('spawnWorkerForTask – model passthrough from environment variables', () => {
+    let cwd;
+    const originalEnv = process.env;
+    beforeEach(() => {
+        tmuxCalls.args = [];
+        tmuxCalls.capturePaneText = '❯ ready\n';
+        delete process.env.OMC_SHELL_READY_TIMEOUT_MS;
+        // Clear model env vars before each test
+        delete process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL;
+        delete process.env.OMC_CODEX_DEFAULT_MODEL;
+        delete process.env.OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL;
+        delete process.env.OMC_GEMINI_DEFAULT_MODEL;
+        cwd = mkdtempSync(join(tmpdir(), 'runtime-model-passthrough-'));
+        setupTaskDir(cwd);
+    });
+    afterEach(() => {
+        process.env = originalEnv;
+        rmSync(cwd, { recursive: true, force: true });
+    });
+    it('codex worker passes model from OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL', async () => {
+        process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL = 'gpt-4o';
+        const runtime = makeRuntime(cwd, 'codex');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        // Should contain --model flag with the model value
+        expect(launchCmd).toContain("'--model'");
+        expect(launchCmd).toContain("'gpt-4o'");
+    });
+    it('codex worker falls back to OMC_CODEX_DEFAULT_MODEL', async () => {
+        process.env.OMC_CODEX_DEFAULT_MODEL = 'o3-mini';
+        const runtime = makeRuntime(cwd, 'codex');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        expect(launchCmd).toContain("'--model'");
+        expect(launchCmd).toContain("'o3-mini'");
+    });
+    it('codex worker prefers OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL over legacy fallback', async () => {
+        process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL = 'gpt-4o';
+        process.env.OMC_CODEX_DEFAULT_MODEL = 'o3-mini';
+        const runtime = makeRuntime(cwd, 'codex');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        expect(launchCmd).toContain("'--model'");
+        expect(launchCmd).toContain("'gpt-4o'");
+        expect(launchCmd).not.toContain("'o3-mini'");
+    });
+    it('gemini worker passes model from OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL', async () => {
+        process.env.OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
+        const runtime = makeRuntime(cwd, 'gemini');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        expect(launchCmd).toContain("'--model'");
+        expect(launchCmd).toContain("'gemini-2.0-flash'");
+    });
+    it('gemini worker falls back to OMC_GEMINI_DEFAULT_MODEL', async () => {
+        process.env.OMC_GEMINI_DEFAULT_MODEL = 'gemini-1.5-pro';
+        const runtime = makeRuntime(cwd, 'gemini');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        expect(launchCmd).toContain("'--model'");
+        expect(launchCmd).toContain("'gemini-1.5-pro'");
+    });
+    it('gemini worker prefers OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL over legacy fallback', async () => {
+        process.env.OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
+        process.env.OMC_GEMINI_DEFAULT_MODEL = 'gemini-1.5-pro';
+        const runtime = makeRuntime(cwd, 'gemini');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        expect(launchCmd).toContain("'--model'");
+        expect(launchCmd).toContain("'gemini-2.0-flash'");
+        expect(launchCmd).not.toContain("'gemini-1.5-pro'");
+    });
+    it('claude worker does not pass model flag (not supported)', async () => {
+        process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL = 'gpt-4o';
+        const runtime = makeRuntime(cwd, 'claude');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        // Claude worker should not have --model flag
+        expect(launchCmd).not.toContain("'--model'");
+    });
+    it('codex worker does not pass model flag when no env var is set', async () => {
+        const runtime = makeRuntime(cwd, 'codex');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        // Should not have --model flag when no env var is set
+        expect(launchCmd).not.toContain("'--model'");
     });
 });
 //# sourceMappingURL=runtime-prompt-mode.test.js.map

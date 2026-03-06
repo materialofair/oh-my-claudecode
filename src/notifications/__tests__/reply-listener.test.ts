@@ -320,6 +320,19 @@ describe("reply-listener", () => {
       expect(allowlist.includes('PATH')).toBe(true);
       expect(allowlist.includes('ANTHROPIC_API_KEY')).toBe(false);
     });
+
+    it("resolves daemon module path through helper for bootstrap compatibility", () => {
+      const fs = require("fs");
+      const path = require("path");
+      const source = fs.readFileSync(
+        path.join(__dirname, "..", "reply-listener.ts"),
+        "utf-8",
+      );
+
+      expect(source).toContain("resolveDaemonModulePath");
+      expect(source).toContain("['notifications', 'reply-listener.js']");
+    });
+
   });
 
   describe("Injection feedback", () => {
@@ -432,7 +445,7 @@ describe("reply-listener", () => {
       // The else blocks only increment error counters
       const successBlocks = source.match(/if \(success\) \{[\s\S]*?messagesInjected/g);
       expect(successBlocks).not.toBeNull();
-      expect(successBlocks!.length).toBe(2); // one for Discord, one for Telegram
+      expect(successBlocks!.length).toBe(4); // one for Discord, one for Telegram, one for Slack inline, one for processSlackSocketMessage
     });
   });
 

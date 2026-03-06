@@ -5,7 +5,7 @@
  * All sends are non-blocking with timeouts. Failures are swallowed to avoid
  * blocking hooks.
  */
-import type { DiscordNotificationConfig, DiscordBotNotificationConfig, TelegramNotificationConfig, SlackNotificationConfig, WebhookNotificationConfig, NotificationPayload, NotificationResult, NotificationPlatform, DispatchResult, NotificationConfig, NotificationEvent } from "./types.js";
+import type { DiscordNotificationConfig, DiscordBotNotificationConfig, TelegramNotificationConfig, SlackNotificationConfig, SlackBotNotificationConfig, WebhookNotificationConfig, NotificationPayload, NotificationResult, NotificationPlatform, DispatchResult, NotificationConfig, NotificationEvent } from "./types.js";
 /**
  * Send notification via Discord webhook.
  */
@@ -25,6 +25,11 @@ export declare function sendTelegram(config: TelegramNotificationConfig, payload
  */
 export declare function sendSlack(config: SlackNotificationConfig, payload: NotificationPayload): Promise<NotificationResult>;
 /**
+ * Send notification via Slack Bot Web API (chat.postMessage).
+ * Returns message timestamp (ts) as messageId for reply correlation.
+ */
+export declare function sendSlackBot(config: SlackBotNotificationConfig, payload: NotificationPayload): Promise<NotificationResult>;
+/**
  * Send notification via generic webhook (POST JSON).
  */
 export declare function sendWebhook(config: WebhookNotificationConfig, payload: NotificationPayload): Promise<NotificationResult>;
@@ -35,4 +40,18 @@ export declare function sendWebhook(config: WebhookNotificationConfig, payload: 
  * Individual failures don't block other platforms.
  */
 export declare function dispatchNotifications(config: NotificationConfig, event: NotificationEvent, payload: NotificationPayload, platformMessages?: Map<NotificationPlatform, string>): Promise<DispatchResult>;
+import type { CustomIntegration } from "./types.js";
+/**
+ * Send a webhook notification for a custom integration.
+ */
+export declare function sendCustomWebhook(integration: CustomIntegration, payload: NotificationPayload): Promise<NotificationResult>;
+/**
+ * Execute a CLI command for a custom integration.
+ * Uses execFile (not shell) for security.
+ */
+export declare function sendCustomCli(integration: CustomIntegration, payload: NotificationPayload): Promise<NotificationResult>;
+/**
+ * Dispatch notifications for custom integrations.
+ */
+export declare function dispatchCustomIntegrations(event: string, payload: NotificationPayload): Promise<NotificationResult[]>;
 //# sourceMappingURL=dispatcher.d.ts.map

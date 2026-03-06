@@ -3,7 +3,7 @@
  * Launches Claude Code with tmux session management
  */
 import { execFileSync } from 'child_process';
-import { resolveLaunchPolicy, buildTmuxSessionName, buildTmuxShellCommand, isClaudeAvailable, } from './tmux-utils.js';
+import { resolveLaunchPolicy, buildTmuxSessionName, buildTmuxShellCommand, wrapWithLoginShell, isClaudeAvailable, } from './tmux-utils.js';
 // Flag mapping
 const MADMAX_FLAG = '--madmax';
 const YOLO_FLAG = '--yolo';
@@ -25,10 +25,15 @@ export function extractNotifyFlag(args) {
     const remainingArgs = [];
     for (let i = 0; i < args.length; i++) {
         const arg = args[i];
-        if (arg === NOTIFY_FLAG && i + 1 < args.length) {
-            const val = args[i + 1].toLowerCase();
-            notifyEnabled = val !== 'false' && val !== '0';
-            i++; // skip value
+        if (arg === NOTIFY_FLAG) {
+            const next = args[i + 1];
+            if (next !== undefined) {
+                const lowered = next.toLowerCase();
+                if (lowered === 'true' || lowered === 'false' || lowered === '1' || lowered === '0') {
+                    notifyEnabled = lowered !== 'false' && lowered !== '0';
+                    i++; // skip explicit value token
+                }
+            }
         }
         else if (arg.startsWith(`${NOTIFY_FLAG}=`)) {
             const val = arg.slice(NOTIFY_FLAG.length + 1).toLowerCase();
@@ -281,7 +286,8 @@ function runClaudeOutsideTmux(cwd, args, _sessionId) {
     // When tmux attach-session sends a DA1 query, the terminal replies with
     // \e[?6c which lands in the pty buffer before Claude reads input.
     // A short sleep lets the response arrive, then tcflush discards it.
-    const claudeCmd = `sleep 0.3; perl -e 'use POSIX;tcflush(0,TCIFLUSH)' 2>/dev/null; ${rawClaudeCmd}`;
+    // Wrap in login shell so .bashrc/.zshrc are sourced (PATH, nvm, etc.)
+    const claudeCmd = wrapWithLoginShell(`sleep 0.3; perl -e 'use POSIX;tcflush(0,TCIFLUSH)' 2>/dev/null; ${rawClaudeCmd}`);
     const sessionName = buildTmuxSessionName(cwd);
     const tmuxArgs = [
         'new-session', '-d', '-s', sessionName, '-c', cwd,

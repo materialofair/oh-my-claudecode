@@ -24,11 +24,8 @@ export { qaTesterAgent } from './qa-tester.js';
 export { scientistAgent } from './scientist.js';
 export { exploreAgent } from './explore.js';
 
-// Backward compatibility: Deprecated aliases
-/** @deprecated Use document-specialist agent instead */
 export { documentSpecialistAgent } from './document-specialist.js';
-/** @deprecated Use document-specialist agent instead */
-export { documentSpecialistAgent as researcherAgent } from './document-specialist.js';
+export { harshCriticAgent } from './harsh-critic.js';
 
 // Import base agents for use in getAgentDefinitions
 import { deepExecutorAgent } from './deep-executor.js';
@@ -43,6 +40,7 @@ import { qaTesterAgent } from './qa-tester.js';
 import { scientistAgent } from './scientist.js';
 import { exploreAgent } from './explore.js';
 import { documentSpecialistAgent } from './document-specialist.js';
+import { harshCriticAgent } from './harsh-critic.js';
 
 // Re-export loadAgentPrompt (also exported from index.ts)
 export { loadAgentPrompt };
@@ -196,7 +194,10 @@ export const tddGuideAgentAlias = testEngineerAgent;
 /**
  * Get all agent definitions as a record for use with Claude Agent SDK
  */
-export function getAgentDefinitions(overrides?: Partial<Record<string, Partial<AgentConfig>>>): Record<string, {
+export function getAgentDefinitions(options?: {
+  overrides?: Partial<Record<string, Partial<AgentConfig>>>;
+  enableHarshCritic?: boolean;
+}): Record<string, {
   description: string;
   prompt: string;
   tools?: string[];
@@ -204,7 +205,7 @@ export function getAgentDefinitions(overrides?: Partial<Record<string, Partial<A
   model?: ModelType;
   defaultModel?: ModelType;
 }> {
-  const agents = {
+  const agents: Record<string, AgentConfig> = {
     // ============================================================
     // BUILD/ANALYSIS LANE
     // ============================================================
@@ -247,10 +248,15 @@ export function getAgentDefinitions(overrides?: Partial<Record<string, Partial<A
     'document-specialist': documentSpecialistAgent
   };
 
+  // Optional agents — only included when explicitly enabled via config
+  if (options?.enableHarshCritic) {
+    agents['harsh-critic'] = harshCriticAgent;
+  }
+
   const result: Record<string, { description: string; prompt: string; tools?: string[]; disallowedTools?: string[]; model?: ModelType; defaultModel?: ModelType }> = {};
 
   for (const [name, config] of Object.entries(agents)) {
-    const override = overrides?.[name];
+    const override = options?.overrides?.[name];
     const disallowedTools = config.disallowedTools ?? parseDisallowedTools(name);
     result[name] = {
       description: override?.description ?? config.description,
@@ -316,6 +322,9 @@ You coordinate specialized subagents to accomplish complex software engineering 
 - **dependency-expert** → document-specialist
 - **researcher** → document-specialist
 - **tdd-guide** → test-engineer
+
+### Optional Agents (enable in config)
+- **harsh-critic**: Thorough gap analysis (opus) — structured "What's Missing" analysis, multi-perspective investigation, severity-rated findings. Enable with \`features.harshCritic: true\` in config.
 
 ## Orchestration Principles
 1. **Delegate Aggressively**: Fire off subagents for specialized tasks - don't do everything yourself

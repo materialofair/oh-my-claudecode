@@ -5,6 +5,7 @@
  */
 import { DEFAULT_HUD_CONFIG } from './types.js';
 import { bold, dim } from './colors.js';
+import { stringWidth, getCharWidth } from '../utils/string-width.js';
 import { renderRalph } from './elements/ralph.js';
 import { renderAgentsByFormat, renderAgentsMultiLine } from './elements/agents.js';
 import { renderTodosWithCurrent } from './elements/todos.js';
@@ -12,7 +13,7 @@ import { renderSkills, renderLastSkill } from './elements/skills.js';
 import { renderContext, renderContextWithBar } from './elements/context.js';
 import { renderBackground } from './elements/background.js';
 import { renderPrd } from './elements/prd.js';
-import { renderRateLimits, renderRateLimitsWithBar, renderCustomBuckets } from './elements/limits.js';
+import { renderRateLimits, renderRateLimitsWithBar, renderRateLimitsError, renderCustomBuckets } from './elements/limits.js';
 import { renderPermission } from './elements/permission.js';
 import { renderThinking } from './elements/thinking.js';
 import { renderSession } from './elements/session.js';
@@ -21,8 +22,124 @@ import { renderAutopilot } from './elements/autopilot.js';
 import { renderCwd } from './elements/cwd.js';
 import { renderGitRepo, renderGitBranch } from './elements/git.js';
 import { renderModel } from './elements/model.js';
+import { renderApiKeySource } from './elements/api-key-source.js';
 import { renderCallCounts } from './elements/call-counts.js';
 import { renderContextLimitWarning } from './elements/context-warning.js';
+/**
+ * ANSI escape sequence regex (matches SGR and other CSI sequences).
+ * Used to skip escape codes when measuring/truncating visible width.
+ */
+const ANSI_REGEX = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07/;
+const PLAIN_SEPARATOR = ' | ';
+const DIM_SEPARATOR = dim(PLAIN_SEPARATOR);
+/**
+ * Truncate a single line to a maximum visual width, preserving ANSI escape codes.
+ * When the visible content exceeds maxWidth columns, it is truncated with an ellipsis.
+ *
+ * @param line - The line to truncate (may contain ANSI codes)
+ * @param maxWidth - Maximum visual width in terminal columns
+ * @returns Truncated line that fits within maxWidth visible columns
+ */
+export function truncateLineToMaxWidth(line, maxWidth) {
+    if (maxWidth <= 0)
+        return '';
+    if (stringWidth(line) <= maxWidth)
+        return line;
+    const ELLIPSIS = '...';
+    const ellipsisWidth = 3;
+    const targetWidth = Math.max(0, maxWidth - ellipsisWidth);
+    let visibleWidth = 0;
+    let result = '';
+    let hasAnsi = false;
+    let i = 0;
+    while (i < line.length) {
+        // Check for ANSI escape sequence at current position
+        const remaining = line.slice(i);
+        const ansiMatch = remaining.match(ANSI_REGEX);
+        if (ansiMatch && ansiMatch.index === 0) {
+            // Pass through the entire ANSI sequence without counting width
+            result += ansiMatch[0];
+            hasAnsi = true;
+            i += ansiMatch[0].length;
+            continue;
+        }
+        // Read the full code point (handles surrogate pairs for astral-plane chars like emoji)
+        const codePoint = line.codePointAt(i);
+        const codeUnits = codePoint > 0xFFFF ? 2 : 1;
+        const char = line.slice(i, i + codeUnits);
+        const charWidth = getCharWidth(char);
+        if (visibleWidth + charWidth > targetWidth)
+            break;
+        result += char;
+        visibleWidth += charWidth;
+        i += codeUnits;
+    }
+    // Append ANSI reset before ellipsis if any escape codes were seen,
+    // to prevent color/style bleed into subsequent terminal output
+    const reset = hasAnsi ? '\x1b[0m' : '';
+    return result + reset + ELLIPSIS;
+}
+/**
+ * Wrap a single line at HUD separator boundaries so each wrapped line
+ * fits within maxWidth visible columns.
+ *
+ * Falls back to truncation when:
+ * - no separator is present
+ * - any single segment exceeds maxWidth
+ */
+function wrapLineToMaxWidth(line, maxWidth) {
+    if (maxWidth <= 0)
+        return [''];
+    if (stringWidth(line) <= maxWidth)
+        return [line];
+    const separator = line.includes(DIM_SEPARATOR)
+        ? DIM_SEPARATOR
+        : line.includes(PLAIN_SEPARATOR)
+            ? PLAIN_SEPARATOR
+            : null;
+    if (!separator) {
+        return [truncateLineToMaxWidth(line, maxWidth)];
+    }
+    const segments = line.split(separator);
+    if (segments.length <= 1) {
+        return [truncateLineToMaxWidth(line, maxWidth)];
+    }
+    const wrapped = [];
+    let current = segments[0] ?? '';
+    for (let i = 1; i < segments.length; i += 1) {
+        const nextSegment = segments[i] ?? '';
+        const candidate = `${current}${separator}${nextSegment}`;
+        if (stringWidth(candidate) <= maxWidth) {
+            current = candidate;
+            continue;
+        }
+        if (stringWidth(current) > maxWidth) {
+            wrapped.push(truncateLineToMaxWidth(current, maxWidth));
+        }
+        else {
+            wrapped.push(current);
+        }
+        current = nextSegment;
+    }
+    if (stringWidth(current) > maxWidth) {
+        wrapped.push(truncateLineToMaxWidth(current, maxWidth));
+    }
+    else {
+        wrapped.push(current);
+    }
+    return wrapped;
+}
+/**
+ * Apply maxWidth behavior by mode.
+ */
+function applyMaxWidthByMode(lines, maxWidth, wrapMode) {
+    if (!maxWidth || maxWidth <= 0)
+        return lines;
+    if (wrapMode === 'wrap') {
+        return lines.flatMap(line => wrapLineToMaxWidth(line, maxWidth));
+    }
+    return lines.map(line => truncateLineToMaxWidth(line, maxWidth));
+}
 /**
  * Limit output lines to prevent input field shrinkage (Issue #222).
  * Trims lines from the end while preserving the first (header) line.
@@ -72,6 +189,16 @@ export async function render(context, config) {
         if (modelElement)
             gitElements.push(modelElement);
     }
+    // API key source
+    if (enabledElements.apiKeySource && context.apiKeySource) {
+        const keySource = renderApiKeySource(context.apiKeySource);
+        if (keySource)
+            gitElements.push(keySource);
+    }
+    // Profile name (from CLAUDE_CONFIG_DIR)
+    if (enabledElements.profile && context.profileName) {
+        gitElements.push(bold(`profile:${context.profileName}`));
+    }
     // [OMC#X.Y.Z] label with optional update notification
     if (enabledElements.omcLabel) {
         const versionTag = context.omcVersion ? `#${context.omcVersion}` : '';
@@ -82,13 +209,19 @@ export async function render(context, config) {
             elements.push(bold(`[OMC${versionTag}]`));
         }
     }
-    // Rate limits (5h and weekly)
-    if (enabledElements.rateLimits && context.rateLimits) {
-        const limits = enabledElements.useBars
-            ? renderRateLimitsWithBar(context.rateLimits)
-            : renderRateLimits(context.rateLimits);
-        if (limits)
-            elements.push(limits);
+    // Rate limits (5h and weekly) - show error indicator or data
+    if (enabledElements.rateLimits && context.rateLimitsResult) {
+        const errorIndicator = renderRateLimitsError(context.rateLimitsResult);
+        if (errorIndicator) {
+            elements.push(errorIndicator);
+        }
+        else if (context.rateLimitsResult.rateLimits) {
+            const limits = enabledElements.useBars
+                ? renderRateLimitsWithBar(context.rateLimitsResult.rateLimits)
+                : renderRateLimits(context.rateLimitsResult.rateLimits);
+            if (limits)
+                elements.push(limits);
+        }
     }
     // Custom rate limit buckets
     if (context.customBuckets) {
@@ -202,19 +335,37 @@ export async function render(context, config) {
         detailLines.push(ctxWarning);
     // Compose output
     const outputLines = [];
-    // Git info line (separate line above HUD header)
-    if (gitElements.length > 0) {
-        outputLines.push(gitElements.join(dim(' | ')));
+    const gitInfoLine = gitElements.length > 0 ? gitElements.join(dim(PLAIN_SEPARATOR)) : null;
+    const headerLine = elements.join(dim(PLAIN_SEPARATOR));
+    // Position git info based on config (default: above for backward compatibility)
+    const gitPosition = config.elements.gitInfoPosition ?? 'above';
+    if (gitPosition === 'above') {
+        // Git info line above HUD header (traditional layout)
+        if (gitInfoLine) {
+            outputLines.push(gitInfoLine);
+        }
+        outputLines.push(headerLine);
     }
-    // HUD header line
-    const headerLine = elements.join(dim(' | '));
-    outputLines.push(headerLine);
+    else {
+        // Git info line below HUD header
+        outputLines.push(headerLine);
+        if (gitInfoLine) {
+            outputLines.push(gitInfoLine);
+        }
+    }
     // Todos on next line (if available)
     if (enabledElements.todos) {
         const todos = renderTodosWithCurrent(context.todos);
         if (todos)
             detailLines.push(todos);
     }
-    return limitOutputLines([...outputLines, ...detailLines], config.elements.maxOutputLines).join('\n');
+    const widthAdjustedLines = applyMaxWidthByMode([...outputLines, ...detailLines], config.maxWidth, config.wrapMode);
+    // Apply max output line limit after wrapping so wrapped output still respects maxOutputLines.
+    const limitedLines = limitOutputLines(widthAdjustedLines, config.elements.maxOutputLines);
+    // Ensure line-limit indicator and all other lines still respect maxWidth.
+    const finalLines = config.maxWidth && config.maxWidth > 0
+        ? limitedLines.map(line => truncateLineToMaxWidth(line, config.maxWidth))
+        : limitedLines;
+    return finalLines.join('\n');
 }
 //# sourceMappingURL=render.js.map

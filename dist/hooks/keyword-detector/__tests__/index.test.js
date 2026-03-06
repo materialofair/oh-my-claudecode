@@ -239,28 +239,6 @@ World`);
                 expect(ultraworkMatch).toBeUndefined();
             });
         });
-        describe('pipeline keyword', () => {
-            it('should detect agent pipeline phrase', () => {
-                const result = detectKeywordsWithType('agent pipeline build the API');
-                const pipelineMatch = result.find((r) => r.type === 'pipeline');
-                expect(pipelineMatch).toBeDefined();
-            });
-            it('should detect chain agents phrase', () => {
-                const result = detectKeywordsWithType('chain agents to build');
-                const pipelineMatch = result.find((r) => r.type === 'pipeline');
-                expect(pipelineMatch).toBeDefined();
-            });
-            it('should NOT detect bare pipeline keyword', () => {
-                const result = detectKeywordsWithType('pipeline fix this');
-                const pipelineMatch = result.find((r) => r.type === 'pipeline');
-                expect(pipelineMatch).toBeUndefined();
-            });
-            it('should NOT detect CI/CD pipeline', () => {
-                const result = detectKeywordsWithType('the CI pipeline is broken');
-                const pipelineMatch = result.find((r) => r.type === 'pipeline');
-                expect(pipelineMatch).toBeUndefined();
-            });
-        });
         describe('tdd keyword', () => {
             it('should detect tdd keyword', () => {
                 const result = detectKeywordsWithType('tdd this feature');
@@ -681,17 +659,15 @@ World`);
         it('should return cancel exclusively when present', () => {
             expect(getAllKeywords('cancelomc ralph ultrawork')).toEqual(['cancel']);
         });
-        it('should return team and ultrapilot when legacy ultrapilot trigger is present', () => {
+        it('should not detect deprecated ultrapilot keyword (#1131)', () => {
             const result = getAllKeywords('autopilot ultrapilot build');
-            expect(result).toContain('ultrapilot');
-            expect(result).toContain('team');
-            // team beats autopilot, but original ultrapilot is preserved
-            expect(result).not.toContain('autopilot');
+            expect(result).not.toContain('ultrapilot');
+            // ultrapilot is deprecated, only autopilot should be detected
+            expect(result).toContain('autopilot');
         });
-        it('should return team and swarm for legacy swarm trigger', () => {
+        it('should not detect deprecated swarm keyword (#1131)', () => {
             const result = getAllKeywords('swarm 5 agents build this');
-            expect(result).toContain('swarm');
-            expect(result).toContain('team');
+            expect(result).not.toContain('swarm');
         });
         it('should return ralph with ultrawork (not mutually exclusive)', () => {
             const result = getAllKeywords('ralph ultrawork fix');
@@ -751,70 +727,45 @@ World`);
             expect(result).toContain('ralph');
             expect(result).toContain('tdd');
         });
-        // Team + Ralph composition tests
-        it('should return both ralph and team when both present (linked mode)', () => {
+        // Team keyword detection disabled — team is now explicit-only via /team skill
+        // to prevent infinite spawning when Claude workers receive prompts containing "team".
+        it('should NOT detect team keyword (explicit-only mode)', () => {
+            const result = getAllKeywords('team build the API');
+            expect(result).not.toContain('team');
+        });
+        it('should NOT detect coordinated team phrase (explicit-only)', () => {
+            const result = getAllKeywords('coordinated team build the API');
+            expect(result).not.toContain('team');
+        });
+        it('should still detect ralph when "team ralph" is used', () => {
             const result = getAllKeywords('team ralph build the API');
             expect(result).toContain('ralph');
-            expect(result).toContain('team');
-        });
-        it('should return ralph before team in priority order', () => {
-            const result = getAllKeywords('team ralph build the API');
-            const ralphIdx = result.indexOf('ralph');
-            const teamIdx = result.indexOf('team');
-            expect(ralphIdx).toBeLessThan(teamIdx);
+            expect(result).not.toContain('team');
         });
         it('should return ralph as primary when team ralph is used', () => {
             const primary = getPrimaryKeyword('team ralph build the API');
             expect(primary?.type).toBe('ralph');
         });
-        it('should return team and ralph with other keywords', () => {
+        it('should detect ralph and codex but not team', () => {
             const result = getAllKeywords('team ralph ask codex to review');
             expect(result).toContain('ralph');
-            expect(result).toContain('team');
+            expect(result).not.toContain('team');
             expect(result).toContain('codex');
         });
-        it('should return team over autopilot even with ralph', () => {
+        it('should not suppress autopilot when team is not detected', () => {
             const result = getAllKeywords('ralph team autopilot build');
             expect(result).toContain('ralph');
-            expect(result).toContain('team');
-            expect(result).not.toContain('autopilot');
-        });
-        // Team keyword false positive prevention (intent-gated regex)
-        it('should not detect team in "my team uses X"', () => {
-            const result = getAllKeywords('my team uses React for frontend');
             expect(result).not.toContain('team');
+            // autopilot is no longer suppressed by team since team is not detected
+            expect(result).toContain('autopilot');
         });
-        it('should not detect team in "the team needs help"', () => {
-            const result = getAllKeywords('the team needs help with deployment');
-            expect(result).not.toContain('team');
-        });
-        it('should not detect team in "our team decided"', () => {
-            const result = getAllKeywords('our team decided to use TypeScript');
-            expect(result).not.toContain('team');
-        });
-        it('should not detect team in "a team of engineers"', () => {
-            const result = getAllKeywords('a team of engineers built this');
-            expect(result).not.toContain('team');
-        });
-        it('should detect team via coordinated team phrase', () => {
-            const result = getAllKeywords('coordinated team build the API');
-            expect(result).toContain('team');
-        });
-        it('should detect team via ultrapilot legacy keyword and preserve ultrapilot', () => {
+        it('should not detect deprecated ultrapilot (#1131)', () => {
             const result = getAllKeywords('ultrapilot build all components');
-            expect(result).toContain('team');
-            expect(result).toContain('ultrapilot');
+            expect(result).not.toContain('ultrapilot');
         });
-        it('should detect team via swarm N agents pattern and preserve swarm', () => {
+        it('should not detect deprecated swarm (#1131)', () => {
             const result = getAllKeywords('swarm 5 agents fix all errors');
-            expect(result).toContain('team');
-            expect(result).toContain('swarm');
-        });
-        // Mixed keyword precedence tests
-        it('should handle team + ralph combination', () => {
-            const result = getAllKeywords('team ralph build the app');
-            expect(result).toContain('ralph');
-            expect(result).toContain('team');
+            expect(result).not.toContain('swarm');
         });
         it('should not detect cancel alongside team', () => {
             const result = getAllKeywords('cancelomc team');
@@ -842,14 +793,12 @@ World`);
                 const result = getAllKeywords('coordinated team build');
                 expect(result).not.toContain('team');
             });
-            it('should NOT detect ultrapilot or team when disabled', () => {
+            it('should not detect deprecated ultrapilot regardless of team setting (#1131)', () => {
                 const result = getAllKeywords('ultrapilot build all');
-                expect(result).not.toContain('team');
                 expect(result).not.toContain('ultrapilot');
             });
-            it('should NOT detect swarm or team when disabled', () => {
+            it('should not detect deprecated swarm regardless of team setting (#1131)', () => {
                 const result = getAllKeywords('swarm 5 agents fix errors');
-                expect(result).not.toContain('team');
                 expect(result).not.toContain('swarm');
             });
             it('should still detect other keywords when team disabled', () => {

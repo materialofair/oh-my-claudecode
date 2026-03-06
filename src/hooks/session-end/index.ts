@@ -4,7 +4,7 @@ import * as readline from 'readline';
 import { triggerStopCallbacks } from './callbacks.js';
 import { notify } from '../../notifications/index.js';
 import { cleanupBridgeSessions } from '../../tools/python-repl/bridge-manager.js';
-import { resolveToWorktreeRoot } from '../../lib/worktree-paths.js';
+import { resolveToWorktreeRoot, getOmcRoot, validateSessionId, isValidTranscriptPath } from '../../lib/worktree-paths.js';
 import { SESSION_END_MODE_STATE_FILES, SESSION_METRICS_MODE_FILES } from '../../lib/mode-names.js';
 
 export interface SessionEndInput {
@@ -35,7 +35,7 @@ export interface HookOutput {
  * Read agent tracking to get spawn/completion counts
  */
 function getAgentCounts(directory: string): { spawned: number; completed: number } {
-  const trackingPath = path.join(directory, '.omc', 'state', 'subagent-tracking.json');
+  const trackingPath = path.join(getOmcRoot(directory), 'state', 'subagent-tracking.json');
 
   if (!fs.existsSync(trackingPath)) {
     return { spawned: 0, completed: 0 };
@@ -58,7 +58,7 @@ function getAgentCounts(directory: string): { spawned: number; completed: number
  * Detect which modes were used during the session
  */
 function getModesUsed(directory: string): string[] {
-  const stateDir = path.join(directory, '.omc', 'state');
+  const stateDir = path.join(getOmcRoot(directory), 'state');
   const modes: string[] = [];
 
   if (!fs.existsSync(stateDir)) {
@@ -91,7 +91,7 @@ function getModesUsed(directory: string): string[] {
  * ultrawork).
  */
 export function getSessionStartTime(directory: string, sessionId?: string): string | undefined {
-  const stateDir = path.join(directory, '.omc', 'state');
+  const stateDir = path.join(getOmcRoot(directory), 'state');
 
   if (!fs.existsSync(stateDir)) {
     return undefined;
@@ -179,7 +179,7 @@ export function recordSessionMetrics(directory: string, input: SessionEndInput):
  */
 export function cleanupTransientState(directory: string): number {
   let filesRemoved = 0;
-  const omcDir = path.join(directory, '.omc');
+  const omcDir = getOmcRoot(directory);
 
   if (!fs.existsSync(omcDir)) {
     return filesRemoved;
@@ -255,7 +255,8 @@ const PYTHON_REPL_TOOL_NAMES = new Set(['python_repl', 'mcp__t__python_repl']);
  * These sessions are terminated on SessionEnd to prevent bridge leaks.
  */
 export async function extractPythonReplSessionIdsFromTranscript(transcriptPath: string): Promise<string[]> {
-  if (!transcriptPath || !fs.existsSync(transcriptPath)) {
+  // Security: validate transcript path is within allowed directories
+  if (!transcriptPath || !isValidTranscriptPath(transcriptPath) || !fs.existsSync(transcriptPath)) {
     return [];
   }
 
@@ -324,7 +325,7 @@ export async function extractPythonReplSessionIdsFromTranscript(transcriptPath: 
 export function cleanupModeStates(directory: string, sessionId?: string): { filesRemoved: number; modesCleaned: string[] } {
   let filesRemoved = 0;
   const modesCleaned: string[] = [];
-  const stateDir = path.join(directory, '.omc', 'state');
+  const stateDir = path.join(getOmcRoot(directory), 'state');
 
   if (!fs.existsSync(stateDir)) {
     return { filesRemoved, modesCleaned };
@@ -377,11 +378,19 @@ export function cleanupModeStates(directory: string, sessionId?: string): { file
  * Export session summary to .omc/sessions/
  */
 export function exportSessionSummary(directory: string, metrics: SessionMetrics): void {
-  const sessionsDir = path.join(directory, '.omc', 'sessions');
+  const sessionsDir = path.join(getOmcRoot(directory), 'sessions');
 
   // Create sessions directory if it doesn't exist
   if (!fs.existsSync(sessionsDir)) {
     fs.mkdirSync(sessionsDir, { recursive: true });
+  }
+
+  // Validate session_id to prevent path traversal
+  try {
+    validateSessionId(metrics.session_id);
+  } catch {
+    // Invalid session_id - skip export to prevent path traversal
+    return;
   }
 
   // Write session summary
@@ -448,17 +457,6 @@ export async function processSessionEnd(input: SessionEndInput): Promise<HookOut
     // Notification failures should never block session end
   }
 
-  // Wake OpenClaw gateway for session-end (non-blocking)
-  if (process.env.OMC_OPENCLAW === "1") {
-    import("../../openclaw/index.js").then(({ wakeOpenClaw }) =>
-      wakeOpenClaw("session-end", {
-        sessionId: input.session_id,
-        projectPath: input.cwd,
-        contextSummary: `Duration: ${metrics.duration_ms}ms, Agents: ${metrics.agents_completed}/${metrics.agents_spawned}`,
-        reason: metrics.reason,
-      }).catch(() => {})
-    ).catch(() => {});
-  }
 
   // Clean up reply session registry and stop daemon if no active sessions remain
   try {

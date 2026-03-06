@@ -5,9 +5,10 @@
  */
 
 import type { AutopilotStateForHud } from './elements/autopilot.js';
+import type { ApiKeySource } from './elements/api-key-source.js';
 
 // Re-export for convenience
-export type { AutopilotStateForHud };
+export type { AutopilotStateForHud, ApiKeySource };
 
 // ============================================================================
 // HUD State
@@ -173,6 +174,25 @@ export interface RateLimits {
   monthlyResetsAt?: Date | null;
 }
 
+/**
+ * Categorized error reasons for API usage fetch failures.
+ * - 'network': Network error or timeout
+ * - 'auth': Authentication failure (token expired, refresh failed)
+ * - 'no_credentials': No OAuth credentials available (expected for API key users)
+ */
+export type UsageErrorReason = 'network' | 'timeout' | 'http' | 'auth' | 'no_credentials' | 'rate_limited';
+
+/**
+ * Result of fetching usage data from the API.
+ * - rateLimits: The rate limit data (null if no data available)
+ * - error: Set when the API call fails (undefined on success or no credentials)
+ */
+export interface UsageResult {
+  rateLimits: RateLimits | null;
+  /** Error reason when API call fails (undefined on success or no credentials) */
+  error?: UsageErrorReason;
+}
+
 // ============================================================================
 // Custom Rate Limit Provider
 // ============================================================================
@@ -276,8 +296,11 @@ export interface HudRenderContext {
   /** Last activated skill from transcript */
   lastSkill: SkillInvocation | null;
 
-  /** Rate limits (5h and weekly) from built-in Anthropic/z.ai providers */
-  rateLimits: RateLimits | null;
+  /** Rate limits result from built-in Anthropic/z.ai providers (includes error state) */
+  rateLimitsResult: UsageResult | null;
+
+  /** Error reason when built-in rate limit API call fails (undefined on success or no credentials) */
+  rateLimitsError?: UsageErrorReason;
 
   /** Custom rate limit buckets from rateLimitsProvider command (null when not configured) */
   customBuckets: CustomProviderResult | null;
@@ -308,6 +331,12 @@ export interface HudRenderContext {
 
   /** Last prompt submission time (from HUD state) */
   promptTime: Date | null;
+
+  /** API key source: 'project', 'global', or 'env' */
+  apiKeySource: ApiKeySource | null;
+
+  /** Active profile name (derived from CLAUDE_CONFIG_DIR), null if default */
+  profileName: string | null;
 }
 
 // ============================================================================
@@ -358,6 +387,7 @@ export interface HudElementConfig {
   cwdFormat: CwdFormat;      // Path display format
   gitRepo: boolean;          // Show git repository name
   gitBranch: boolean;        // Show git branch
+  gitInfoPosition: 'above' | 'below';  // Position of git info relative to main HUD line
   model: boolean;            // Show current model name
   modelFormat: ModelFormat;   // Model name verbosity level
   omcLabel: boolean;
@@ -376,6 +406,8 @@ export interface HudElementConfig {
   permissionStatus: boolean;  // Show pending permission indicator
   thinking: boolean;          // Show extended thinking indicator
   thinkingFormat: ThinkingFormat;  // Thinking indicator format
+  apiKeySource: boolean;       // Show API key source (project/global/env)
+  profile: boolean;            // Show active profile name (from CLAUDE_CONFIG_DIR)
   promptTime: boolean;        // Show last prompt submission time (HH:MM:SS)
   sessionHealth: boolean;     // Show session health/duration
   showSessionDuration?: boolean;  // Show session:19m duration display (default: true if sessionHealth is true)
@@ -414,6 +446,10 @@ export interface HudConfig {
   contextLimitWarning: ContextLimitWarningConfig;
   /** Optional custom rate limit provider; omit to use built-in Anthropic/z.ai */
   rateLimitsProvider?: RateLimitsProviderConfig;
+  /** Optional maximum width (columns) for statusline output. */
+  maxWidth?: number;
+  /** Controls maxWidth behavior: truncate with ellipsis (default) or wrap at " | " HUD element boundaries. */
+  wrapMode?: 'truncate' | 'wrap';
 }
 
 export const DEFAULT_HUD_CONFIG: HudConfig = {
@@ -423,6 +459,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
     cwdFormat: 'relative',
     gitRepo: false,           // Disabled by default for backward compatibility
     gitBranch: false,         // Disabled by default for backward compatibility
+    gitInfoPosition: 'above',  // Git info above main HUD line (backward compatible)
     model: false,             // Disabled by default for backward compatibility
     modelFormat: 'short',     // Short names by default for backward compatibility
     omcLabel: true,
@@ -441,6 +478,8 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
     permissionStatus: false,  // Disabled: heuristic-based, causes false positives
     thinking: true,
     thinkingFormat: 'text',   // Text format for backward compatibility
+    apiKeySource: false, // Disabled by default
+    profile: true,  // Show profile name when CLAUDE_CONFIG_DIR is set
     promptTime: true,  // Show last prompt time by default
     sessionHealth: true,
     useBars: false,  // Disabled by default for backwards compatibility
@@ -459,6 +498,7 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
     threshold: 80,
     autoCompact: false,
   },
+  wrapMode: 'truncate',
 };
 
 export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
@@ -467,6 +507,7 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     cwdFormat: 'folder',
     gitRepo: false,
     gitBranch: false,
+    gitInfoPosition: 'above',
     model: false,
     modelFormat: 'short',
     omcLabel: true,
@@ -485,6 +526,8 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: false,
     thinkingFormat: 'text',
+    apiKeySource: false,
+    profile: true,
     promptTime: false,
     sessionHealth: false,
     useBars: false,
@@ -497,6 +540,7 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     cwdFormat: 'relative',
     gitRepo: false,
     gitBranch: true,
+    gitInfoPosition: 'above',
     model: false,
     modelFormat: 'short',
     omcLabel: true,
@@ -515,6 +559,8 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: true,
     thinkingFormat: 'text',
+    apiKeySource: false,
+    profile: true,
     promptTime: true,
     sessionHealth: true,
     useBars: true,
@@ -527,6 +573,7 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     cwdFormat: 'relative',
     gitRepo: true,
     gitBranch: true,
+    gitInfoPosition: 'above',
     model: false,
     modelFormat: 'short',
     omcLabel: true,
@@ -545,6 +592,8 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: true,
     thinkingFormat: 'text',
+    apiKeySource: true,
+    profile: true,
     promptTime: true,
     sessionHealth: true,
     useBars: true,
@@ -557,6 +606,7 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     cwdFormat: 'relative',
     gitRepo: false,
     gitBranch: true,
+    gitInfoPosition: 'above',
     model: false,
     modelFormat: 'short',
     omcLabel: true,
@@ -575,6 +625,8 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: true,
     thinkingFormat: 'text',
+    apiKeySource: false,
+    profile: true,
     promptTime: true,
     sessionHealth: true,
     useBars: false,
@@ -587,6 +639,7 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     cwdFormat: 'relative',
     gitRepo: true,
     gitBranch: true,
+    gitInfoPosition: 'above',
     model: false,
     modelFormat: 'short',
     omcLabel: true,
@@ -605,6 +658,8 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: true,
     thinkingFormat: 'text',
+    apiKeySource: true,
+    profile: true,
     promptTime: true,
     sessionHealth: true,
     useBars: true,

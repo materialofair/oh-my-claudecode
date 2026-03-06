@@ -9,22 +9,38 @@
  * All modes store state in `.omc/state/` subdirectory for consistency.
  */
 
-import { existsSync, readFileSync, unlinkSync, mkdirSync, readdirSync, statSync, rmdirSync, rmSync } from 'fs';
-import { atomicWriteJsonSync } from '../../lib/atomic-write.js';
-import { join, dirname } from 'path';
-import type { ExecutionMode, ModeConfig, ModeStatus, CanStartResult } from './types.js';
-import { listSessionIds, resolveSessionStatePath, getSessionStateDir } from '../../lib/worktree-paths.js';
-import { MODE_STATE_FILE_MAP, MODE_NAMES } from '../../lib/mode-names.js';
+import {
+  existsSync,
+  readFileSync,
+  unlinkSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  rmdirSync,
+  rmSync,
+} from "fs";
+import { atomicWriteJsonSync } from "../../lib/atomic-write.js";
+import { join, dirname } from "path";
+import type {
+  ExecutionMode,
+  ModeConfig,
+  ModeStatus,
+  CanStartResult,
+} from "./types.js";
+import {
+  listSessionIds,
+  resolveSessionStatePath,
+  getSessionStateDir,
+  getOmcRoot,
+} from "../../lib/worktree-paths.js";
+import { MODE_STATE_FILE_MAP, MODE_NAMES } from "../../lib/mode-names.js";
 
-export type { ExecutionMode, ModeConfig, ModeStatus, CanStartResult } from './types.js';
-
-/**
- * Stale marker threshold (1 hour)
- * Markers older than this are auto-removed to prevent crashed sessions from blocking indefinitely.
- * NOTE: We cannot check database activity here due to circular dependency constraints.
- * Legitimate long-running swarms (>1 hour) may have markers removed - acceptable trade-off.
- */
-export const STALE_MARKER_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
+export type {
+  ExecutionMode,
+  ModeConfig,
+  ModeStatus,
+  CanStartResult,
+} from "./types.js";
 
 /**
  * Mode configuration registry
@@ -34,56 +50,34 @@ export const STALE_MARKER_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
  */
 const MODE_CONFIGS: Record<ExecutionMode, ModeConfig> = {
   [MODE_NAMES.AUTOPILOT]: {
-    name: 'Autopilot',
+    name: "Autopilot",
     stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.AUTOPILOT],
-    activeProperty: 'active'
+    activeProperty: "active",
   },
-  [MODE_NAMES.ULTRAPILOT]: {
-    name: 'Ultrapilot',
-    stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.ULTRAPILOT],
-    markerFile: 'ultrapilot-ownership.json',
-    activeProperty: 'active'
-  },
-  [MODE_NAMES.SWARM]: {
-    name: 'Swarm',
-    stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.SWARM],
-    markerFile: 'swarm-active.marker',
-    isSqlite: true
-  },
-  [MODE_NAMES.PIPELINE]: {
-    name: 'Pipeline',
-    stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.PIPELINE],
-    activeProperty: 'active'
-  },
-  conductor: {
-    name: 'Conductor',
-    stateFile: '../conductor/conductor-state.json',
-    activeProperty: 'active'
-  },
-  team: {
-    name: 'Team',
+  [MODE_NAMES.TEAM]: {
+    name: "Team",
     stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.TEAM],
-    activeProperty: 'active',
-    hasGlobalState: false
+    activeProperty: "active",
+    hasGlobalState: false,
   },
   [MODE_NAMES.RALPH]: {
-    name: 'Ralph',
+    name: "Ralph",
     stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.RALPH],
-    markerFile: 'ralph-verification.json',
-    activeProperty: 'active',
-    hasGlobalState: false
+    markerFile: "ralph-verification.json",
+    activeProperty: "active",
+    hasGlobalState: false,
   },
   [MODE_NAMES.ULTRAWORK]: {
-    name: 'Ultrawork',
+    name: "Ultrawork",
     stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.ULTRAWORK],
-    activeProperty: 'active',
-    hasGlobalState: false
+    activeProperty: "active",
+    hasGlobalState: false,
   },
   [MODE_NAMES.ULTRAQA]: {
-    name: 'UltraQA',
+    name: "UltraQA",
     stateFile: MODE_STATE_FILE_MAP[MODE_NAMES.ULTRAQA],
-    activeProperty: 'active'
-  }
+    activeProperty: "active",
+  },
 };
 
 // Export for use in other modules
@@ -92,13 +86,13 @@ export { MODE_CONFIGS };
 /**
  * Modes that are mutually exclusive (cannot run concurrently)
  */
-const EXCLUSIVE_MODES: ExecutionMode[] = [MODE_NAMES.AUTOPILOT, MODE_NAMES.ULTRAPILOT, MODE_NAMES.SWARM, MODE_NAMES.PIPELINE];
+const EXCLUSIVE_MODES: ExecutionMode[] = [MODE_NAMES.AUTOPILOT];
 
 /**
  * Get the state directory path
  */
 export function getStateDir(cwd: string): string {
-  return join(cwd, '.omc', 'state');
+  return join(getOmcRoot(cwd), "state");
 }
 
 /**
@@ -106,17 +100,19 @@ export function getStateDir(cwd: string): string {
  */
 export function ensureStateDir(cwd: string): void {
   const stateDir = getStateDir(cwd);
-  if (!existsSync(stateDir)) {
-    mkdirSync(stateDir, { recursive: true });
-  }
+  mkdirSync(stateDir, { recursive: true });
 }
 
 /**
  * Get the full path to a mode's state file
  */
-export function getStateFilePath(cwd: string, mode: ExecutionMode, sessionId?: string): string {
+export function getStateFilePath(
+  cwd: string,
+  mode: ExecutionMode,
+  sessionId?: string,
+): string {
   const config = MODE_CONFIGS[mode];
-  if (sessionId && !config.isSqlite) {
+  if (sessionId) {
     return resolveSessionStatePath(mode, sessionId, cwd);
   }
   return join(getStateDir(cwd), config.stateFile);
@@ -125,7 +121,10 @@ export function getStateFilePath(cwd: string, mode: ExecutionMode, sessionId?: s
 /**
  * Get the full path to a mode's marker file
  */
-export function getMarkerFilePath(cwd: string, mode: ExecutionMode): string | null {
+export function getMarkerFilePath(
+  cwd: string,
+  mode: ExecutionMode,
+): string | null {
   const config = MODE_CONFIGS[mode];
   if (!config.markerFile) return null;
   return join(getStateDir(cwd), config.markerFile);
@@ -144,20 +143,20 @@ export function getGlobalStateFilePath(_mode: ExecutionMode): string | null {
 /**
  * Check if a JSON-based mode is active by reading its state file
  */
-function isJsonModeActive(cwd: string, mode: ExecutionMode, sessionId?: string): boolean {
+function isJsonModeActive(
+  cwd: string,
+  mode: ExecutionMode,
+  sessionId?: string,
+): boolean {
   const config = MODE_CONFIGS[mode];
 
   // When sessionId is provided, ONLY check session-scoped path — no legacy fallback.
   // This prevents cross-session state leakage where one session's legacy file
   // could cause another session to see mode as active.
-  if (sessionId && !config.isSqlite) {
+  if (sessionId) {
     const sessionStateFile = resolveSessionStatePath(mode, sessionId, cwd);
-    if (!existsSync(sessionStateFile)) {
-      return false;
-    }
-
     try {
-      const content = readFileSync(sessionStateFile, 'utf-8');
+      const content = readFileSync(sessionStateFile, "utf-8");
       const state = JSON.parse(content);
 
       // Validate session identity: state must belong to this session
@@ -170,19 +169,18 @@ function isJsonModeActive(cwd: string, mode: ExecutionMode, sessionId?: string):
       }
 
       return true;
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return false;
+      }
       return false;
     }
   }
 
   // No sessionId: check legacy shared path (backward compat)
   const stateFile = getStateFilePath(cwd, mode);
-  if (!existsSync(stateFile)) {
-    return false;
-  }
-
   try {
-    const content = readFileSync(stateFile, 'utf-8');
+    const content = readFileSync(stateFile, "utf-8");
     const state = JSON.parse(content);
 
     if (config.activeProperty) {
@@ -191,51 +189,12 @@ function isJsonModeActive(cwd: string, mode: ExecutionMode, sessionId?: string):
 
     // Default: file existence means active
     return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check if a SQLite-based mode is active by checking its marker file
- *
- * We use a marker file instead of querying SQLite directly to avoid:
- * 1. Requiring sqlite3 CLI or better-sqlite3 dependency
- * 2. Opening database connections from the registry
- */
-function isSqliteModeActive(cwd: string, mode: ExecutionMode): boolean {
-  const markerPath = getMarkerFilePath(cwd, mode);
-
-  // Check marker file first (authoritative)
-  if (markerPath && existsSync(markerPath)) {
-    try {
-      const content = readFileSync(markerPath, 'utf-8');
-      const marker = JSON.parse(content);
-
-      // Check if marker is stale (older than 1 hour)
-      // NOTE: We cannot check database activity here due to circular dependency constraints.
-      // This means legitimate long-running swarms (>1 hour) may have their markers removed.
-      // This is a deliberate trade-off to prevent crashed swarms from blocking indefinitely.
-      if (marker.startedAt) {
-        const startTime = new Date(marker.startedAt).getTime();
-        const age = Date.now() - startTime;
-
-        if (age > STALE_MARKER_THRESHOLD) {
-          console.warn(`Stale ${mode} marker detected (${Math.round(age / 60000)} min old). Auto-removing.`);
-          unlinkSync(markerPath);
-          return false;
-        }
-      }
-
-      return true;
-    } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return false;
     }
+    return false;
   }
-
-  // Fallback: check if database file exists (may have stale data)
-  const dbPath = getStateFilePath(cwd, mode);
-  return existsSync(dbPath);
 }
 
 /**
@@ -246,13 +205,11 @@ function isSqliteModeActive(cwd: string, mode: ExecutionMode): boolean {
  * @param sessionId - Optional session ID to check session-scoped state
  * @returns true if the mode is active
  */
-export function isModeActive(mode: ExecutionMode, cwd: string, sessionId?: string): boolean {
-  const config = MODE_CONFIGS[mode];
-
-  if (config.isSqlite) {
-    return isSqliteModeActive(cwd, mode);
-  }
-
+export function isModeActive(
+  mode: ExecutionMode,
+  cwd: string,
+  sessionId?: string,
+): boolean {
   return isJsonModeActive(cwd, mode, sessionId);
 }
 
@@ -260,7 +217,11 @@ export function isModeActive(mode: ExecutionMode, cwd: string, sessionId?: strin
  * Check if a mode has active state (file exists)
  * @param sessionId - When provided, checks session-scoped path only (no legacy fallback)
  */
-export function hasModeState(cwd: string, mode: ExecutionMode, sessionId?: string): boolean {
+export function hasModeState(
+  cwd: string,
+  mode: ExecutionMode,
+  sessionId?: string,
+): boolean {
   const stateFile = getStateFilePath(cwd, mode, sessionId);
   return existsSync(stateFile);
 }
@@ -268,7 +229,10 @@ export function hasModeState(cwd: string, mode: ExecutionMode, sessionId?: strin
 /**
  * Get all modes that currently have state files
  */
-export function getActiveModes(cwd: string, sessionId?: string): ExecutionMode[] {
+export function getActiveModes(
+  cwd: string,
+  sessionId?: string,
+): ExecutionMode[] {
   const modes: ExecutionMode[] = [];
 
   for (const mode of Object.keys(MODE_CONFIGS) as ExecutionMode[]) {
@@ -316,12 +280,15 @@ export function canStartMode(mode: ExecutionMode, cwd: string): CanStartResult {
   // Check for mutually exclusive modes across all sessions
   if (EXCLUSIVE_MODES.includes(mode)) {
     for (const exclusiveMode of EXCLUSIVE_MODES) {
-      if (exclusiveMode !== mode && isModeActiveInAnySession(exclusiveMode, cwd)) {
+      if (
+        exclusiveMode !== mode &&
+        isModeActiveInAnySession(exclusiveMode, cwd)
+      ) {
         const config = MODE_CONFIGS[exclusiveMode];
         return {
           allowed: false,
           blockedBy: exclusiveMode,
-          message: `Cannot start ${MODE_CONFIGS[mode].name} while ${config.name} is active. Cancel ${config.name} first with /oh-my-claudecode:cancel.`
+          message: `Cannot start ${MODE_CONFIGS[mode].name} while ${config.name} is active. Cancel ${config.name} first with /oh-my-claudecode:cancel.`,
         };
       }
     }
@@ -337,11 +304,14 @@ export function canStartMode(mode: ExecutionMode, cwd: string): CanStartResult {
  * @param sessionId - Optional session ID to check session-scoped state
  * @returns Array of mode statuses
  */
-export function getAllModeStatuses(cwd: string, sessionId?: string): ModeStatus[] {
-  return (Object.keys(MODE_CONFIGS) as ExecutionMode[]).map(mode => ({
+export function getAllModeStatuses(
+  cwd: string,
+  sessionId?: string,
+): ModeStatus[] {
+  return (Object.keys(MODE_CONFIGS) as ExecutionMode[]).map((mode) => ({
     mode,
     active: isModeActive(mode, cwd, sessionId),
-    stateFilePath: getStateFilePath(cwd, mode, sessionId)
+    stateFilePath: getStateFilePath(cwd, mode, sessionId),
   }));
 }
 
@@ -356,11 +326,15 @@ export function getAllModeStatuses(cwd: string, sessionId?: string): ModeStatus[
  *
  * @returns true if all files were deleted successfully (or didn't exist)
  */
-export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: string): boolean {
+export function clearModeState(
+  mode: ExecutionMode,
+  cwd: string,
+  sessionId?: string,
+): boolean {
   const config = MODE_CONFIGS[mode];
   let success = true;
   const markerFile = getMarkerFilePath(cwd, mode);
-  const isSessionScopedClear = Boolean(sessionId && !config.isSqlite);
+  const isSessionScopedClear = Boolean(sessionId);
 
   // Delete session-scoped state file if sessionId provided
   if (isSessionScopedClear && sessionId) {
@@ -368,7 +342,7 @@ export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: str
     try {
       unlinkSync(sessionStateFile);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         success = false;
       }
     }
@@ -376,12 +350,16 @@ export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: str
     // Clear session-scoped marker artifacts (e.g., ralph-verification-state.json).
     // Keep legacy/shared marker files untouched for isolation.
     if (config.markerFile) {
-      const markerStateName = config.markerFile.replace(/\.json$/i, '');
-      const sessionMarkerFile = resolveSessionStatePath(markerStateName, sessionId, cwd);
+      const markerStateName = config.markerFile.replace(/\.json$/i, "");
+      const sessionMarkerFile = resolveSessionStatePath(
+        markerStateName,
+        sessionId,
+        cwd,
+      );
       try {
         unlinkSync(sessionMarkerFile);
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
           success = false;
         }
       }
@@ -391,13 +369,16 @@ export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: str
     // Keep isolation by deleting only unowned markers or markers owned by this session.
     if (markerFile) {
       try {
-        const markerRaw = JSON.parse(readFileSync(markerFile, 'utf-8')) as { session_id?: string; sessionId?: string };
+        const markerRaw = JSON.parse(readFileSync(markerFile, "utf-8")) as {
+          session_id?: string;
+          sessionId?: string;
+        };
         const markerSessionId = markerRaw.session_id ?? markerRaw.sessionId;
         if (!markerSessionId || markerSessionId === sessionId) {
           try {
             unlinkSync(markerFile);
           } catch (err) {
-            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
               success = false;
             }
           }
@@ -407,7 +388,7 @@ export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: str
         try {
           unlinkSync(markerFile);
         } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
             success = false;
           }
         }
@@ -421,17 +402,9 @@ export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: str
     try {
       unlinkSync(stateFile);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         success = false;
       }
-    }
-
-    // For SQLite, also delete WAL and SHM files
-    if (config.isSqlite) {
-      const walFile = stateFile + '-wal';
-      const shmFile = stateFile + '-shm';
-      try { unlinkSync(walFile); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') success = false; }
-      try { unlinkSync(shmFile); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') success = false; }
     }
   }
 
@@ -440,13 +413,16 @@ export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: str
     if (isSessionScopedClear) {
       // Only delete if the marker is unowned or owned by this session.
       try {
-        const markerRaw = JSON.parse(readFileSync(markerFile, 'utf-8')) as { session_id?: string; sessionId?: string };
+        const markerRaw = JSON.parse(readFileSync(markerFile, "utf-8")) as {
+          session_id?: string;
+          sessionId?: string;
+        };
         const markerSessionId = markerRaw.session_id ?? markerRaw.sessionId;
         if (!markerSessionId || markerSessionId === sessionId) {
           try {
             unlinkSync(markerFile);
           } catch (err) {
-            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
               success = false;
             }
           }
@@ -456,7 +432,7 @@ export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: str
         try {
           unlinkSync(markerFile);
         } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
             success = false;
           }
         }
@@ -465,7 +441,7 @@ export function clearModeState(mode: ExecutionMode, cwd: string, sessionId?: str
       try {
         unlinkSync(markerFile);
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
           success = false;
         }
       }
@@ -490,11 +466,11 @@ export function clearAllModeStates(cwd: string): boolean {
   }
 
   // Clear skill-active-state.json (issue #1033)
-  const skillStatePath = join(getStateDir(cwd), 'skill-active-state.json');
+  const skillStatePath = join(getStateDir(cwd), "skill-active-state.json");
   try {
     unlinkSync(skillStatePath);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       success = false;
     }
   }
@@ -520,13 +496,10 @@ export function clearAllModeStates(cwd: string): boolean {
  * @param cwd - Working directory
  * @returns true if the mode is active in any session or legacy path
  */
-export function isModeActiveInAnySession(mode: ExecutionMode, cwd: string): boolean {
-  const config = MODE_CONFIGS[mode];
-
-  if (config.isSqlite) {
-    return isSqliteModeActive(cwd, mode);
-  }
-
+export function isModeActiveInAnySession(
+  mode: ExecutionMode,
+  cwd: string,
+): boolean {
   // Check legacy path first
   if (isJsonModeActive(cwd, mode)) {
     return true;
@@ -550,15 +523,12 @@ export function isModeActiveInAnySession(mode: ExecutionMode, cwd: string): bool
  * @param cwd - Working directory
  * @returns Array of session IDs with this mode active
  */
-export function getActiveSessionsForMode(mode: ExecutionMode, cwd: string): string[] {
-  const config = MODE_CONFIGS[mode];
-
-  if (config.isSqlite) {
-    return [];
-  }
-
+export function getActiveSessionsForMode(
+  mode: ExecutionMode,
+  cwd: string,
+): string[] {
   const sessionIds = listSessionIds(cwd);
-  return sessionIds.filter(sid => isJsonModeActive(cwd, mode, sid));
+  return sessionIds.filter((sid) => isJsonModeActive(cwd, mode, sid));
 }
 
 /**
@@ -570,12 +540,10 @@ export function getActiveSessionsForMode(mode: ExecutionMode, cwd: string): stri
  * @param maxAgeMs - Maximum age in milliseconds (default: 24 hours)
  * @returns Array of removed session IDs
  */
-export function clearStaleSessionDirs(cwd: string, maxAgeMs: number = 24 * 60 * 60 * 1000): string[] {
-  const sessionsDir = join(cwd, '.omc', 'state', 'sessions');
-  if (!existsSync(sessionsDir)) {
-    return [];
-  }
-
+export function clearStaleSessionDirs(
+  cwd: string,
+  maxAgeMs: number = 24 * 60 * 60 * 1000,
+): string[] {
   const removed: string[] = [];
   const sessionIds = listSessionIds(cwd);
 
@@ -614,13 +582,11 @@ export function clearStaleSessionDirs(cwd: string, maxAgeMs: number = 24 * 60 * 
 }
 
 // ============================================================================
-// MARKER FILE MANAGEMENT (for SQLite-based modes)
+// MARKER FILE MANAGEMENT
 // ============================================================================
 
 /**
  * Create a marker file to indicate a mode is active
- *
- * Called when starting a SQLite-based mode (like swarm).
  *
  * @param mode - The mode being started
  * @param cwd - Working directory
@@ -629,7 +595,7 @@ export function clearStaleSessionDirs(cwd: string, maxAgeMs: number = 24 * 60 * 
 export function createModeMarker(
   mode: ExecutionMode,
   cwd: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
 ): boolean {
   const markerPath = getMarkerFilePath(cwd, mode);
   if (!markerPath) {
@@ -640,14 +606,12 @@ export function createModeMarker(
   try {
     // Ensure directory exists
     const dir = dirname(markerPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
+    mkdirSync(dir, { recursive: true });
 
     atomicWriteJsonSync(markerPath, {
       mode,
       startedAt: new Date().toISOString(),
-      ...metadata
+      ...metadata,
     });
     return true;
   } catch (error) {
@@ -659,8 +623,6 @@ export function createModeMarker(
 /**
  * Remove a marker file to indicate a mode has stopped
  *
- * Called when stopping a SQLite-based mode (like swarm).
- *
  * @param mode - The mode being stopped
  * @param cwd - Working directory
  */
@@ -671,11 +633,12 @@ export function removeModeMarker(mode: ExecutionMode, cwd: string): boolean {
   }
 
   try {
-    if (existsSync(markerPath)) {
-      unlinkSync(markerPath);
-    }
+    unlinkSync(markerPath);
     return true;
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return true;
+    }
     console.error(`Failed to remove marker file for ${mode}:`, error);
     return false;
   }
@@ -689,17 +652,20 @@ export function removeModeMarker(mode: ExecutionMode, cwd: string): boolean {
  */
 export function readModeMarker(
   mode: ExecutionMode,
-  cwd: string
+  cwd: string,
 ): Record<string, unknown> | null {
   const markerPath = getMarkerFilePath(cwd, mode);
-  if (!markerPath || !existsSync(markerPath)) {
+  if (!markerPath) {
     return null;
   }
 
   try {
-    const content = readFileSync(markerPath, 'utf-8');
+    const content = readFileSync(markerPath, "utf-8");
     return JSON.parse(content);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
     return null;
   }
 }
@@ -718,11 +684,12 @@ export function forceRemoveMarker(mode: ExecutionMode, cwd: string): boolean {
   }
 
   try {
-    if (existsSync(markerPath)) {
-      unlinkSync(markerPath);
-    }
+    unlinkSync(markerPath);
     return true;
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return true;
+    }
     console.error(`Failed to force remove marker file for ${mode}:`, error);
     return false;
   }

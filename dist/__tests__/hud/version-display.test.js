@@ -14,7 +14,7 @@ function createMinimalContext(overrides = {}) {
         backgroundTasks: [],
         cwd: '/tmp/test',
         lastSkill: null,
-        rateLimits: null,
+        rateLimitsResult: null,
         customBuckets: null,
         pendingPermission: null,
         thinkingState: null,
@@ -25,6 +25,8 @@ function createMinimalContext(overrides = {}) {
         agentCallCount: 0,
         skillCallCount: 0,
         promptTime: null,
+        apiKeySource: null,
+        profileName: null,
         ...overrides,
     };
 }

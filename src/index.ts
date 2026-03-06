@@ -144,7 +144,6 @@ export {
   ARCHITECT_PROMPT_METADATA,
   exploreAgent,
   EXPLORE_PROMPT_METADATA,
-  researcherAgent,
   DOCUMENT_SPECIALIST_PROMPT_METADATA,
   executorAgent,
   EXECUTOR_PROMPT_METADATA,
@@ -159,6 +158,9 @@ export {
   plannerAgent,
   PLANNER_PROMPT_METADATA,
 } from './agents/index.js';
+
+/** @deprecated Use documentSpecialistAgent instead */
+export { documentSpecialistAgent as researcherAgent } from './agents/document-specialist.js';
 
 // Command expansion utilities for SDK integration
 export {
@@ -292,7 +294,9 @@ export function createOmcSession(options?: OmcOptions): OmcSession {
   }
 
   // Get agent definitions
-  const agents = getAgentDefinitions();
+  const agents = getAgentDefinitions({
+    enableHarshCritic: config.features?.harshCritic === true,
+  });
 
   // Build MCP servers configuration
   const externalMcpServers = getDefaultMcpServers({

@@ -9,13 +9,16 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
-import * as jsonc from 'jsonc-parser';
 import type { PluginConfig, ExternalModelsConfig } from '../shared/types.js';
 import { getConfigDir } from '../utils/paths.js';
+import { parseJsonc } from '../utils/jsonc.js';
 import {
   getDefaultModelHigh,
   getDefaultModelMedium,
   getDefaultModelLow,
+  isNonClaudeProvider,
+  isBedrock,
+  isVertexAI,
 } from './models.js';
 
 /**
@@ -32,18 +35,27 @@ import {
 export const DEFAULT_CONFIG: PluginConfig = {
   agents: {
     omc: { model: getDefaultModelHigh() },
-    architect: { model: getDefaultModelHigh(), enabled: true },
-    researcher: { model: getDefaultModelMedium() },
     explore: { model: getDefaultModelLow() },
-    frontendEngineer: { model: getDefaultModelMedium(), enabled: true },
-    documentWriter: { model: getDefaultModelLow(), enabled: true },
-    multimodalLooker: { model: getDefaultModelMedium(), enabled: true },
-    // New agents from oh-my-opencode
-    critic: { model: getDefaultModelHigh(), enabled: true },
-    analyst: { model: getDefaultModelHigh(), enabled: true },
-    coordinator: { model: getDefaultModelMedium(), enabled: true },
-    executor: { model: getDefaultModelMedium(), enabled: true },
-    planner: { model: getDefaultModelHigh(), enabled: true }
+    analyst: { model: getDefaultModelHigh() },
+    planner: { model: getDefaultModelHigh() },
+    architect: { model: getDefaultModelHigh() },
+    debugger: { model: getDefaultModelMedium() },
+    executor: { model: getDefaultModelMedium() },
+    verifier: { model: getDefaultModelMedium() },
+    qualityReviewer: { model: getDefaultModelMedium() },
+    securityReviewer: { model: getDefaultModelMedium() },
+    codeReviewer: { model: getDefaultModelHigh() },
+    deepExecutor: { model: getDefaultModelHigh() },
+    testEngineer: { model: getDefaultModelMedium() },
+    buildFixer: { model: getDefaultModelMedium() },
+    designer: { model: getDefaultModelMedium() },
+    writer: { model: getDefaultModelLow() },
+    qaTester: { model: getDefaultModelMedium() },
+    scientist: { model: getDefaultModelMedium() },
+    gitMaster: { model: getDefaultModelMedium() },
+    codeSimplifier: { model: getDefaultModelHigh() },
+    critic: { model: getDefaultModelHigh() },
+    documentSpecialist: { model: getDefaultModelMedium() },
   },
   features: {
     parallelExecution: true,
@@ -72,6 +84,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
   routing: {
     enabled: true,
     defaultTier: 'MEDIUM',
+    forceInherit: false,
     escalationEnabled: true,
     maxEscalations: 2,
     tierModels: {
@@ -151,16 +164,7 @@ export function loadJsoncFile(path: string): PluginConfig | null {
 
   try {
     const content = readFileSync(path, 'utf-8');
-    const errors: jsonc.ParseError[] = [];
-    const result = jsonc.parse(content, errors, {
-      allowTrailingComma: true,
-      allowEmptyContent: true
-    });
-
-    if (errors.length > 0) {
-      console.warn(`Warning: Parse errors in ${path}:`, errors);
-    }
-
+    const result = parseJsonc(content);
     return result as PluginConfig;
   } catch (error) {
     console.error(`Error loading config from ${path}:`, error);
@@ -246,6 +250,13 @@ export function loadEnvConfig(): Partial<PluginConfig> {
     };
   }
 
+  if (process.env.OMC_ROUTING_FORCE_INHERIT !== undefined) {
+    config.routing = {
+      ...config.routing,
+      forceInherit: process.env.OMC_ROUTING_FORCE_INHERIT === 'true'
+    };
+  }
+
   if (process.env.OMC_ROUTING_DEFAULT_TIER) {
     const tier = process.env.OMC_ROUTING_DEFAULT_TIER.toUpperCase();
     if (tier === 'LOW' || tier === 'MEDIUM' || tier === 'HIGH') {
@@ -254,6 +265,23 @@ export function loadEnvConfig(): Partial<PluginConfig> {
         defaultTier: tier as 'LOW' | 'MEDIUM' | 'HIGH'
       };
     }
+  }
+
+  // Model alias overrides from environment (issue #1211)
+  const aliasKeys = ['HAIKU', 'SONNET', 'OPUS'] as const;
+  const modelAliases: Record<string, string> = {};
+  for (const key of aliasKeys) {
+    const envVal = process.env[`OMC_MODEL_ALIAS_${key}`];
+    if (envVal) {
+      const lower = key.toLowerCase();
+      modelAliases[lower] = envVal.toLowerCase();
+    }
+  }
+  if (Object.keys(modelAliases).length > 0) {
+    config.routing = {
+      ...config.routing,
+      modelAliases: modelAliases as Record<string, 'haiku' | 'sonnet' | 'opus' | 'inherit'>,
+    };
   }
 
   if (process.env.OMC_ESCALATION_ENABLED !== undefined) {
@@ -352,6 +380,23 @@ export function loadConfig(): PluginConfig {
   const envConfig = loadEnvConfig();
   config = deepMerge(config, envConfig);
 
+  // Auto-enable forceInherit for non-standard providers (issues #1201, #1025)
+  // Only auto-enable if user hasn't explicitly set it via config or env var.
+  // Triggers for: CC Switch / LiteLLM (non-Claude model IDs), custom
+  // ANTHROPIC_BASE_URL, AWS Bedrock (CLAUDE_CODE_USE_BEDROCK=1), and
+  // Google Vertex AI (CLAUDE_CODE_USE_VERTEX=1). Passing Claude-specific
+  // tier names (sonnet/opus/haiku) causes 400 errors on these platforms.
+  if (
+    config.routing?.forceInherit !== true &&
+    process.env.OMC_ROUTING_FORCE_INHERIT === undefined &&
+    isNonClaudeProvider()
+  ) {
+    config.routing = {
+      ...config.routing,
+      forceInherit: true,
+    };
+  }
+
   return config;
 }
 
@@ -429,41 +474,89 @@ export function generateConfigSchema(): object {
               model: { type: 'string', description: 'Model ID for the main orchestrator' }
             }
           },
-          architect: {
-            type: 'object',
-            properties: {
-              model: { type: 'string' },
-              enabled: { type: 'boolean' }
-            }
-          },
-          researcher: {
-            type: 'object',
-            properties: { model: { type: 'string' } }
-          },
           explore: {
             type: 'object',
             properties: { model: { type: 'string' } }
           },
-          frontendEngineer: {
+          analyst: {
             type: 'object',
-            properties: {
-              model: { type: 'string' },
-              enabled: { type: 'boolean' }
-            }
+            properties: { model: { type: 'string' } }
           },
-          documentWriter: {
+          planner: {
             type: 'object',
-            properties: {
-              model: { type: 'string' },
-              enabled: { type: 'boolean' }
-            }
+            properties: { model: { type: 'string' } }
           },
-          multimodalLooker: {
+          architect: {
             type: 'object',
-            properties: {
-              model: { type: 'string' },
-              enabled: { type: 'boolean' }
-            }
+            properties: { model: { type: 'string' } }
+          },
+          debugger: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          executor: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          verifier: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          qualityReviewer: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          securityReviewer: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          codeReviewer: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          deepExecutor: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          testEngineer: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          buildFixer: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          designer: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          writer: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          qaTester: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          scientist: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          gitMaster: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          codeSimplifier: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          critic: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
+          },
+          documentSpecialist: {
+            type: 'object',
+            properties: { model: { type: 'string' } }
           }
         }
       },
@@ -515,14 +608,13 @@ export function generateConfigSchema(): object {
           ultrathink: { type: 'array', items: { type: 'string' } }
         }
       },
-      swarm: {
+      routing: {
         type: 'object',
-        description: 'Swarm mode settings',
+        description: 'Intelligent model routing configuration',
         properties: {
-          defaultMaxConcurrent: { type: 'integer', default: 5, minimum: 1, maximum: 50 },
-          wavePollingInterval: { type: 'integer', default: 5000, minimum: 1000, maximum: 30000 },
-          aggressiveThreshold: { type: 'integer', default: 5 },
-          enableFileOwnership: { type: 'boolean', default: true }
+          enabled: { type: 'boolean', default: true, description: 'Enable intelligent model routing' },
+          defaultTier: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH'], default: 'MEDIUM', description: 'Default tier when no rules match' },
+          forceInherit: { type: 'boolean', default: false, description: 'Force all agents to inherit the parent model, bypassing OMC model routing. When true, no model parameter is passed to Task calls, so agents use the user\'s Claude Code model setting. Auto-enabled for non-Claude providers (CC Switch, custom ANTHROPIC_BASE_URL), AWS Bedrock, and Google Vertex AI.' },
         }
       },
       externalModels: {

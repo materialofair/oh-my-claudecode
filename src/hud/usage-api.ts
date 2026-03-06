@@ -16,12 +16,16 @@ import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirS
 import { getClaudeConfigDir } from '../utils/paths.js';
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
+import { createHash } from 'crypto';
 import https from 'https';
-import type { RateLimits } from './types.js';
+import { validateAnthropicBaseUrl } from '../utils/ssrf-guard.js';
+import type { RateLimits, UsageResult, UsageErrorReason } from './types.js';
 
 // Cache configuration
 const CACHE_TTL_SUCCESS_MS = 30 * 1000; // 30 seconds for successful responses
 const CACHE_TTL_FAILURE_MS = 15 * 1000; // 15 seconds for failures
+const CACHE_TTL_RATE_LIMITED_MS = 120 * 1000; // 2 minutes base for 429
+const MAX_RATE_LIMITED_BACKOFF_MS = 600 * 1000; // 10 minutes max
 const API_TIMEOUT_MS = 10000;
 const TOKEN_REFRESH_URL_HOSTNAME = 'platform.claude.com';
 const TOKEN_REFRESH_URL_PATH = '/v1/oauth/token';
@@ -36,8 +40,14 @@ interface UsageCache {
   timestamp: number;
   data: RateLimits | null;
   error?: boolean;
+  /** Preserved error reason for accurate cache-hit reporting */
+  errorReason?: UsageErrorReason;
   /** Provider that produced this cache entry */
   source?: 'anthropic' | 'zai';
+  /** Whether this cache entry was caused by a 429 rate limit response */
+  rateLimited?: boolean;
+  /** Consecutive 429 count for exponential backoff */
+  rateLimitedCount?: number;
 }
 
 interface OAuthCredentials {
@@ -129,7 +139,14 @@ function readCache(): UsageCache | null {
 /**
  * Write usage data to cache
  */
-function writeCache(data: RateLimits | null, error = false, source?: 'anthropic' | 'zai'): void {
+function writeCache(
+  data: RateLimits | null,
+  error = false,
+  source?: 'anthropic' | 'zai',
+  rateLimited = false,
+  rateLimitedCount = 0,
+  errorReason?: UsageErrorReason,
+): void {
   try {
     const cachePath = getCachePath();
     const cacheDir = dirname(cachePath);
@@ -142,7 +159,10 @@ function writeCache(data: RateLimits | null, error = false, source?: 'anthropic'
       timestamp: Date.now(),
       data,
       error,
+      errorReason,
       source,
+      rateLimited: rateLimited || undefined,
+      rateLimitedCount: rateLimitedCount > 0 ? rateLimitedCount : undefined,
     };
 
     writeFileSync(cachePath, JSON.stringify(cache, null, 2));
@@ -155,8 +175,29 @@ function writeCache(data: RateLimits | null, error = false, source?: 'anthropic'
  * Check if cache is still valid
  */
 function isCacheValid(cache: UsageCache): boolean {
+  if (cache.rateLimited) {
+    const count = cache.rateLimitedCount || 1;
+    const backoffMs = Math.min(
+      CACHE_TTL_RATE_LIMITED_MS * Math.pow(2, count - 1),
+      MAX_RATE_LIMITED_BACKOFF_MS,
+    );
+    return Date.now() - cache.timestamp < backoffMs;
+  }
   const ttl = cache.error ? CACHE_TTL_FAILURE_MS : CACHE_TTL_SUCCESS_MS;
   return Date.now() - cache.timestamp < ttl;
+}
+
+/**
+ * Get the Keychain service name for the current config directory.
+ * Claude Code uses "Claude Code-credentials-{sha256(configDir)[:8]}" for non-default dirs.
+ */
+function getKeychainServiceName(): string {
+  const configDir = process.env.CLAUDE_CONFIG_DIR;
+  if (configDir) {
+    const hash = createHash('sha256').update(configDir).digest('hex').slice(0, 8);
+    return `Claude Code-credentials-${hash}`;
+  }
+  return 'Claude Code-credentials';
 }
 
 /**
@@ -166,8 +207,9 @@ function readKeychainCredentials(): OAuthCredentials | null {
   if (process.platform !== 'darwin') return null;
 
   try {
+    const serviceName = getKeychainServiceName();
     const result = execSync(
-      '/usr/bin/security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null',
+      `/usr/bin/security find-generic-password -s "${serviceName}" -w 2>/dev/null`,
       { encoding: 'utf-8', timeout: 2000 }
     ).trim();
 
@@ -312,10 +354,15 @@ function refreshAccessToken(refreshToken: string): Promise<OAuthCredentials | nu
   });
 }
 
+interface FetchResult<T> {
+  data: T | null;
+  rateLimited?: boolean;
+}
+
 /**
  * Fetch usage from Anthropic API
  */
-function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse | null> {
+function fetchUsageFromApi(accessToken: string): Promise<FetchResult<UsageApiResponse>> {
   return new Promise((resolve) => {
     const req = https.request(
       {
@@ -339,26 +386,26 @@ function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse | null
         res.on('end', () => {
           if (res.statusCode === 200) {
             try {
-              resolve(JSON.parse(data));
+              resolve({ data: JSON.parse(data) });
             } catch {
-              resolve(null);
+              resolve({ data: null });
             }
+          } else if (res.statusCode === 429) {
+            if (process.env.OMC_DEBUG) {
+              console.error(`[usage-api] Anthropic API returned 429 (rate limited)`);
+            }
+            resolve({ data: null, rateLimited: true });
           } else {
-            resolve(null);
+            resolve({ data: null });
           }
         });
       }
     );
 
-    if (!req || typeof req.on !== 'function' || typeof req.end !== 'function') {
-      resolve(null);
-      return;
-    }
-
-    req.on('error', () => resolve(null));
+    req.on('error', () => resolve({ data: null }));
     req.on('timeout', () => {
       req.destroy();
-      resolve(null);
+      resolve({ data: null });
     });
 
     req.end();
@@ -368,13 +415,21 @@ function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse | null
 /**
  * Fetch usage from z.ai GLM API
  */
-function fetchUsageFromZai(): Promise<ZaiQuotaResponse | null> {
+function fetchUsageFromZai(): Promise<FetchResult<ZaiQuotaResponse>> {
   return new Promise((resolve) => {
     const baseUrl = process.env.ANTHROPIC_BASE_URL;
     const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
 
     if (!baseUrl || !authToken) {
-      resolve(null);
+      resolve({ data: null });
+      return;
+    }
+
+    // Validate baseUrl for SSRF protection
+    const validation = validateAnthropicBaseUrl(baseUrl);
+    if (!validation.allowed) {
+      console.error(`[SSRF Guard] Blocking usage API call: ${validation.reason}`);
+      resolve({ data: null });
       return;
     }
 
@@ -402,27 +457,27 @@ function fetchUsageFromZai(): Promise<ZaiQuotaResponse | null> {
           res.on('end', () => {
             if (res.statusCode === 200) {
               try {
-                resolve(JSON.parse(data));
+                resolve({ data: JSON.parse(data) });
               } catch {
-                resolve(null);
+                resolve({ data: null });
               }
+            } else if (res.statusCode === 429) {
+              if (process.env.OMC_DEBUG) {
+                console.error(`[usage-api] z.ai API returned 429 (rate limited)`);
+              }
+              resolve({ data: null, rateLimited: true });
             } else {
-              resolve(null);
+              resolve({ data: null });
             }
           });
         }
       );
 
-      if (!req || typeof req.on !== 'function' || typeof req.end !== 'function') {
-        resolve(null);
-        return;
-      }
-
-      req.on('error', () => resolve(null));
-      req.on('timeout', () => { req.destroy(); resolve(null); });
+      req.on('error', () => resolve({ data: null }));
+      req.on('timeout', () => { req.destroy(); resolve({ data: null }); });
       req.end();
     } catch {
-      resolve(null);
+      resolve({ data: null });
     }
   });
 }
@@ -577,12 +632,15 @@ export function parseZaiResponse(response: ZaiQuotaResponse): RateLimits | null 
 /**
  * Get usage data (with caching)
  *
- * Returns null if:
- * - No OAuth credentials available (API users)
- * - Credentials expired
- * - API call failed
+ * Returns a UsageResult with:
+ * - rateLimits: RateLimits on success, null on failure/no credentials
+ * - error: categorized reason when API call fails (undefined on success or no credentials)
+ *   - 'network': API call failed (timeout, HTTP error, parse error)
+ *   - 'auth': credentials expired and refresh failed
+ *   - 'no_credentials': no OAuth credentials available (expected for API key users)
+ *   - 'rate_limited': API returned 429; stale data served if available, with exponential backoff
  */
-export async function getUsage(): Promise<RateLimits | null> {
+export async function getUsage(): Promise<UsageResult> {
   const baseUrl = process.env.ANTHROPIC_BASE_URL;
   const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
   const isZai = baseUrl != null && isZaiHost(baseUrl);
@@ -591,20 +649,40 @@ export async function getUsage(): Promise<RateLimits | null> {
   // Check cache first (source must match to avoid cross-provider stale data)
   const cache = readCache();
   if (cache && isCacheValid(cache) && cache.source === currentSource) {
-    return cache.data;
+    if (cache.rateLimited) {
+      // Serve stale data if available, otherwise report rate_limited
+      return { rateLimits: cache.data, error: 'rate_limited' };
+    }
+    // Use stored errorReason if available, fall back to 'network' for legacy cache entries
+    const cachedError = cache.error && !cache.data
+      ? (cache.errorReason || 'network')
+      : undefined;
+    return { rateLimits: cache.data, error: cachedError };
   }
 
   // z.ai path (must precede OAuth check to avoid stale Anthropic credentials)
   if (isZai && authToken) {
-    const response = await fetchUsageFromZai();
-    if (!response) {
-      writeCache(null, true, 'zai');
-      return null;
+    const result = await fetchUsageFromZai();
+
+    if (result.rateLimited) {
+      const prevCount = cache?.rateLimitedCount || 0;
+      const newCount = prevCount + 1;
+      // Serve stale data if available
+      writeCache(cache?.data || null, !cache?.data, 'zai', true, newCount, 'rate_limited');
+      if (cache?.data) {
+        return { rateLimits: cache.data, error: 'rate_limited' };
+      }
+      return { rateLimits: null, error: 'rate_limited' };
     }
 
-    const usage = parseZaiResponse(response);
+    if (!result.data) {
+      writeCache(null, true, 'zai', false, 0, 'network');
+      return { rateLimits: null, error: 'network' };
+    }
+
+    const usage = parseZaiResponse(result.data);
     writeCache(usage, !usage, 'zai');
-    return usage;
+    return { rateLimits: usage };
   }
 
   // Anthropic OAuth path (official Claude Code support)
@@ -620,30 +698,44 @@ export async function getUsage(): Promise<RateLimits | null> {
           // Persist refreshed credentials back to store
           writeBackCredentials(creds);
         } else {
-          // Refresh failed - no credentials available
-          creds = null;
+          // Refresh failed - auth error
+          writeCache(null, true, 'anthropic', false, 0, 'auth');
+          return { rateLimits: null, error: 'auth' };
         }
       } else {
-        // No refresh token available
-        creds = null;
+        // No refresh token available - auth error
+        writeCache(null, true, 'anthropic', false, 0, 'auth');
+        return { rateLimits: null, error: 'auth' };
       }
     }
 
     // If we still have valid credentials, use Anthropic OAuth flow
     if (creds) {
-      const response = await fetchUsageFromApi(creds.accessToken);
-      if (!response) {
-        writeCache(null, true, 'anthropic');
-        return null;
+      const result = await fetchUsageFromApi(creds.accessToken);
+
+      if (result.rateLimited) {
+        const prevCount = cache?.rateLimitedCount || 0;
+        const newCount = prevCount + 1;
+        // Serve stale data if available — better UX than [API err]
+        writeCache(cache?.data || null, !cache?.data, 'anthropic', true, newCount, 'rate_limited');
+        if (cache?.data) {
+          return { rateLimits: cache.data, error: 'rate_limited' };
+        }
+        return { rateLimits: null, error: 'rate_limited' };
       }
 
-      const usage = parseUsageResponse(response);
+      if (!result.data) {
+        writeCache(null, true, 'anthropic', false, 0, 'network');
+        return { rateLimits: null, error: 'network' };
+      }
+
+      const usage = parseUsageResponse(result.data);
       writeCache(usage, !usage, 'anthropic');
-      return usage;
+      return { rateLimits: usage };
     }
   }
 
-  // No credentials available
-  writeCache(null, true, 'anthropic');
-  return null;
+  // No credentials available (expected for API key users)
+  writeCache(null, true, 'anthropic', false, 0, 'no_credentials');
+  return { rateLimits: null, error: 'no_credentials' };
 }

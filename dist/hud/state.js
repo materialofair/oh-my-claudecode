@@ -7,7 +7,8 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { getClaudeConfigDir } from '../utils/paths.js';
-import { getWorktreeRoot } from '../lib/worktree-paths.js';
+import { validateWorkingDirectory, getOmcRoot } from '../lib/worktree-paths.js';
+import { atomicWriteJsonSync } from '../lib/atomic-write.js';
 import { DEFAULT_HUD_CONFIG, PRESET_CONFIGS } from './types.js';
 import { cleanupStaleBackgroundTasks, markOrphanedTasksAsStale } from './background-cleanup.js';
 // ============================================================================
@@ -17,8 +18,8 @@ import { cleanupStaleBackgroundTasks, markOrphanedTasksAsStale } from './backgro
  * Get the HUD state file path in the project's .omc/state directory
  */
 function getLocalStateFilePath(directory) {
-    const baseDir = directory || getWorktreeRoot() || process.cwd();
-    const omcStateDir = join(baseDir, '.omc', 'state');
+    const baseDir = validateWorkingDirectory(directory);
+    const omcStateDir = join(getOmcRoot(baseDir), 'state');
     return join(omcStateDir, 'hud-state.json');
 }
 /**
@@ -37,8 +38,8 @@ function getConfigFilePath() {
  * Ensure the .omc/state directory exists
  */
 function ensureStateDir(directory) {
-    const baseDir = directory || getWorktreeRoot() || process.cwd();
-    const omcStateDir = join(baseDir, '.omc', 'state');
+    const baseDir = validateWorkingDirectory(directory);
+    const omcStateDir = join(getOmcRoot(baseDir), 'state');
     if (!existsSync(omcStateDir)) {
         mkdirSync(omcStateDir, { recursive: true });
     }
@@ -57,19 +58,21 @@ export function readHudState(directory) {
             const content = readFileSync(localStateFile, 'utf-8');
             return JSON.parse(content);
         }
-        catch {
+        catch (error) {
+            console.error('[HUD] Failed to read local state:', error instanceof Error ? error.message : error);
             // Fall through to legacy check
         }
     }
     // Check legacy local state (.omc/hud-state.json)
-    const baseDir = directory || getWorktreeRoot() || process.cwd();
-    const legacyStateFile = join(baseDir, '.omc', 'hud-state.json');
+    const baseDir = validateWorkingDirectory(directory);
+    const legacyStateFile = join(getOmcRoot(baseDir), 'hud-state.json');
     if (existsSync(legacyStateFile)) {
         try {
             const content = readFileSync(legacyStateFile, 'utf-8');
             return JSON.parse(content);
         }
-        catch {
+        catch (error) {
+            console.error('[HUD] Failed to read legacy state:', error instanceof Error ? error.message : error);
             return null;
         }
     }
@@ -83,10 +86,11 @@ export function writeHudState(state, directory) {
         // Write to local .omc/state only
         ensureStateDir(directory);
         const localStateFile = getLocalStateFilePath(directory);
-        writeFileSync(localStateFile, JSON.stringify(state, null, 2));
+        atomicWriteJsonSync(localStateFile, state);
         return true;
     }
-    catch {
+    catch (error) {
+        console.error('[HUD] Failed to write state:', error instanceof Error ? error.message : error);
         return false;
     }
 }
@@ -136,7 +140,8 @@ export function readHudConfig() {
                 return mergeWithDefaults(config);
             }
         }
-        catch {
+        catch (error) {
+            console.error('[HUD] Failed to read settings.json:', error instanceof Error ? error.message : error);
             // Fall through to legacy config
         }
     }
@@ -148,7 +153,8 @@ export function readHudConfig() {
             const config = JSON.parse(content);
             return mergeWithDefaults(config);
         }
-        catch {
+        catch (error) {
+            console.error('[HUD] Failed to read legacy config:', error instanceof Error ? error.message : error);
             // Fall through to defaults
         }
     }
@@ -178,6 +184,8 @@ function mergeWithDefaults(config) {
             ...config.contextLimitWarning,
         },
         ...(config.rateLimitsProvider ? { rateLimitsProvider: config.rateLimitsProvider } : {}),
+        ...(config.maxWidth != null ? { maxWidth: config.maxWidth } : {}),
+        ...(config.wrapMode != null ? { wrapMode: config.wrapMode } : {}),
     };
 }
 /**
@@ -197,7 +205,8 @@ export function writeHudConfig(config) {
         writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
         return true;
     }
-    catch {
+    catch (error) {
+        console.error('[HUD] Failed to write config:', error instanceof Error ? error.message : error);
         return false;
     }
 }

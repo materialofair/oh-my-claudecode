@@ -6,10 +6,6 @@
 
 export type ExecutionMode =
   | 'autopilot'
-  | 'ultrapilot'
-  | 'swarm'
-  | 'pipeline'
-  | 'conductor'
   | 'team'
   | 'ralph'
   | 'ultrawork'

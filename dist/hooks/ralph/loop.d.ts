@@ -53,7 +53,7 @@ export declare function readRalphState(directory: string, sessionId?: string): R
  */
 export declare function writeRalphState(directory: string, state: RalphLoopState, sessionId?: string): boolean;
 /**
- * Clear Ralph Loop state
+ * Clear Ralph Loop state (includes ghost-legacy cleanup)
  */
 export declare function clearRalphState(directory: string, sessionId?: string): boolean;
 /**
@@ -64,6 +64,14 @@ export declare function clearLinkedUltraworkState(directory: string, sessionId?:
  * Increment Ralph Loop iteration
  */
 export declare function incrementRalphIteration(directory: string, sessionId?: string): RalphLoopState | null;
+/**
+ * Detect if prompt contains --no-prd flag (case-insensitive)
+ */
+export declare function detectNoPrdFlag(prompt: string): boolean;
+/**
+ * Strip --no-prd flag from prompt text and trim whitespace
+ */
+export declare function stripNoPrdFlag(prompt: string): string;
 /**
  * Create a Ralph Loop hook instance
  */
@@ -109,7 +117,7 @@ export declare function recordPattern(directory: string, pattern: string): boole
  *  - 'complete' if team reached a terminal state (complete, failed)
  *  - null if no team state is active (ralph operates independently)
  */
-export declare function getTeamPhaseDirective(directory: string, sessionId?: string): 'continue' | 'complete' | null;
+export declare function getTeamPhaseDirective(directory: string, sessionId?: string): "continue" | "complete" | null;
 /**
  * Check if ralph should complete based on PRD status
  */

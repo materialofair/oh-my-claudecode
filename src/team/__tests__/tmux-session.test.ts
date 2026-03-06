@@ -106,6 +106,24 @@ describe('buildWorkerStartCommand', () => {
     expect(cmd).toContain('[ -f "/home/tester/.zshrc" ] && source "/home/tester/.zshrc";');
   });
 
+  it('skips rc sourcing when OMC_TEAM_NO_RC=1', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    vi.stubEnv('SHELL', '/bin/zsh');
+    vi.stubEnv('HOME', '/home/tester');
+    vi.stubEnv('OMC_TEAM_NO_RC', '1');
+
+    const cmd = buildWorkerStartCommand({
+      teamName: 't',
+      workerName: 'w',
+      envVars: { A: '1' },
+      launchCmd: 'node app.js',
+      cwd: '/tmp'
+    });
+
+    expect(cmd).toContain("env A='1' /bin/zsh -c");
+    expect(cmd).not.toContain('source "/home/tester/.zshrc"');
+  });
+
   it('builds a Windows startup command without POSIX constructs', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
     vi.stubEnv('COMSPEC', 'C:\\Windows\\System32\\cmd.exe');
@@ -159,11 +177,86 @@ describe('buildWorkerStartCommand', () => {
 
     expect(cmd).toContain('/home/tester/.bashrc');
   });
+
+  it('accepts absolute Windows launchBinary paths with spaces', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    vi.stubEnv('COMSPEC', 'C:\\Windows\\System32\\cmd.exe');
+
+    expect(() => buildWorkerStartCommand({
+      teamName: 't',
+      workerName: 'w',
+      envVars: { OMC_TEAM_WORKER: 't/w' },
+      launchBinary: 'C:\\Program Files\\OpenAI\\Codex\\codex.exe',
+      launchArgs: ['--full-auto'],
+      cwd: 'C:\\repo'
+    })).not.toThrow();
+  });
+
+  it('uses exec \"$@\" for launchBinary with non-fish shells', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    vi.stubEnv('SHELL', '/bin/zsh');
+    vi.stubEnv('HOME', '/home/tester');
+
+    const cmd = buildWorkerStartCommand({
+      teamName: 't',
+      workerName: 'w',
+      envVars: { OMC_TEAM_WORKER: 't/w' },
+      launchBinary: 'codex',
+      launchArgs: ['--full-auto'],
+      cwd: '/tmp'
+    });
+
+    expect(cmd).toContain("exec \"$@\"");
+    expect(cmd).toContain("'--' 'codex' '--full-auto'");
+  });
+
+  it('uses exec $argv for launchBinary with fish shell', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    vi.stubEnv('SHELL', '/usr/bin/fish');
+    vi.stubEnv('HOME', '/home/tester');
+
+    const cmd = buildWorkerStartCommand({
+      teamName: 't',
+      workerName: 'w',
+      envVars: { OMC_TEAM_WORKER: 't/w' },
+      launchBinary: 'codex',
+      launchArgs: ['--full-auto'],
+      cwd: '/tmp'
+    });
+
+    expect(cmd).toContain('exec $argv');
+    expect(cmd).not.toContain('exec "$@"');
+    expect(cmd).toContain("'--' 'codex' '--full-auto'");
+  });
+
+  it('rejects relative launchBinary containing spaces', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+
+    expect(() => buildWorkerStartCommand({
+      teamName: 't',
+      workerName: 'w',
+      envVars: {},
+      launchBinary: 'Program Files/codex',
+      cwd: '/tmp'
+    })).toThrow('Invalid launchBinary: paths with spaces must be absolute');
+  });
+
+  it('rejects dangerous shell metacharacters in launchBinary', () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+
+    expect(() => buildWorkerStartCommand({
+      teamName: 't',
+      workerName: 'w',
+      envVars: {},
+      launchBinary: '/usr/bin/codex;touch /tmp/pwn',
+      cwd: '/tmp'
+    })).toThrow('Invalid launchBinary: contains dangerous shell metacharacters');
+  });
 });
 
 describe('shouldAttemptAdaptiveRetry', () => {
   it('only enables adaptive retry for busy panes with visible unsent message', () => {
-    delete process.env.OMX_TEAM_AUTO_INTERRUPT_RETRY;
+    delete process.env.OMC_TEAM_AUTO_INTERRUPT_RETRY;
     expect(shouldAttemptAdaptiveRetry({
       paneBusy: false,
       latestCapture: '❯ check-inbox',
@@ -201,8 +294,8 @@ describe('shouldAttemptAdaptiveRetry', () => {
     })).toBe(true);
   });
 
-  it('respects OMX_TEAM_AUTO_INTERRUPT_RETRY=0', () => {
-    process.env.OMX_TEAM_AUTO_INTERRUPT_RETRY = '0';
+  it('respects OMC_TEAM_AUTO_INTERRUPT_RETRY=0', () => {
+    process.env.OMC_TEAM_AUTO_INTERRUPT_RETRY = '0';
     expect(shouldAttemptAdaptiveRetry({
       paneBusy: true,
       latestCapture: '❯ check-inbox',
@@ -210,7 +303,7 @@ describe('shouldAttemptAdaptiveRetry', () => {
       paneInCopyMode: false,
       retriesAttempted: 0,
     })).toBe(false);
-    delete process.env.OMX_TEAM_AUTO_INTERRUPT_RETRY;
+    delete process.env.OMC_TEAM_AUTO_INTERRUPT_RETRY;
   });
 });
 
@@ -223,7 +316,7 @@ describe('sendToWorker implementation guards', () => {
   });
 
   it('supports env-gated adaptive interrupt retry', () => {
-    expect(source).toContain('OMX_TEAM_AUTO_INTERRUPT_RETRY');
+    expect(source).toContain('OMC_TEAM_AUTO_INTERRUPT_RETRY');
     expect(source).toContain("await sendKey('C-u')");
   });
 

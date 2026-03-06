@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 import { execSync } from 'child_process';
 
-// Mock isTeamEnabled so team/ultrapilot/swarm keywords are detected in CI
+// Mock isTeamEnabled so team keywords are detected in CI
 vi.mock('../features/auto-update.js', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -40,7 +40,7 @@ import {
   clearRalphState,
   isUltraQAActive
 } from '../hooks/ralph/index.js';
-import { processHook } from '../hooks/bridge.js';
+import { processHook, type HookInput } from '../hooks/bridge.js';
 
 describe('Keyword Detector', () => {
   describe('extractPromptText', () => {
@@ -244,56 +244,9 @@ describe('Keyword Detector', () => {
       }
     });
 
-    it('should route legacy ultrapilot keyword to team (with dual-emission)', () => {
+    it('should not detect deprecated ultrapilot keyword (#1131)', () => {
       const detected = detectKeywordsWithType('use ultrapilot for this');
-      expect(detected).toHaveLength(2);
-      expect(detected[0].type).toBe('ultrapilot');
-      expect(detected[1].type).toBe('team');
-      expect(detected[0].keyword).toBe('ultrapilot');
-    });
-
-    it('should route legacy ultrapilot patterns to team', () => {
-      const patterns = [
-        'ultrapilot this project',
-        'parallel build the app',
-        'swarm build the system'
-      ];
-      for (const pattern of patterns) {
-        const detected = detectKeywordsWithType(pattern);
-        expect(detected.length).toBeGreaterThan(0);
-        const hasTeam = detected.some(d => d.type === 'team');
-        expect(hasTeam).toBe(true);
-      }
-    });
-
-    it('should route legacy swarm keyword to team (with dual-emission)', () => {
-      const detected = detectKeywordsWithType('swarm 5 agents to fix this');
-      expect(detected).toHaveLength(2);
-      expect(detected[0].type).toBe('swarm');
-      expect(detected[1].type).toBe('team');
-      expect(detected[0].keyword).toBe('swarm 5 agents');
-    });
-
-    it('should route coordinated agents pattern to team (with dual-emission)', () => {
-      const detected = detectKeywordsWithType('use coordinated agents');
-      expect(detected).toHaveLength(2);
-      expect(detected[0].type).toBe('swarm');
-      expect(detected[1].type).toBe('team');
-      expect(detected[0].keyword).toBe('coordinated agents');
-    });
-
-    it('should detect pipeline keyword', () => {
-      const detected = detectKeywordsWithType('use agent pipeline for this');
-      expect(detected).toHaveLength(1);
-      expect(detected[0].type).toBe('pipeline');
-      expect(detected[0].keyword).toBe('agent pipeline');
-    });
-
-    it('should detect chain agents pattern', () => {
-      const detected = detectKeywordsWithType('chain agents together');
-      expect(detected).toHaveLength(1);
-      expect(detected[0].type).toBe('pipeline');
-      expect(detected[0].keyword).toBe('chain agents');
+      expect(detected).toHaveLength(0);
     });
 
     it('should detect ralplan keyword', () => {
@@ -525,22 +478,19 @@ describe('Keyword Detector', () => {
       expect(ralphMatch!.keyword).toBe('ralph');
     });
 
-    it('should prioritize ultrapilot for legacy ultrapilot trigger', () => {
+    it('should return null for deprecated ultrapilot (#1131)', () => {
       const primary = getPrimaryKeyword('ultrapilot this task');
-      expect(primary).not.toBeNull();
-      expect(primary!.type).toBe('ultrapilot');
+      expect(primary).toBeNull();
     });
 
-    it('should prioritize team for legacy swarm trigger', () => {
+    it('should return null for deprecated swarm (#1131)', () => {
       const primary = getPrimaryKeyword('swarm 5 agents for this');
-      expect(primary).not.toBeNull();
-      expect(primary!.type).toBe('team');
+      expect(primary).toBeNull();
     });
 
-    it('should prioritize pipeline correctly', () => {
+    it('should return null for deprecated pipeline (#1131)', () => {
       const primary = getPrimaryKeyword('agent pipeline the task');
-      expect(primary).not.toBeNull();
-      expect(primary!.type).toBe('pipeline');
+      expect(primary).toBeNull();
     });
 
     it('should prioritize ralplan over plan', () => {
@@ -653,7 +603,7 @@ describe('Team staged workflow integration', () => {
       directory: testDir,
     });
 
-    expect(result.continue).toBe(true);
+    expect(result.continue).toBe(false);
     expect(result.message).toContain('[TEAM MODE CONTINUATION]');
     expect(result.message).toContain('team-verify');
     expect(result.message).toContain('Continue verification');
@@ -675,10 +625,32 @@ describe('Team staged workflow integration', () => {
       directory: testDir,
     });
 
-    expect(result.continue).toBe(true);
+    expect(result.continue).toBe(false);
     expect(result.message).toContain('[TEAM MODE CONTINUATION]');
     expect(result.message).toContain('team-fix');
     expect(result.message).toContain('fix loop');
+  });
+
+  it('skips Team stage continuation on authentication stop reasons', async () => {
+    writeFileSync(
+      join(testDir, '.omc', 'state', 'sessions', sessionId, 'team-state.json'),
+      JSON.stringify({
+        active: true,
+        session_id: sessionId,
+        stage: 'team-verify',
+        team_name: 'delivery-team'
+      })
+    );
+
+    const result = await processHook('persistent-mode', {
+      sessionId,
+      directory: testDir,
+      stopReason: 'oauth_expired',
+    } as HookInput);
+
+    expect(result.continue).toBe(true);
+    expect(result.message || '').not.toContain('[TEAM MODE CONTINUATION]');
+    expect(result.message || '').toContain('AUTHENTICATION ERROR');
   });
 
   it('allows terminal cleanup when Team stage is cancelled', async () => {

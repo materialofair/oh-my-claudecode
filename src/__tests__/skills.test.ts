@@ -8,9 +8,10 @@ describe('Builtin Skills', () => {
   });
 
   describe('createBuiltinSkills()', () => {
-    it('should return consistent total skill count (including aliases)', () => {
+    it('should return correct number of skills (38 including aliases)', () => {
       const skills = createBuiltinSkills();
-      expect(skills).toHaveLength(listBuiltinSkillNames({ includeAliases: true }).length);
+      // 38 entries: 37 canonical skills + 1 deprecated alias (psm)
+      expect(skills).toHaveLength(38);
     });
 
     it('should return an array of BuiltinSkill objects', () => {
@@ -61,6 +62,8 @@ describe('Builtin Skills', () => {
       const skills = createBuiltinSkills();
       const expectedSkills = [
         'analyze',
+        'ask-codex',
+        'ask-gemini',
         'autopilot',
         'build-fix',
         'cancel',
@@ -68,6 +71,7 @@ describe('Builtin Skills', () => {
         'code-review',
         'configure-notifications',
         'configure-openclaw',
+        'deep-interview',
         'deepinit',
         'omc-doctor',
         'external-context',
@@ -79,7 +83,6 @@ describe('Builtin Skills', () => {
         'note',
         'omc-setup',
         'omc-teams',
-        'pipeline',
         'omc-plan',
         'project-session-manager',
         'psm',
@@ -87,15 +90,12 @@ describe('Builtin Skills', () => {
         'ralph-init',
         'ralplan',
         'release',
-        'omc-review',
         'sciomc',
         'omc-security-review',
         'skill',
-        'swarm',
         'tdd',
         'team',
         'trace',
-        'ultrapilot',
         'ultraqa',
         'ultrawork',
         'writer-memory',
@@ -143,7 +143,9 @@ describe('Builtin Skills', () => {
     it('should return canonical skill names by default', () => {
       const names = listBuiltinSkillNames();
 
-      expect(names).toHaveLength(createBuiltinSkills().filter((s) => !s.aliasOf).length);
+      expect(names).toHaveLength(37);
+      expect(names).toContain('ask-codex');
+      expect(names).toContain('ask-gemini');
       expect(names).toContain('autopilot');
       expect(names).toContain('cancel');
       expect(names).toContain('ccg');
@@ -159,7 +161,7 @@ describe('Builtin Skills', () => {
       expect(names).toContain('hud');
       expect(names).toContain('note');
       expect(names).toContain('omc-setup');
-      expect(names).not.toContain('swarm');
+      expect(names).not.toContain('swarm'); // removed in #1131
       expect(names).not.toContain('psm');
     });
 
@@ -173,8 +175,9 @@ describe('Builtin Skills', () => {
     it('should include aliases when explicitly requested', () => {
       const names = listBuiltinSkillNames({ includeAliases: true });
 
-      expect(names).toHaveLength(createBuiltinSkills().length);
-      expect(names).toContain('swarm');
+      // swarm alias removed in #1131, psm still exists
+      expect(names).toHaveLength(38);
+      expect(names).not.toContain('swarm');
       expect(names).toContain('psm');
     });
   });

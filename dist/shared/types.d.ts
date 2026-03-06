@@ -18,50 +18,68 @@ export interface PluginConfig {
         omc?: {
             model?: string;
         };
-        architect?: {
-            model?: string;
-            enabled?: boolean;
-        };
-        researcher?: {
-            model?: string;
-        };
-        'document-specialist'?: {
-            model?: string;
-        };
         explore?: {
             model?: string;
         };
-        frontendEngineer?: {
-            model?: string;
-            enabled?: boolean;
-        };
-        documentWriter?: {
-            model?: string;
-            enabled?: boolean;
-        };
-        multimodalLooker?: {
-            model?: string;
-            enabled?: boolean;
-        };
-        critic?: {
-            model?: string;
-            enabled?: boolean;
-        };
         analyst?: {
             model?: string;
-            enabled?: boolean;
-        };
-        coordinator?: {
-            model?: string;
-            enabled?: boolean;
-        };
-        executor?: {
-            model?: string;
-            enabled?: boolean;
         };
         planner?: {
             model?: string;
-            enabled?: boolean;
+        };
+        architect?: {
+            model?: string;
+        };
+        debugger?: {
+            model?: string;
+        };
+        executor?: {
+            model?: string;
+        };
+        verifier?: {
+            model?: string;
+        };
+        qualityReviewer?: {
+            model?: string;
+        };
+        securityReviewer?: {
+            model?: string;
+        };
+        codeReviewer?: {
+            model?: string;
+        };
+        deepExecutor?: {
+            model?: string;
+        };
+        testEngineer?: {
+            model?: string;
+        };
+        buildFixer?: {
+            model?: string;
+        };
+        designer?: {
+            model?: string;
+        };
+        writer?: {
+            model?: string;
+        };
+        qaTester?: {
+            model?: string;
+        };
+        scientist?: {
+            model?: string;
+        };
+        gitMaster?: {
+            model?: string;
+        };
+        codeSimplifier?: {
+            model?: string;
+        };
+        critic?: {
+            model?: string;
+        };
+        documentSpecialist?: {
+            model?: string;
         };
     };
     features?: {
@@ -70,6 +88,7 @@ export interface PluginConfig {
         astTools?: boolean;
         continuationEnforcement?: boolean;
         autoContextInjection?: boolean;
+        harshCritic?: boolean;
     };
     mcpServers?: {
         exa?: {
@@ -97,6 +116,13 @@ export interface PluginConfig {
         enabled?: boolean;
         /** Default tier when no rules match */
         defaultTier?: 'LOW' | 'MEDIUM' | 'HIGH';
+        /**
+         * Force all agents to inherit the parent model instead of using OMC model routing.
+         * When true, the `model` parameter is stripped from all Task calls so agents use
+         * the user's Claude Code model setting. Overrides all per-agent model recommendations.
+         * Env: OMC_ROUTING_FORCE_INHERIT=true
+         */
+        forceInherit?: boolean;
         /** Enable automatic escalation on failure */
         escalationEnabled?: boolean;
         /** Maximum escalation attempts */
@@ -112,6 +138,21 @@ export interface PluginConfig {
             tier: 'LOW' | 'MEDIUM' | 'HIGH';
             reason: string;
         }>;
+        /**
+         * Model alias overrides.
+         *
+         * Maps agent-definition model tier names to replacement values.
+         * Checked AFTER explicit model params (highest priority) but BEFORE
+         * agent-definition defaults (lowest priority).
+         *
+         * Use cases:
+         * - `{ haiku: 'inherit' }` — haiku agents inherit the parent model
+         *   (useful on non-Anthropic backends without the nuclear forceInherit)
+         * - `{ haiku: 'sonnet' }` — promote all haiku agents to sonnet tier
+         *
+         * Env: OMC_MODEL_ALIAS_HAIKU, OMC_MODEL_ALIAS_SONNET, OMC_MODEL_ALIAS_OPUS
+         */
+        modelAliases?: Partial<Record<'haiku' | 'sonnet' | 'opus', ModelType>>;
         /** Keywords that force escalation to higher tier */
         escalationKeywords?: string[];
         /** Keywords that suggest lower tier */
@@ -126,6 +167,29 @@ export interface PluginConfig {
         maxFiles?: number;
         /** Maximum directory depth to scan. Default: 4 */
         maxDepth?: number;
+    };
+    guards?: {
+        factcheck?: {
+            enabled?: boolean;
+            mode?: 'strict' | 'declared' | 'manual' | 'quick';
+            strict_project_patterns?: string[];
+            forbidden_path_prefixes?: string[];
+            forbidden_path_substrings?: string[];
+            readonly_command_prefixes?: string[];
+            warn_on_cwd_mismatch?: boolean;
+            enforce_cwd_parity_in_quick?: boolean;
+            warn_on_unverified_gates?: boolean;
+            warn_on_unverified_gates_when_no_source_files?: boolean;
+        };
+        sentinel?: {
+            enabled?: boolean;
+            readiness?: {
+                min_pass_rate?: number;
+                max_timeout_rate?: number;
+                max_warn_plus_fail_rate?: number;
+                min_reason_coverage_rate?: number;
+            };
+        };
     };
     taskSizeDetection?: {
         /** Enable task-size detection to prevent over-orchestration for small tasks. Default: true */

@@ -8,9 +8,23 @@
   "plugins": [
     {
       "name": "oh-my-claudecode",
-      "description": "Multi-agent orchestration system for Claude Code",
-      "source": ".",
-      "category": "development"
+      "description": "Claude Code native multi-agent orchestration with intelligent model routing, 28 agent variants, and 32 powerful skills. Zero learning curve. Maximum power.",
+      "version": "4.7.1",
+      "author": {
+        "name": "Yeachan Heo",
+        "email": "hurrc04@gmail.com"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/Yeachan-Heo/oh-my-claudecode",
+      "tags": [
+        "multi-agent",
+        "orchestration",
+        "delegation",
+        "todo-management",
+        "ultrawork"
+      ]
     }
-  ]
+  ],
+  "version": "4.7.3"
 }

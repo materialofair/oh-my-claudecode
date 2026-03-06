@@ -6,6 +6,7 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmodSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -57,6 +58,7 @@ function semverCompare(a, b) {
 
 async function main() {
   const home = homedir();
+  let pluginCacheDir = null;
 
   // 1. Try plugin cache first (marketplace: omc, plugin: oh-my-claudecode)
   // Respect CLAUDE_CONFIG_DIR so installs under a custom config dir are found
@@ -66,13 +68,17 @@ async function main() {
     try {
       const versions = readdirSync(pluginCacheBase);
       if (versions.length > 0) {
+        const sortedVersions = versions.sort(semverCompare).reverse();
+        pluginCacheDir = join(pluginCacheBase, sortedVersions[0]);
+
         // Filter to only versions with built dist/hud/index.js
-        const builtVersions = versions.filter(v => {
+        const builtVersions = sortedVersions.filter(v => {
           const hudPath = join(pluginCacheBase, v, "dist/hud/index.js");
           return existsSync(hudPath);
         });
         if (builtVersions.length > 0) {
-          const latestBuilt = builtVersions.sort(semverCompare).reverse()[0];
+          const latestBuilt = builtVersions[0];
+          pluginCacheDir = join(pluginCacheBase, latestBuilt);
           const pluginPath = join(pluginCacheBase, latestBuilt, "dist/hud/index.js");
           await import(pathToFileURL(pluginPath).href);
           return;
@@ -98,8 +104,19 @@ async function main() {
     }
   }
 
-  // 3. Fallback
-  console.log("[OMC] run /omc-setup to install properly");
+  // 3. Fallback: provide targeted repair guidance
+  if (pluginCacheDir && existsSync(pluginCacheDir)) {
+    const distDir = join(pluginCacheDir, "dist");
+    if (!existsSync(distDir)) {
+      console.log(\`[OMC HUD] Plugin installed but not built. Run: cd "\${pluginCacheDir}" && npm install && npm run build\`);
+    } else {
+      console.log(\`[OMC HUD] Plugin HUD load failed. Run: cd "\${pluginCacheDir}" && npm install && npm run build\`);
+    }
+  } else if (existsSync(pluginCacheBase)) {
+    console.log("[OMC HUD] Plugin cache found but no versions installed. Run: /oh-my-claudecode:omc-setup");
+  } else {
+    console.log("[OMC HUD] Plugin not installed. Run: /oh-my-claudecode:omc-setup");
+  }
 }
 
 main();
@@ -206,6 +223,31 @@ try {
   }
 } catch (e) {
   console.log('[OMC] Warning: Could not patch hooks.json:', e.message);
+}
+
+// 5. Ensure runtime dependencies are installed in the plugin cache directory.
+//    The npm-published tarball includes only the files listed in "files" (package.json),
+//    which does NOT include node_modules.  When Claude Code extracts the plugin into its
+//    cache the dependencies are therefore missing, causing ERR_MODULE_NOT_FOUND at runtime.
+//    We detect this by probing for a known production dependency (commander) and running a
+//    production-only install when it is absent.  --ignore-scripts avoids re-triggering this
+//    very setup script (and any other lifecycle hooks).  Fixes #1113.
+const packageDir = join(__dirname, '..');
+const commanderCheck = join(packageDir, 'node_modules', 'commander');
+if (!existsSync(commanderCheck)) {
+  console.log('[OMC] Installing runtime dependencies...');
+  try {
+    execSync('npm install --omit=dev --ignore-scripts', {
+      cwd: packageDir,
+      stdio: 'pipe',
+      timeout: 60000,
+    });
+    console.log('[OMC] Runtime dependencies installed successfully');
+  } catch (e) {
+    console.log('[OMC] Warning: Could not install dependencies:', e.message);
+  }
+} else {
+  console.log('[OMC] Runtime dependencies already present');
 }
 
 console.log('[OMC] Setup complete! Restart Claude Code to activate HUD.');

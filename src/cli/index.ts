@@ -50,6 +50,7 @@ import {
   waitDetectCommand
 } from './commands/wait.js';
 import { doctorConflictsCommand } from './commands/doctor-conflicts.js';
+import { teamCommand } from './commands/team.js';
 import {
   teleportCommand,
   teleportListCommand,
@@ -59,6 +60,7 @@ import {
 import { getRuntimePackageVersion } from '../lib/version.js';
 import { launchCommand } from './launch.js';
 import { interopCommand } from './interop.js';
+import { askCommand, ASK_USAGE } from './ask.js';
 import { warnIfWin32 } from './win32-warning.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +79,7 @@ async function defaultAction() {
   const args = process.argv.slice(2);
   await launchCommand(args);
 }
+
 
 program
   .name('omc')
@@ -126,6 +129,18 @@ Requirements:
   - Codex CLI recommended (graceful fallback if missing)`)
   .action(() => {
     interopCommand();
+  });
+
+/**
+ * Ask command - Run provider advisor prompt (claude|gemini)
+ */
+program
+  .command('ask [args...]')
+  .description('Run provider advisor prompt and write an ask artifact')
+  .allowUnknownOption()
+  .addHelpText('after', `\n${ASK_USAGE}`)
+  .action(async (args: string[]) => {
+    await askCommand(args || []);
   });
 
 /**
@@ -186,30 +201,41 @@ Examples:
       // Main orchestrator - uses the most capable model
       "model": "${modelHigh}"
     },
-    "architect": {
-      // Architecture and debugging expert
-      "model": "${modelHigh}",
-      "enabled": true
-    },
-    "researcher": {
-      // Documentation and codebase analysis
-      "model": "${modelMedium}"
-    },
     "explore": {
       // Fast pattern matching - uses fastest model
       "model": "${modelLow}"
     },
-    "frontendEngineer": {
-      "model": "${modelMedium}",
-      "enabled": true
+    "analyst": {
+      // Requirements analysis and acceptance criteria
+      "model": "${modelHigh}"
     },
-    "documentWriter": {
-      "model": "${modelLow}",
-      "enabled": true
+    "planner": {
+      // Strategic task sequencing and execution plans
+      "model": "${modelHigh}"
     },
-    "multimodalLooker": {
-      "model": "${modelMedium}",
-      "enabled": true
+    "architect": {
+      // System design, boundaries, interfaces
+      "model": "${modelHigh}"
+    },
+    "debugger": {
+      // Root-cause analysis, regression isolation
+      "model": "${modelMedium}"
+    },
+    "executor": {
+      // Code implementation, refactoring
+      "model": "${modelMedium}"
+    },
+    "verifier": {
+      // Completion evidence, claim validation
+      "model": "${modelMedium}"
+    },
+    "critic": {
+      // Plan/design critical challenge
+      "model": "${modelHigh}"
+    },
+    "writer": {
+      // Docs, migration notes, user guidance
+      "model": "${modelLow}"
     }
   },
 
@@ -1165,6 +1191,7 @@ waitCmd
     });
   });
 
+
 /**
  * Teleport command - Quick worktree creation
  *
@@ -1388,6 +1415,24 @@ program
     } else {
       await hudMain();
     }
+  });
+
+/**
+ * Team command - CLI API for team worker lifecycle operations
+ * Exposes OMC's `omc team api` interface.
+ *
+ * helpOption(false) prevents commander from intercepting --help;
+ * our teamCommand handler provides its own help output.
+ */
+program
+  .command('team')
+  .description('Team CLI API for worker lifecycle operations')
+  .helpOption(false)
+  .allowUnknownOption(true)
+  .allowExcessArguments(true)
+  .argument('[args...]', 'team subcommand arguments')
+  .action(async (args: string[]) => {
+    await teamCommand(args);
   });
 
 // Parse arguments

@@ -22,6 +22,7 @@ export type {
   DiscordBotNotificationConfig,
   TelegramNotificationConfig,
   SlackNotificationConfig,
+  SlackBotNotificationConfig,
   WebhookNotificationConfig,
   EventNotificationConfig,
 } from "./types.js";
@@ -38,6 +39,7 @@ export {
   sendDiscordBot,
   sendTelegram,
   sendSlack,
+  sendSlackBot,
   sendWebhook,
 } from "./dispatcher.js";
 export {
@@ -75,6 +77,19 @@ export {
   validateTemplate,
   computeTemplateVariables,
 } from "./template-engine.js";
+export {
+  verifySlackSignature,
+  isTimestampValid,
+  validateSlackEnvelope,
+  validateSlackMessage,
+  SlackConnectionStateTracker,
+} from "./slack-socket.js";
+export type {
+  SlackConnectionState,
+  SlackValidationResult,
+  SlackSocketEnvelope,
+} from "./slack-socket.js";
+export { redactTokens } from "./redact.js";
 
 import type {
   NotificationEvent,
@@ -155,6 +170,9 @@ export async function notify(
       incompleteTasks: data.incompleteTasks,
       agentName: data.agentName,
       agentType: data.agentType,
+      replyChannel: data.replyChannel ?? process.env.OPENCLAW_REPLY_CHANNEL ?? undefined,
+      replyTarget: data.replyTarget ?? process.env.OPENCLAW_REPLY_TARGET ?? undefined,
+      replyThread: data.replyThread ?? process.env.OPENCLAW_REPLY_THREAD ?? undefined,
     };
 
     // Capture tmux tail for events that benefit from it
@@ -186,7 +204,7 @@ export async function notify(
       const hookConfig = getHookConfig();
       if (hookConfig?.enabled) {
         const platforms: NotificationPlatform[] = [
-          "discord", "discord-bot", "telegram", "slack", "webhook",
+          "discord", "discord-bot", "telegram", "slack", "slack-bot", "webhook",
         ];
         const map = new Map<NotificationPlatform, string>();
         for (const platform of platforms) {
@@ -217,7 +235,7 @@ export async function notify(
           if (
             r.success &&
             r.messageId &&
-            (r.platform === "discord-bot" || r.platform === "telegram")
+            (r.platform === "discord-bot" || r.platform === "telegram" || r.platform === "slack-bot")
           ) {
             registerMessage({
               platform: r.platform,
@@ -246,3 +264,53 @@ export async function notify(
     return null;
   }
 }
+
+// ============================================================================
+// CUSTOM INTEGRATION EXPORTS (Added for Notification Refactor)
+// ============================================================================
+
+export type {
+  CustomIntegration,
+  CustomIntegrationType,
+  WebhookIntegrationConfig,
+  CliIntegrationConfig,
+  CustomIntegrationsConfig,
+  ExtendedNotificationConfig,
+} from "./types.js";
+
+export {
+  sendCustomWebhook,
+  sendCustomCli,
+  dispatchCustomIntegrations,
+} from "./dispatcher.js";
+
+export {
+  getCustomIntegrationsConfig,
+  getCustomIntegrationsForEvent,
+  hasCustomIntegrationsEnabled,
+  detectLegacyOpenClawConfig,
+  migrateLegacyOpenClawConfig,
+} from "./config.js";
+
+export {
+  CUSTOM_INTEGRATION_PRESETS,
+  getPresetList,
+  getPreset,
+  isValidPreset,
+  type PresetConfig,
+  type PresetName,
+} from "./presets.js";
+
+export {
+  TEMPLATE_VARIABLES,
+  getVariablesForEvent,
+  getVariableDocumentation,
+  type TemplateVariableName,
+} from "./template-variables.js";
+
+export {
+  validateCustomIntegration,
+  checkDuplicateIds,
+  sanitizeArgument,
+  type ValidationResult,
+} from "./validation.js";

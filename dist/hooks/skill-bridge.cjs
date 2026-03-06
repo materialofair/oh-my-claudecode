@@ -35,12 +35,13 @@ __export(bridge_exports, {
 module.exports = __toCommonJS(bridge_exports);
 var import_fs2 = require("fs");
 var import_path2 = require("path");
-var import_os = require("os");
+var import_os2 = require("os");
 
 // src/lib/worktree-paths.ts
 var import_crypto = require("crypto");
 var import_child_process = require("child_process");
 var import_fs = require("fs");
+var import_os = require("os");
 var import_path = require("path");
 var OmcPaths = {
   ROOT: ".omc",
@@ -55,23 +56,25 @@ var OmcPaths = {
   LOGS: ".omc/logs",
   SCIENTIST: ".omc/scientist",
   AUTOPILOT: ".omc/autopilot",
-  SKILLS: ".omc/skills"
+  SKILLS: ".omc/skills",
+  SHARED_MEMORY: ".omc/state/shared-memory"
 };
 
 // src/hooks/learner/bridge.ts
 var USER_SKILLS_DIR = (0, import_path2.join)(
-  (0, import_os.homedir)(),
+  (0, import_os2.homedir)(),
   ".claude",
   "skills",
   "omc-learned"
 );
-var GLOBAL_SKILLS_DIR = (0, import_path2.join)((0, import_os.homedir)(), ".omc", "skills");
+var GLOBAL_SKILLS_DIR = (0, import_path2.join)((0, import_os2.homedir)(), ".omc", "skills");
 var PROJECT_SKILLS_SUBDIR = OmcPaths.SKILLS;
 var SKILL_EXTENSION = ".md";
 var SESSION_TTL_MS = 60 * 60 * 1e3;
 var MAX_RECURSION_DEPTH = 10;
 var LEVENSHTEIN_CACHE_SIZE = 1e3;
 var SKILL_CACHE_TTL_MS = 30 * 1e3;
+var MAX_CACHE_ENTRIES = 50;
 var levenshteinCache = /* @__PURE__ */ new Map();
 function getCachedLevenshtein(str1, str2) {
   const key = str1 < str2 ? `${str1}|${str2}` : `${str2}|${str1}`;
@@ -97,6 +100,8 @@ function getSkillMetadataCache(projectRoot) {
   const cached = skillMetadataCache.get(projectRoot);
   const now = Date.now();
   if (cached && now - cached.timestamp < SKILL_CACHE_TTL_MS) {
+    skillMetadataCache.delete(projectRoot);
+    skillMetadataCache.set(projectRoot, cached);
     return cached.skills;
   }
   const candidates = findSkillFiles(projectRoot);
@@ -120,6 +125,10 @@ function getSkillMetadataCache(projectRoot) {
       });
     } catch {
     }
+  }
+  if (skillMetadataCache.size >= MAX_CACHE_ENTRIES) {
+    const firstKey = skillMetadataCache.keys().next().value;
+    if (firstKey !== void 0) skillMetadataCache.delete(firstKey);
   }
   skillMetadataCache.set(projectRoot, { skills, timestamp: now });
   return skills;
