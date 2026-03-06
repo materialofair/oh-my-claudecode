@@ -13,6 +13,10 @@ Generate comprehensive tests for code files with automatic tech stack detection 
 /test-gen <file-path>
 /test-gen src/components/Button.tsx
 /test-gen src/utils/math.ts --coverage-analysis
+/test-gen src/utils/math.py
+/test-gen pkg/math/math.go
+/test-gen src/math.rs
+/test-gen api/openapi.yaml --contract
 ```
 
 ## Workflow
@@ -22,12 +26,18 @@ Generate comprehensive tests for code files with automatic tech stack detection 
 Use the `omc test detect-stack` command to identify:
 - Frontend framework (React/Vue/Svelte)
 - Backend language (Node.js/Python/Go/Rust)
-- Test frameworks (Vitest/Jest/pytest)
+- Test frameworks (Vitest/Jest/pytest/Go testing/cargo test)
 - Databases and API types
+
+Supported detection methods:
+- **Node.js**: package.json parsing
+- **Python**: requirements.txt / pyproject.toml
+- **Go**: go.mod
+- **Rust**: Cargo.toml
 
 ### Step 2: Analyze Code Complexity
 
-Determine if code is "simple" or "complex":
+Run complexity analysis to determine routing:
 
 **Simple (auto-generate tests)**:
 - Function lines < 50
@@ -40,25 +50,57 @@ Determine if code is "simple" or "complex":
 - Multi-step workflows
 - External service dependencies
 - Async/concurrent scenarios
+- Database transactions
 
-### Step 3: Generate Tests
+Complexity metrics calculated:
+- Lines of code
+- Cyclomatic complexity (branches, loops, ternaries)
+- Maximum nesting depth
+- External dependency count
+
+### Step 3: Route to Appropriate Generator
+
+Based on detected language and complexity:
+
+| Language | Simple | Complex |
+|----------|--------|---------|
+| Node.js/TypeScript | `omc test gen` -> Vitest/Jest tests | Delegate to `test-engineer` |
+| React | `omc test gen` -> Component tests | Delegate to `test-engineer` |
+| Python | `omc test gen` -> pytest/unittest tests | Delegate to `test-engineer` |
+| Go | `omc test gen` -> Table-driven tests | Delegate to `test-engineer` |
+| Rust | `omc test gen` -> #[test] module | Delegate to `test-engineer` |
+
+### Step 4: Generate Tests
+
+### Step 4: Generate Tests
 
 For simple code:
 - Call `omc test gen <file>` directly
+- Routes to language-specific generator (Node.js, Python, Go, Rust)
 - Review generated tests
 - Commit
 
 For complex code:
 - Generate test framework with `omc test gen <file>`
-- Delegate to enhanced `test-engineer` agent for detailed test cases
+- Delegate to enhanced `test-engineer` agent with enriched context (tech stack, complexity metrics, suggested approach)
 - Prompt user for business logic validation
 
-### Step 4: Coverage Analysis (Optional)
+### Step 5: Coverage Analysis (Optional)
 
 If `--coverage-analysis` flag is provided:
-- Run coverage tools
-- Identify missing test scenarios
-- Generate supplementary tests
+- Run coverage tools (c8/nyc for Node.js)
+- Parse coverage reports and identify gaps
+- Analyze reasons for uncovered code (error handling, branches, null checks)
+- Generate supplementary tests targeting gaps
+- Re-run coverage to verify improvement
+
+### Step 6: Contract Testing (Optional)
+
+If `--contract` flag is provided or file is an OpenAPI spec:
+- Parse OpenAPI/Swagger specification
+- Generate contract tests using Pact, Supertest, or MSW
+- Create consumer-driven contract tests for each endpoint
+- Include request/response validation
 
 ## Integration with Other Skills
 
@@ -149,6 +191,94 @@ Agent: Generating supplementary tests...
 
 Agent: Re-running coverage...
 📊 New coverage: 92%
+
+Would you like me to commit these tests?
+```
+
+### Example 4: Python Test Generation
+
+```
+User: /test-gen src/calculator.py
+
+Agent: Detecting tech stack...
+✅ Detected: Python + pytest
+
+Agent: Analyzing complexity...
+✅ Simple module (30 lines, no external deps)
+
+Agent: Generating tests...
+✅ Generated: tests/test_calculator.py
+
+Tests include:
+- test_add
+- test_subtract
+- test_multiply
+- test_divide
+- test_divide_by_zero
+
+Would you like me to commit these tests?
+```
+
+### Example 5: Go Test Generation
+
+```
+User: /test-gen pkg/math/math.go
+
+Agent: Detecting tech stack...
+✅ Detected: Go + testing package
+
+Agent: Analyzing complexity...
+✅ Simple package (40 lines, no external deps)
+
+Agent: Generating tests...
+✅ Generated: pkg/math/math_test.go
+
+Tests include:
+- TestAdd (table-driven with 3 cases)
+- TestSubtract (table-driven with 3 cases)
+- TestMultiply (table-driven with 3 cases)
+
+Would you like me to commit these tests?
+```
+
+### Example 6: Rust Test Generation
+
+```
+User: /test-gen src/math.rs
+
+Agent: Detecting tech stack...
+✅ Detected: Rust + cargo test
+
+Agent: Analyzing complexity...
+✅ Simple module (35 lines, no external deps)
+
+Agent: Generating tests...
+✅ Generated: test module appended to src/math.rs
+
+Tests include:
+- test_add
+- test_subtract
+- test_calculator_new
+
+Would you like me to commit these tests?
+```
+
+### Example 7: Contract Testing
+
+```
+User: /test-gen api/openapi.yaml --contract
+
+Agent: Parsing OpenAPI specification...
+✅ Found 4 endpoints
+
+Agent: Generating contract tests...
+✅ Generated: tests/contract/api.pact.test.ts
+
+Contract tests:
+- GET /users/{id} -> 200 (User found)
+- POST /users -> 201 (User created)
+- PUT /users/{id} -> 200 (User updated)
+- DELETE /users/{id} -> 204 (User deleted)
 
 Would you like me to commit these tests?
 ```

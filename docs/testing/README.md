@@ -18,11 +18,27 @@ Or use the skill:
 
 ## Features
 
-- **Automatic tech stack detection**: Identifies React, Vue, Svelte, Node.js, and more
-- **Complexity analysis**: Determines if code is simple or complex
+- **Automatic tech stack detection**: Identifies React, Vue, Svelte, Node.js, Python, Go, Rust, and more
+- **Complexity analysis**: Determines if code is simple or complex with cyclomatic complexity metrics
 - **Smart test generation**: Creates appropriate tests based on code patterns
-- **Coverage analysis**: Identifies missing test scenarios
-- **Framework support**: Vitest, Jest, React Testing Library
+- **Coverage analysis**: Identifies missing test scenarios and generates supplementary tests
+- **Multi-language support**: Node.js, Python (pytest), Go (testing), Rust (cargo test)
+- **Contract testing**: Generate API contract tests from OpenAPI specs
+- **Framework support**: Vitest, Jest, React Testing Library, pytest, unittest, Go testing, cargo test
+- **UltraQA integration**: Automatic test generation in QA cycles
+
+## Phase 2 Features (NEW)
+
+Phase 2 adds advanced capabilities:
+
+- **Coverage Analysis**: Identify and fill coverage gaps
+- **Multi-Language**: Python, Go, Rust support
+- **Complexity Analysis**: Smart classification of code complexity
+- **Contract Testing**: API contract tests from OpenAPI specs
+- **Enhanced Agent**: Test-engineer with enriched context
+- **UltraQA Integration**: Automatic test generation in QA cycles
+
+See [Phase 2 Documentation](./PHASE2.md) for details.
 
 ## Architecture
 
@@ -30,14 +46,27 @@ Or use the skill:
 src/testing/
 ├── index.ts              # Main module exports
 ├── types.ts              # TypeScript interfaces
+├── analyzers/
+│   ├── coverage.ts       # Coverage analysis
+│   ├── complexity.ts     # Complexity analysis
+│   └── types.ts          # Analyzer types
 ├── cli/
-│   └── commands.ts       # CLI command implementations
+│   ├── commands.ts       # CLI command implementations
+│   ├── agent-integration.ts  # Test-engineer integration
+│   └── ultraqa-integration.ts  # UltraQA integration
 ├── detectors/
-│   ├── index.ts          # Tech stack detection orchestrator
-│   └── package-json.ts   # package.json parser
+│   ├── index.ts          # Multi-language detection orchestrator
+│   ├── package-json.ts   # package.json parser (Node.js)
+│   ├── python.ts         # Python detection (requirements.txt/pyproject.toml)
+│   ├── go.ts             # Go detection (go.mod)
+│   └── rust.ts           # Rust detection (Cargo.toml)
 └── generators/
     ├── react.ts          # React component test generator
-    └── nodejs.ts         # Node.js function test generator
+    ├── nodejs.ts         # Node.js function test generator
+    ├── python.ts         # Python pytest/unittest test generator
+    ├── go.ts             # Go table-driven test generator
+    ├── rust.ts           # Rust cargo test generator
+    └── contract.ts       # API contract test generator
 ```
 
 ## CLI Commands
@@ -48,7 +77,7 @@ src/testing/
 omc test gen <file> [--output <path>]
 ```
 
-Generates tests for the specified file.
+Generates tests for the specified file. Supports `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, and `.rs` files.
 
 **Options:**
 - `--output <path>`: Specify custom output path for test file
@@ -60,6 +89,15 @@ omc test gen src/components/Button.tsx
 
 # Generate test with custom output path
 omc test gen src/utils/math.ts --output tests/utils/math.test.ts
+
+# Generate Python test
+omc test gen src/utils/math.py
+
+# Generate Go test
+omc test gen pkg/math/math.go
+
+# Generate Rust test
+omc test gen src/math.rs
 ```
 
 ### Detect Tech Stack
@@ -72,10 +110,43 @@ Displays the detected tech stack for the current project.
 
 **Output includes:**
 - Frontend framework (React/Vue/Svelte)
-- Backend language (Node.js)
-- Test frameworks (Vitest/Jest)
+- Backend language (Node.js/Python/Go/Rust)
+- Test frameworks (Vitest/Jest/pytest/Go testing/cargo test)
 - Databases (PostgreSQL/MySQL/MongoDB)
 - API types (REST/GraphQL/gRPC)
+
+### Analyze Coverage
+
+```bash
+omc test analyze
+```
+
+Analyzes test coverage and identifies gaps in the current project.
+
+**Output includes:**
+- Overall, line, function, and branch coverage percentages
+- List of coverage gaps with file, line range, and reason
+- Option to generate supplementary tests for gaps
+
+### Contract Testing
+
+```bash
+omc test contract <spec-file> [--framework <pact|supertest|msw>]
+```
+
+Generates API contract tests from an OpenAPI specification.
+
+**Options:**
+- `--framework <name>`: Choose contract test framework (default: `supertest`)
+
+**Examples:**
+```bash
+# Generate Pact contract tests
+omc test contract api/openapi.yaml --framework=pact
+
+# Generate Supertest contract tests
+omc test contract api/openapi.yaml --framework=supertest
+```
 
 ## Skill Usage
 
@@ -110,10 +181,10 @@ The `/test-gen` skill provides a higher-level interface with automatic complexit
   - React Testing Library integration
 
 - **Vue** (with Vitest)
-  - Coming in Phase 2
+  - Coming in Phase 3
 
 - **Svelte** (with Vitest)
-  - Coming in Phase 2
+  - Coming in Phase 3
 
 ### Backend
 - **Node.js** (with Vitest or Jest)
@@ -121,12 +192,42 @@ The `/test-gen` skill provides a higher-level interface with automatic complexit
   - Express/Fastify route tests
   - Async function tests
 
-### Coming Soon (Phase 2)
-- Python (pytest)
-- Go (testing package)
-- Rust (cargo test)
-- Integration tests
+- **Python** (with pytest or unittest)
+  - Function and class tests
+  - Async test support (pytest-asyncio)
+  - Auto-detection via requirements.txt/pyproject.toml
+
+- **Go** (with testing package)
+  - Table-driven tests
+  - Struct method tests
+  - Auto-detection via go.mod
+
+- **Rust** (with cargo test)
+  - #[test] attribute tests
+  - Struct impl tests
+  - Auto-detection via Cargo.toml
+
+### Supported Languages
+
+| Language | Test Framework | Detection | Status |
+|----------|---------------|-----------|--------|
+| Node.js/TypeScript | Vitest, Jest | package.json | Available |
+| React | Vitest + Testing Library | package.json | Available |
+| Python | pytest, unittest | requirements.txt, pyproject.toml | Available |
+| Go | testing package | go.mod | Available |
+| Rust | cargo test | Cargo.toml | Available |
+| Vue | Vitest | package.json | Phase 3 |
+| Svelte | Vitest | package.json | Phase 3 |
+
+### Contract Testing
+- **Pact**: Consumer-driven contract testing from OpenAPI specs
+- **Supertest**: REST API contract tests
+- **MSW**: Mock Service Worker handlers
+
+### Coming Soon (Phase 3)
+- Vue/Svelte component tests
 - E2E tests (Playwright/Cypress)
+- Giskard behavior testing
 
 ## Examples
 
@@ -192,6 +293,84 @@ Test-Engineer: I'll need some information:
 4. Are there specific edge cases to cover?
 ```
 
+### Example 4: Python Test Generation
+
+```bash
+$ omc test gen src/calculator.py
+
+Detected: Python + pytest
+Generated: tests/test_calculator.py
+
+Tests include:
+- test_add
+- test_subtract
+- test_multiply
+- test_divide
+```
+
+### Example 5: Go Test Generation
+
+```bash
+$ omc test gen pkg/math/math.go
+
+Detected: Go + testing package
+Generated: pkg/math/math_test.go
+
+Tests include:
+- TestAdd (table-driven)
+- TestSubtract (table-driven)
+- TestMultiply (table-driven)
+```
+
+### Example 6: Rust Test Generation
+
+```bash
+$ omc test gen src/math.rs
+
+Detected: Rust + cargo test
+Generated: test module in src/math.rs
+
+Tests include:
+- test_add
+- test_subtract
+- test_new (struct constructor)
+```
+
+### Example 7: Coverage Analysis
+
+```bash
+$ omc test analyze
+
+Coverage Analysis:
+- Overall: 75%
+- Lines: 75%
+- Functions: 90%
+- Branches: 70%
+
+Coverage Gaps:
+1. src/utils/validation.ts (lines 42-48)
+   Reason: Error handling not covered
+
+2. src/services/payment.ts (lines 67-72)
+   Reason: Edge case for retries
+
+Generate tests for gaps? (y/n)
+```
+
+### Example 8: Contract Testing
+
+```bash
+$ omc test contract api/openapi.yaml --framework=pact
+
+Generated: tests/contract/frontend-backend.pact.test.ts
+
+Contract tests:
+- GET /users/{id}
+- POST /users
+- PUT /users/{id}
+- DELETE /users/{id}
+```
+
 ## Integration with Other Skills
 
 ### With `/tdd` Skill
@@ -221,15 +400,19 @@ autopilot: build a REST API for tasks
 
 ### With `/ultraqa` Skill
 
-Test-gen provides the initial test suite for QA cycling:
+UltraQA now includes automatic test generation and coverage-driven iteration:
 
 ```bash
-# Generate tests
-/test-gen src/api/users.ts
-
-# Run QA cycle
+# Generate tests and run QA cycle
 /ultraqa src/api/users.ts
 ```
+
+Enhanced workflow:
+1. Identify files needing tests
+2. Generate missing tests via `/test-gen`
+3. Run tests and analyze coverage
+4. Generate supplementary tests for coverage gaps
+5. Repeat until coverage threshold met (default: 80%)
 
 ## Development
 
@@ -264,9 +447,9 @@ pnpm build
 **Issue**: `omc test gen` fails with "Unsupported file type"
 
 **Solution**: Check that:
-- File extension is supported (.tsx, .jsx, .ts, .js)
+- File extension is supported (.tsx, .jsx, .ts, .js, .py, .go, .rs)
 - Tech stack is detected correctly (`omc test detect-stack`)
-- package.json includes required test framework
+- Project has the required config file (package.json, requirements.txt, go.mod, or Cargo.toml)
 
 ### Generated tests don't match project style
 
@@ -279,35 +462,51 @@ pnpm build
 
 ### Coverage analysis not working
 
-**Issue**: `--coverage-analysis` flag has no effect
+**Issue**: `omc test analyze` shows no results
 
-**Solution**: Coverage analysis is planned for Phase 2. Current version generates tests based on code analysis only.
+**Solution**: Ensure that:
+- A coverage report exists (run tests with coverage first, e.g., `npx c8 vitest run`)
+- The project uses c8 or nyc for coverage reporting
+- Coverage data is in a supported format (JSON summary)
+
+### Multi-language detection fails
+
+**Issue**: `omc test gen` doesn't detect the correct language
+
+**Solution**: Ensure the project has the expected config files:
+- Python: `requirements.txt` or `pyproject.toml`
+- Go: `go.mod`
+- Rust: `Cargo.toml`
+- Node.js: `package.json`
 
 ## Roadmap
 
-### Phase 1 (Current)
+### Phase 1 (Complete)
 - ✅ React component test generation
 - ✅ Node.js function test generation
 - ✅ Tech stack detection
 - ✅ CLI commands
 - ✅ `/test-gen` skill
 
-### Phase 2 (Planned)
-- Python test generation (pytest)
-- Go test generation (testing package)
-- Rust test generation (cargo test)
-- Integration test generation
-- E2E test generation (Playwright/Cypress)
-- Advanced complexity analysis with AST parsing
-- LLM-powered test case suggestions
-- Test quality scoring
+### Phase 2 (Complete)
+- ✅ Coverage analysis and gap identification
+- ✅ Python test generation (pytest/unittest)
+- ✅ Go test generation (table-driven tests)
+- ✅ Rust test generation (cargo test)
+- ✅ Complexity analysis with cyclomatic complexity metrics
+- ✅ Contract testing from OpenAPI specs (Pact/Supertest/MSW)
+- ✅ Enhanced test-engineer agent integration
+- ✅ UltraQA integration with automatic test generation
+- ✅ Multi-language CLI support with auto-detection
 
-### Phase 3 (Future)
-- Promptfoo integration
-- LLM evaluation test generation
-- Regression test suite for prompts
-- Performance benchmarking
-- Multi-model comparison
+### Phase 3 (Planned)
+- Giskard integration for behavior testing
+- E2E test generation (Playwright/Cypress)
+- CI/CD integration (GitHub Actions)
+- Ralph mode test-fix-verify loops
+- Autopilot automatic testing
+- Performance optimization
+- Vue/Svelte component test generation
 
 ## Contributing
 

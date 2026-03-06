@@ -313,11 +313,26 @@ Tag behavior:
 
 ## Testing
 
-oh-my-claudecode includes an intelligent test generation system:
+oh-my-claudecode now supports advanced test generation across multiple languages:
 
 ```bash
-# Generate tests for a file
-omc test gen src/components/Button.tsx
+# Node.js/TypeScript
+omc test gen src/utils/math.ts
+
+# Python
+omc test gen src/utils/math.py
+
+# Go
+omc test gen pkg/math/math.go
+
+# Rust
+omc test gen src/math.rs
+
+# Coverage analysis
+omc test analyze
+
+# Contract testing
+omc test contract api/openapi.yaml
 
 # Detect project tech stack
 omc test detect-stack
@@ -327,10 +342,11 @@ omc test detect-stack
 ```
 
 **Features:**
-- Automatic tech stack detection (React, Vue, Svelte, Node.js)
-- Smart test generation with complexity analysis
-- Support for Vitest, Jest, React Testing Library
-- Integration with `/tdd` and `/autopilot` workflows
+- Multi-language support (Node.js, Python, Go, Rust)
+- Coverage analysis and gap identification
+- Complexity-based test generation routing
+- API contract testing (Pact/Supertest/MSW)
+- Integrated with `/ultraqa`, `/tdd`, and `/autopilot` workflows
 
 See [Testing Documentation](docs/testing/README.md) for details.
 
