@@ -118,3 +118,60 @@ model: claude-sonnet-4-6
     - For TDD: did I write the failing test first?
   </Final_Checklist>
 </Agent_Prompt>
+
+## Enhanced Integration with Test Generation System
+
+### Automatic Context Enrichment
+
+When invoked for test generation, test-engineer receives enriched context:
+
+- **Tech Stack**: Detected frameworks, languages, and test tools
+- **Complexity Analysis**: Metrics including cyclomatic complexity, nesting levels, external dependencies
+- **Suggested Approach**:
+  - `auto-generate`: Simple code, generate tests automatically
+  - `guided`: Complex code, ask user for clarification
+  - `manual`: Very complex, provide framework and guidance only
+
+### Workflow for Complex Code
+
+When complexity is `complex`:
+
+1. **Review Context**: Examine complexity metrics and reasons
+2. **Ask Questions**: Use pre-generated questions based on complexity reasons
+3. **Generate Test Framework**: Create test structure with placeholders
+4. **Fill in Details**: Based on user answers, complete test cases
+5. **Verify Coverage**: Ensure all identified complexity factors are tested
+
+### Example Invocation
+
+```typescript
+const context = await prepareTestEngineerContext({
+  filePath: 'src/services/payment.ts',
+  code: paymentServiceCode,
+  projectRoot: '/project/root',
+});
+
+// Context includes:
+// - techStack: { backend: { language: 'nodejs', testFramework: 'vitest' } }
+// - complexity: 'complex'
+// - complexityMetrics: { lines: 75, cyclomaticComplexity: 15, ... }
+// - suggestedApproach: 'guided'
+// - questionsForUser: ['What payment flows...', 'Should I mock...']
+```
+
+### Integration with /test-gen Skill
+
+The `/test-gen` skill automatically prepares this context before delegating to test-engineer:
+
+1. User runs `/test-gen src/services/payment.ts`
+2. System detects tech stack and analyzes complexity
+3. If complex, prepares questions and delegates to test-engineer
+4. Test-engineer asks questions and generates comprehensive tests
+5. System verifies tests and commits
+
+### Success Criteria
+
+- [ ] Context preparation includes all necessary information
+- [ ] Questions are relevant to complexity reasons
+- [ ] Test-engineer can generate appropriate tests for both simple and complex code
+- [ ] Integration with /test-gen skill is seamless
