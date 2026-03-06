@@ -144,14 +144,18 @@ function stateRootToWorkingDirectory(stateRoot) {
         const idx = normalized.lastIndexOf(marker);
         if (idx >= 0) {
             const workspaceRoot = absolute.slice(0, idx);
-            return workspaceRoot || dirname(dirname(dirname(dirname(absolute))));
+            if (workspaceRoot && workspaceRoot !== '/')
+                return workspaceRoot;
+            return dirname(dirname(dirname(dirname(absolute))));
         }
     }
     for (const marker of ['/.omc/state', '/.omx/state']) {
         const idx = normalized.lastIndexOf(marker);
         if (idx >= 0) {
             const workspaceRoot = absolute.slice(0, idx);
-            return workspaceRoot || dirname(dirname(absolute));
+            if (workspaceRoot && workspaceRoot !== '/')
+                return workspaceRoot;
+            return dirname(dirname(absolute));
         }
     }
     return dirname(dirname(absolute));

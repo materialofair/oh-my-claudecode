@@ -202,7 +202,8 @@ function stateRootToWorkingDirectory(stateRoot: string): string {
     const idx = normalized.lastIndexOf(marker);
     if (idx >= 0) {
       const workspaceRoot = absolute.slice(0, idx);
-      return workspaceRoot || dirname(dirname(dirname(dirname(absolute))));
+      if (workspaceRoot && workspaceRoot !== '/') return workspaceRoot;
+      return dirname(dirname(dirname(dirname(absolute))));
     }
   }
 
@@ -210,7 +211,8 @@ function stateRootToWorkingDirectory(stateRoot: string): string {
     const idx = normalized.lastIndexOf(marker);
     if (idx >= 0) {
       const workspaceRoot = absolute.slice(0, idx);
-      return workspaceRoot || dirname(dirname(absolute));
+      if (workspaceRoot && workspaceRoot !== '/') return workspaceRoot;
+      return dirname(dirname(absolute));
     }
   }
 

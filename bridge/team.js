@@ -1511,13 +1511,15 @@ function agentTypeGuidance(agentType) {
       return [
         "### Agent-Type Guidance (codex)",
         "- Prefer short, explicit `omc team api ... --json` commands and parse outputs before next step.",
-        "- If a command fails, report the exact stderr to leader-fixed before retrying."
+        "- If a command fails, report the exact stderr to leader-fixed before retrying.",
+        "- You MUST run `omc team api claim-task` before starting work and `omc team api transition-task-status` when done."
       ].join("\n");
     case "gemini":
       return [
         "### Agent-Type Guidance (gemini)",
         "- Execute task work in small, verifiable increments and report each milestone to leader-fixed.",
-        "- Keep commit-sized changes scoped to assigned files only; no broad refactors."
+        "- Keep commit-sized changes scoped to assigned files only; no broad refactors.",
+        "- CRITICAL: You MUST run `omc team api claim-task` before starting work and `omc team api transition-task-status` when done. Do not exit without transitioning the task status."
       ].join("\n");
     case "claude":
     default:
@@ -1553,6 +1555,20 @@ Before doing anything else, write your ready sentinel file:
 mkdir -p $(dirname ${sentinelPath}) && touch ${sentinelPath}
 \`\`\`
 
+## MANDATORY WORKFLOW \u2014 Follow These Steps In Order
+You MUST complete ALL of these steps. Do NOT skip any step. Do NOT exit without step 4.
+
+1. **Claim** your task (run this command first):
+   \`omc team api claim-task --input "{"team_name":"${teamName}","task_id":"<id>","worker":"${workerName}"}" --json\`
+   Save the \`claim_token\` from the response \u2014 you need it for step 4.
+2. **Do the work** described in your task assignment below.
+3. **Send ACK** to the leader:
+   \`omc team api send-message --input "{"team_name":"${teamName}","from_worker":"${workerName}","to_worker":"leader-fixed","body":"ACK: ${workerName} initialized"}" --json\`
+4. **Transition** the task status (REQUIRED before exit):
+   - On success: \`omc team api transition-task-status --input "{"team_name":"${teamName}","task_id":"<id>","from":"in_progress","to":"completed","claim_token":"<claim_token>"}" --json\`
+   - On failure: \`omc team api transition-task-status --input "{"team_name":"${teamName}","task_id":"<id>","from":"in_progress","to":"failed","claim_token":"<claim_token>"}" --json\`
+5. **Exit** immediately after transitioning.
+
 ## Identity
 - **Team**: ${teamName}
 - **Worker**: ${workerName}
@@ -1562,22 +1578,15 @@ mkdir -p $(dirname ${sentinelPath}) && touch ${sentinelPath}
 ## Your Tasks
 ${taskList}
 
-## Task Lifecycle Protocol (CLI API)
+## Task Lifecycle Reference (CLI API)
 Use the CLI API for all task lifecycle operations. Do NOT directly edit task files.
 
-1. Inspect the canonical task state via CLI interop:
-   \`omc team api read-task --input "{"team_name":"${teamName}","task_id":"<id>"}" --json\`
-2. Task id format: State/CLI APIs use task_id: "<id>" (example: "1"), not "task-1"
-3. Claim a task via CLI interop:
-   \`omc team api claim-task --input "{"team_name":"${teamName}","task_id":"<id>","worker":"${workerName}"}" --json\`
-4. Do the work described in the task
-5. On completion, transition via CLI interop (use the claim_token from step 3):
-   \`omc team api transition-task-status --input "{"team_name":"${teamName}","task_id":"<id>","from":"in_progress","to":"completed","claim_token":"<claim_token from step 3>"}" --json\`
-6. On failure, transition to "failed" (use the claim_token from step 3):
-   \`omc team api transition-task-status --input "{"team_name":"${teamName}","task_id":"<id>","from":"in_progress","to":"failed","claim_token":"<claim_token from step 3>"}" --json\`
-7. Use release-task-claim only for rollback/requeue to pending:
-   \`omc team api release-task-claim --input "{"team_name":"${teamName}","task_id":"<id>","claim_token":"<claim_token from step 3>","worker":"${workerName}"}" --json\`
-
+- Inspect task state: \`omc team api read-task --input "{"team_name":"${teamName}","task_id":"<id>"}" --json\`
+- Task id format: State/CLI APIs use task_id: "<id>" (example: "1"), not "task-1"
+- Claim task: \`omc team api claim-task --input "{"team_name":"${teamName}","task_id":"<id>","worker":"${workerName}"}" --json\`
+- Complete task: \`omc team api transition-task-status --input "{"team_name":"${teamName}","task_id":"<id>","from":"in_progress","to":"completed","claim_token":"<claim_token>"}" --json\`
+- Fail task: \`omc team api transition-task-status --input "{"team_name":"${teamName}","task_id":"<id>","from":"in_progress","to":"failed","claim_token":"<claim_token>"}" --json\`
+- Release claim (rollback): \`omc team api release-task-claim --input "{"team_name":"${teamName}","task_id":"<id>","claim_token":"<claim_token>","worker":"${workerName}"}" --json\`
 
 ## Communication Protocol
 - **Inbox**: Read ${inboxPath} for new instructions
@@ -1620,6 +1629,10 @@ When you see a shutdown request in your inbox:
 - If blocked, write {"state": "blocked", "reason": "..."} to your status file
 
 ${agentTypeGuidance(agentType)}
+
+## BEFORE YOU EXIT
+You MUST call \`omc team api transition-task-status\` to mark your task as "completed" or "failed" before exiting.
+If you skip this step, the leader cannot track your work and the task will appear stuck.
 
 ${bootstrapInstructions ? `## Additional Instructions
 ${bootstrapInstructions}
@@ -1921,25 +1934,27 @@ async function isWorkerPaneAlive(paneId) {
 }
 function buildV2TaskInstruction(teamName, workerName, task, taskId) {
   return [
-    `## Initial Task Assignment`,
+    `## REQUIRED: Task Lifecycle Commands`,
+    `You MUST run these commands. Do NOT skip any step.`,
+    ``,
+    `1. Claim your task:`,
+    `   omc team api claim-task --input '{"team_name":"${teamName}","task_id":"${taskId}","worker":"${workerName}"}' --json`,
+    `   Save the claim_token from the response.`,
+    `2. Do the work described below.`,
+    `3. On completion (use claim_token from step 1):`,
+    `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"completed","claim_token":"<claim_token>"}' --json`,
+    `4. On failure (use claim_token from step 1):`,
+    `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"failed","claim_token":"<claim_token>"}' --json`,
+    `5. Exit immediately after transitioning.`,
+    ``,
+    `## Task Assignment`,
     `Task ID: ${taskId}`,
     `Worker: ${workerName}`,
     `Subject: ${task.subject}`,
     ``,
     task.description,
     ``,
-    `## Task Lifecycle (CLI API)`,
-    `1. Claim your task:`,
-    `   omc team api claim-task --input '{"team_name":"${teamName}","task_id":"${taskId}","worker":"${workerName}"}' --json`,
-    `2. Do the work described above`,
-    `3. On completion (use the claim_token from step 1):`,
-    `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"completed","claim_token":"<claim_token>"}' --json`,
-    `4. On failure (use the claim_token from step 1):`,
-    `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"failed","claim_token":"<claim_token>"}' --json`,
-    ``,
-    `IMPORTANT: Use the CLI API commands above for all task state transitions.`,
-    `Do NOT write done.json or edit task files directly.`,
-    `After completing or failing the task, exit immediately.`
+    `REMINDER: You MUST run transition-task-status before exiting. Do NOT write done.json or edit task files directly.`
   ].join("\n");
 }
 async function notifyStartupInbox(sessionName2, paneId, message) {
@@ -3318,14 +3333,16 @@ function stateRootToWorkingDirectory(stateRoot2) {
     const idx = normalized.lastIndexOf(marker);
     if (idx >= 0) {
       const workspaceRoot = absolute.slice(0, idx);
-      return workspaceRoot || dirname7(dirname7(dirname7(dirname7(absolute))));
+      if (workspaceRoot && workspaceRoot !== "/") return workspaceRoot;
+      return dirname7(dirname7(dirname7(dirname7(absolute))));
     }
   }
   for (const marker of ["/.omc/state", "/.omx/state"]) {
     const idx = normalized.lastIndexOf(marker);
     if (idx >= 0) {
       const workspaceRoot = absolute.slice(0, idx);
-      return workspaceRoot || dirname7(dirname7(absolute));
+      if (workspaceRoot && workspaceRoot !== "/") return workspaceRoot;
+      return dirname7(dirname7(absolute));
     }
   }
   return dirname7(dirname7(absolute));
