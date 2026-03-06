@@ -1418,6 +1418,45 @@ program
   });
 
 /**
+ * Test commands - Testing utilities for test generation
+ */
+const testCommand = program
+  .command('test')
+  .description('Testing utilities');
+
+testCommand
+  .command('gen <file>')
+  .description('Generate tests for a file')
+  .option('-o, --output <path>', 'Output test file path')
+  .action(async (file: string, options: { output?: string }) => {
+    const { testGenCommand } = await import('../testing/cli/commands.js');
+    const result = await testGenCommand({
+      filePath: file,
+      output: options.output,
+    });
+
+    if (result.success) {
+      console.log(chalk.green(`✅ Test generated: ${result.testFilePath}`));
+    } else {
+      console.error(chalk.red(`❌ Error: ${result.error}`));
+      process.exit(1);
+    }
+  });
+
+testCommand
+  .command('detect-stack')
+  .description('Detect project tech stack')
+  .action(async () => {
+    const { testDetectStackCommand } = await import('../testing/cli/commands.js');
+    const result = await testDetectStackCommand({
+      projectRoot: process.cwd(),
+    });
+
+    console.log(chalk.blue('📊 Detected Tech Stack:'));
+    console.log(JSON.stringify(result.stack, null, 2));
+  });
+
+/**
  * Team command - CLI API for team worker lifecycle operations
  * Exposes OMC's `omc team api` interface.
  *
