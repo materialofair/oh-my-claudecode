@@ -1,18 +1,49 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { detectFromPackageJson } from './package-json';
-import type { TechStack } from '../types';
+import { detectFromPackageJson } from './package-json.js';
+import { detectPythonStack } from './python.js';
+import { detectGoStack } from './go.js';
+import { detectRustStack } from './rust.js';
+import type { TechStack } from '../types.js';
 
 export async function detectTechStack(projectRoot: string): Promise<TechStack> {
-  const packageJsonPath = path.join(projectRoot, 'package.json');
+  let stack: TechStack = {};
 
+  // Try Node.js/JS detection
   try {
+    const packageJsonPath = path.join(projectRoot, 'package.json');
     const content = await fs.readFile(packageJsonPath, 'utf-8');
     const packageJson = JSON.parse(content);
-    return await detectFromPackageJson(packageJson);
+    stack = await detectFromPackageJson(packageJson);
   } catch (error) {
-    return {};
+    // package.json not found
   }
+
+  // Try Python detection
+  try {
+    const pythonStack = await detectPythonStack(projectRoot);
+    stack = { ...stack, ...pythonStack };
+  } catch (error) {
+    // requirements.txt not found
+  }
+
+  // Try Go detection
+  try {
+    const goStack = await detectGoStack(projectRoot);
+    stack = { ...stack, ...goStack };
+  } catch (error) {
+    // go.mod not found
+  }
+
+  // Try Rust detection
+  try {
+    const rustStack = await detectRustStack(projectRoot);
+    stack = { ...stack, ...rustStack };
+  } catch (error) {
+    // Cargo.toml not found
+  }
+
+  return stack;
 }
 
-export { detectFromPackageJson };
+export { detectFromPackageJson, detectPythonStack, detectGoStack, detectRustStack };

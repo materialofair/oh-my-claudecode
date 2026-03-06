@@ -1426,13 +1426,15 @@ const testCommand = program
 
 testCommand
   .command('gen <file>')
-  .description('Generate tests for a file')
+  .description('Generate tests for a file (.ts, .tsx, .jsx, .py, .go, .rs)')
   .option('-o, --output <path>', 'Output test file path')
-  .action(async (file: string, options: { output?: string }) => {
+  .option('-l, --language <lang>', 'Language override (typescript, react, python, go, rust)')
+  .action(async (file: string, options: { output?: string; language?: string }) => {
     const { testGenCommand } = await import('../testing/cli/commands.js');
     const result = await testGenCommand({
       filePath: file,
       output: options.output,
+      language: options.language as any,
     });
 
     if (result.success) {
@@ -1454,6 +1456,63 @@ testCommand
 
     console.log(chalk.blue('📊 Detected Tech Stack:'));
     console.log(JSON.stringify(result.stack, null, 2));
+  });
+
+testCommand
+  .command('analyze')
+  .description('Analyze test coverage for the project')
+  .action(async () => {
+    const { testAnalyzeCoverageCommand } = await import('../testing/cli/commands.js');
+    const result = await testAnalyzeCoverageCommand({
+      projectRoot: process.cwd(),
+    });
+
+    console.log(chalk.blue('📊 Coverage Analysis:'));
+    console.log(`  Total:      ${result.totalCoverage}%`);
+    console.log(`  Lines:      ${result.lineCoverage}%`);
+    console.log(`  Functions:  ${result.functionCoverage}%`);
+    console.log(`  Branches:   ${result.branchCoverage}%`);
+    console.log(`  Statements: ${result.statementCoverage}%`);
+  });
+
+testCommand
+  .command('contract <openapi-spec>')
+  .description('Generate contract tests from an OpenAPI spec')
+  .option('-f, --framework <framework>', 'Test framework (pact, supertest, msw)', 'pact')
+  .option('-c, --consumer <name>', 'Consumer name')
+  .option('-p, --provider <name>', 'Provider name')
+  .action(async (specPath: string, options: { framework: string; consumer?: string; provider?: string }) => {
+    const { testContractCommand } = await import('../testing/cli/commands.js');
+    const result = await testContractCommand({
+      specPath,
+      framework: options.framework as 'pact' | 'supertest' | 'msw',
+      consumer: options.consumer,
+      provider: options.provider,
+    });
+
+    if (result.success) {
+      console.log(chalk.green(`✅ Contract test generated: ${result.testFilePath}`));
+    } else {
+      console.error(chalk.red('❌ Failed to generate contract test'));
+      process.exit(1);
+    }
+  });
+
+testCommand
+  .command('complexity <file>')
+  .description('Analyze code complexity for a file')
+  .action(async (file: string) => {
+    const { testComplexityCommand } = await import('../testing/cli/commands.js');
+    const result = await testComplexityCommand({ filePath: file });
+
+    console.log(chalk.blue(`📊 Complexity Analysis: ${result.complexity}`));
+    console.log(`  Lines:                ${result.metrics.lines}`);
+    console.log(`  Cyclomatic Complexity: ${result.metrics.cyclomaticComplexity}`);
+    console.log(`  Nesting Level:        ${result.metrics.nestingLevel}`);
+    console.log(`  External Deps:        ${result.metrics.externalDependencies}`);
+    if (result.reasons.length > 0) {
+      console.log(`  Reasons:              ${result.reasons.join(', ')}`);
+    }
   });
 
 /**
