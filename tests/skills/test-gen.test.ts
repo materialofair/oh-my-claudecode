@@ -26,7 +26,7 @@ export function Button({ onClick, children }) {
     // Verify test file exists
     const testPath = path.join(tmpDir, 'Button.test.tsx');
     const testContent = await fs.readFile(testPath, 'utf-8');
-    expect(testContent).toContain('describe(\\'Button\\'');
+    expect(testContent).toContain("describe('Button'");
 
     // Cleanup
     await fs.rm(tmpDir, { recursive: true });
