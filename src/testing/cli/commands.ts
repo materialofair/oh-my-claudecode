@@ -189,45 +189,6 @@ export async function testComplexityCommand(options: ComplexityCommandOptions): 
   return analyzeComplexity({ code, filePath: options.filePath });
 }
 
-// Phase 3: Promptfoo integration command
-
-interface PromptfooCommandOptions {
-  promptFile: string;
-  provider?: string;
-  output?: string;
-}
-
-interface PromptfooCommandResult {
-  success: boolean;
-  configPath?: string;
-  error?: string;
-}
-
-export async function testPromptfooCommand(options: PromptfooCommandOptions): Promise<PromptfooCommandResult> {
-  try {
-    const { generatePromptfooConfig, savePromptfooConfig } = await import('../integrations/promptfoo/config-generator.js');
-
-    const config = await generatePromptfooConfig({
-      promptFile: options.promptFile,
-      testCases: [],
-      provider: options.provider || 'anthropic:claude-3-5-sonnet-20241022',
-    });
-
-    const outputPath = options.output || './promptfoo.config.yaml';
-    await savePromptfooConfig(config, outputPath);
-
-    return {
-      success: true,
-      configPath: outputPath,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
-}
-
 // Phase 3: E2E test generation command
 
 interface E2ECommandOptions {

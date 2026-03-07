@@ -121,28 +121,6 @@ export async function testComplexityCommand(options) {
     const code = await fs.readFile(options.filePath, 'utf-8');
     return analyzeComplexity({ code, filePath: options.filePath });
 }
-export async function testPromptfooCommand(options) {
-    try {
-        const { generatePromptfooConfig, savePromptfooConfig } = await import('../integrations/promptfoo/config-generator.js');
-        const config = await generatePromptfooConfig({
-            promptFile: options.promptFile,
-            testCases: [],
-            provider: options.provider || 'anthropic:claude-3-5-sonnet-20241022',
-        });
-        const outputPath = options.output || './promptfoo.config.yaml';
-        await savePromptfooConfig(config, outputPath);
-        return {
-            success: true,
-            configPath: outputPath,
-        };
-    }
-    catch (error) {
-        return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-        };
-    }
-}
 export async function testE2ECommand(options) {
     try {
         const { generateFromUserFlow } = await import('../generators/e2e.js');

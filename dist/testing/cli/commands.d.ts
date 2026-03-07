@@ -42,17 +42,6 @@ interface ComplexityCommandOptions {
     filePath: string;
 }
 export declare function testComplexityCommand(options: ComplexityCommandOptions): Promise<ComplexityAnalysisResult>;
-interface PromptfooCommandOptions {
-    promptFile: string;
-    provider?: string;
-    output?: string;
-}
-interface PromptfooCommandResult {
-    success: boolean;
-    configPath?: string;
-    error?: string;
-}
-export declare function testPromptfooCommand(options: PromptfooCommandOptions): Promise<PromptfooCommandResult>;
 interface E2ECommandOptions {
     flowDescription: string;
     baseUrl?: string;

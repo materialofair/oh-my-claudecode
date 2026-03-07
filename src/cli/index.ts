@@ -1518,27 +1518,6 @@ testCommand
 // Phase 3 commands
 
 testCommand
-  .command('promptfoo <prompt-file>')
-  .description('Generate Promptfoo config for LLM prompt testing')
-  .option('-p, --provider <provider>', 'LLM provider (e.g., anthropic:claude-3-5-sonnet-20241022)', 'anthropic:claude-3-5-sonnet-20241022')
-  .option('-o, --output <path>', 'Output config file path', './promptfoo.config.yaml')
-  .action(async (promptFile: string, options: { provider?: string; output?: string }) => {
-    const { testPromptfooCommand } = await import('../testing/cli/commands.js');
-    const result = await testPromptfooCommand({
-      promptFile,
-      provider: options.provider,
-      output: options.output,
-    });
-
-    if (result.success) {
-      console.log(chalk.green(`✅ Promptfoo config generated: ${result.configPath}`));
-    } else {
-      console.error(chalk.red(`❌ Error: ${result.error}`));
-      process.exit(1);
-    }
-  });
-
-testCommand
   .command('e2e <flow-description>')
   .description('Generate Playwright E2E tests from user flow description')
   .option('-b, --base-url <url>', 'Base URL for the application', 'http://localhost:3000')

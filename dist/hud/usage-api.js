@@ -540,6 +540,20 @@ export async function getUsage() {
     const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
     const isZai = baseUrl != null && isZaiHost(baseUrl);
     const currentSource = isZai && authToken ? 'zai' : 'anthropic';
+    // Early exit: if no z.ai environment and no OAuth credentials, return no_credentials immediately
+    // This prevents showing [API err] for API key users
+    if (!isZai || !authToken) {
+        const creds = getCredentials();
+        if (!creds) {
+            // Check cache for no_credentials to avoid redundant writes
+            const cache = readCache();
+            if (cache && isCacheValid(cache) && cache.errorReason === 'no_credentials') {
+                return { rateLimits: null, error: 'no_credentials' };
+            }
+            writeCache(null, true, 'anthropic', false, 0, 'no_credentials');
+            return { rateLimits: null, error: 'no_credentials' };
+        }
+    }
     // Check cache first (source must match to avoid cross-provider stale data)
     const cache = readCache();
     if (cache && isCacheValid(cache) && cache.source === currentSource) {
