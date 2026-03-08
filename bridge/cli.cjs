@@ -21162,6 +21162,15 @@ var init_prompts3 = __esm({
 });
 
 // src/hud/usage-api.ts
+function isAnthropicHost(urlString) {
+  try {
+    const url = new URL(urlString);
+    const hostname3 = url.hostname.toLowerCase();
+    return hostname3 === "api.anthropic.com" || hostname3.endsWith(".anthropic.com");
+  } catch {
+    return false;
+  }
+}
 function isZaiHost(urlString) {
   try {
     const url = new URL(urlString);
@@ -21571,7 +21580,11 @@ async function getUsage() {
   const baseUrl = process.env.ANTHROPIC_BASE_URL;
   const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
   const isZai = baseUrl != null && isZaiHost(baseUrl);
+  const isCustomProvider = baseUrl != null && !isZai && !isAnthropicHost(baseUrl);
   const currentSource = isZai && authToken ? "zai" : "anthropic";
+  if (isCustomProvider) {
+    return { rateLimits: null, error: "no_credentials" };
+  }
   if (!isZai || !authToken) {
     const creds2 = getCredentials();
     if (!creds2) {

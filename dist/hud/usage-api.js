@@ -34,6 +34,16 @@ const DEFAULT_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 /**
  * Check if a URL points to z.ai (exact hostname match)
  */
+export function isAnthropicHost(urlString) {
+    try {
+        const url = new URL(urlString);
+        const hostname = url.hostname.toLowerCase();
+        return hostname === 'api.anthropic.com' || hostname.endsWith('.anthropic.com');
+    }
+    catch {
+        return false;
+    }
+}
 export function isZaiHost(urlString) {
     try {
         const url = new URL(urlString);
@@ -539,7 +549,12 @@ export async function getUsage() {
     const baseUrl = process.env.ANTHROPIC_BASE_URL;
     const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
     const isZai = baseUrl != null && isZaiHost(baseUrl);
+    const isCustomProvider = baseUrl != null && !isZai && !isAnthropicHost(baseUrl);
     const currentSource = isZai && authToken ? 'zai' : 'anthropic';
+    // Custom provider: usage API is not supported, skip silently
+    if (isCustomProvider) {
+        return { rateLimits: null, error: 'no_credentials' };
+    }
     // Early exit: if no z.ai environment and no OAuth credentials, return no_credentials immediately
     // This prevents showing [API err] for API key users
     if (!isZai || !authToken) {

@@ -28,6 +28,7 @@ interface ZaiQuotaResponse {
 /**
  * Check if a URL points to z.ai (exact hostname match)
  */
+export declare function isAnthropicHost(urlString: string): boolean;
 export declare function isZaiHost(urlString: string): boolean;
 /**
  * Parse z.ai API response into RateLimits

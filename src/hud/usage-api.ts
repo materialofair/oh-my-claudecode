@@ -83,6 +83,16 @@ interface ZaiQuotaResponse {
 /**
  * Check if a URL points to z.ai (exact hostname match)
  */
+export function isAnthropicHost(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    const hostname = url.hostname.toLowerCase();
+    return hostname === 'api.anthropic.com' || hostname.endsWith('.anthropic.com');
+  } catch {
+    return false;
+  }
+}
+
 export function isZaiHost(urlString: string): boolean {
   try {
     const url = new URL(urlString);
@@ -644,7 +654,13 @@ export async function getUsage(): Promise<UsageResult> {
   const baseUrl = process.env.ANTHROPIC_BASE_URL;
   const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
   const isZai = baseUrl != null && isZaiHost(baseUrl);
+  const isCustomProvider = baseUrl != null && !isZai && !isAnthropicHost(baseUrl);
   const currentSource: 'anthropic' | 'zai' = isZai && authToken ? 'zai' : 'anthropic';
+
+  // Custom provider: usage API is not supported, skip silently
+  if (isCustomProvider) {
+    return { rateLimits: null, error: 'no_credentials' };
+  }
 
   // Early exit: if no z.ai environment and no OAuth credentials, return no_credentials immediately
   // This prevents showing [API err] for API key users
