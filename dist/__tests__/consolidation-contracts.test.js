@@ -37,9 +37,8 @@ describe('Consolidation contracts', () => {
             expect(names).not.toContain('doctor');
             expect(names).not.toContain('help');
         });
-        it('deleted thin-wrapper skills are no longer registered', () => {
+        it('deleted thin-wrapper skills remain unregistered except explicitly restored ones', () => {
             const names = listBuiltinSkillNames();
-            expect(names).not.toContain('analyze');
             expect(names).not.toContain('build-fix');
             expect(names).not.toContain('tdd');
             expect(names).not.toContain('code-review');
