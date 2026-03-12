@@ -6,8 +6,10 @@
  * Cross-platform: Windows, macOS, Linux
  */
 
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'fs';
+import { dirname, join, resolve } from 'path';
+import { execSync } from 'child_process';
+import { homedir } from 'os';
 import { pathToFileURL } from 'url';
 import { readStdin } from './lib/stdin.mjs';
 
@@ -22,6 +24,103 @@ const MODE_STATE_FILES = [
   'team-state.json',
   'omc-teams-state.json',
 ];
+const AGENT_HEAVY_TOOLS = new Set(['Task', 'TaskCreate', 'TaskUpdate']);
+const PREFLIGHT_CONTEXT_THRESHOLD = parseInt(process.env.OMC_AGENT_PREFLIGHT_CONTEXT_THRESHOLD || '72', 10);
+
+/**
+ * Resolve transcript path in worktree environments.
+ * Mirrors logic used by context safety/guard hooks.
+ */
+function resolveTranscriptPath(transcriptPath, cwd) {
+  if (!transcriptPath) return transcriptPath;
+  try {
+    if (existsSync(transcriptPath)) return transcriptPath;
+  } catch { /* fallthrough */ }
+
+  const worktreePattern = /--claude-worktrees-[^/\\]+/;
+  if (worktreePattern.test(transcriptPath)) {
+    const resolvedPath = transcriptPath.replace(worktreePattern, '');
+    try {
+      if (existsSync(resolvedPath)) return resolvedPath;
+    } catch { /* fallthrough */ }
+  }
+
+  const effectiveCwd = cwd || process.cwd();
+  try {
+    const gitCommonDir = execSync('git rev-parse --git-common-dir', {
+      cwd: effectiveCwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+
+    const absoluteCommonDir = resolve(effectiveCwd, gitCommonDir);
+    const mainRepoRoot = dirname(absoluteCommonDir);
+
+    const worktreeTop = execSync('git rev-parse --show-toplevel', {
+      cwd: effectiveCwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+
+    if (mainRepoRoot !== worktreeTop) {
+      const lastSep = transcriptPath.lastIndexOf('/');
+      const sessionFile = lastSep !== -1 ? transcriptPath.substring(lastSep + 1) : '';
+      if (sessionFile) {
+        const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+        const projectsDir = join(configDir, 'projects');
+        if (existsSync(projectsDir)) {
+          const encodedMain = mainRepoRoot.replace(/[/\\]/g, '-');
+          const resolvedPath = join(projectsDir, encodedMain, sessionFile);
+          try {
+            if (existsSync(resolvedPath)) return resolvedPath;
+          } catch { /* fallthrough */ }
+        }
+      }
+    }
+  } catch { /* best-effort fallback */ }
+
+  return transcriptPath;
+}
+
+function estimateContextPercent(transcriptPath) {
+  if (!transcriptPath) return 0;
+
+  let fd = -1;
+  try {
+    const stat = statSync(transcriptPath);
+    if (stat.size === 0) return 0;
+
+    fd = openSync(transcriptPath, 'r');
+    const readSize = Math.min(4096, stat.size);
+    const buf = Buffer.alloc(readSize);
+    readSync(fd, buf, 0, readSize, stat.size - readSize);
+    closeSync(fd);
+    fd = -1;
+
+    const tail = buf.toString('utf-8');
+    const windowMatch = tail.match(/"context_window"\s{0,5}:\s{0,5}(\d+)/g);
+    const inputMatch = tail.match(/"input_tokens"\s{0,5}:\s{0,5}(\d+)/g);
+
+    if (!windowMatch || !inputMatch) return 0;
+
+    const lastWindow = parseInt(windowMatch[windowMatch.length - 1].match(/(\d+)/)[1], 10);
+    const lastInput = parseInt(inputMatch[inputMatch.length - 1].match(/(\d+)/)[1], 10);
+
+    if (lastWindow === 0) return 0;
+    return Math.round((lastInput / lastWindow) * 100);
+  } catch {
+    return 0;
+  } finally {
+    if (fd !== -1) try { closeSync(fd); } catch { /* ignore */ }
+  }
+}
+
+function buildPreflightRecoveryAdvice(contextPercent) {
+  return `[OMC] Preflight context guard: ${contextPercent}% used ` +
+    `(threshold: ${PREFLIGHT_CONTEXT_THRESHOLD}%). Avoid spawning additional agent-heavy tasks ` +
+    `until context is reduced. Safe recovery: (1) pause new Task fan-out, (2) run /compact now, ` +
+    `(3) if compact fails, open a fresh session and continue from .omc/state + .omc/notepad.md.`;
+}
 
 // Simple JSON field extraction
 function extractJsonField(input, field, defaultValue = '') {
@@ -216,6 +315,85 @@ function generateMessage(toolName, todoStatus, modeActive = false) {
   return '';
 }
 
+// ---------------------------------------------------------------------------
+// Skill Active State (issue #1033)
+// Writes skill-active-state.json so the persistent-mode Stop hook can prevent
+// premature session termination while a skill is executing.
+// ---------------------------------------------------------------------------
+
+const SKILL_PROTECTION_CONFIGS = {
+  none:   { maxReinforcements: 0,  staleTtlMs: 0 },
+  light:  { maxReinforcements: 3,  staleTtlMs: 5 * 60 * 1000 },
+  medium: { maxReinforcements: 5,  staleTtlMs: 15 * 60 * 1000 },
+  heavy:  { maxReinforcements: 10, staleTtlMs: 30 * 60 * 1000 },
+};
+
+const SKILL_PROTECTION_MAP = {
+  autopilot: 'none', ralph: 'none', ultrawork: 'none', team: 'none',
+  'omc-teams': 'none', ultraqa: 'none', cancel: 'none',
+  trace: 'none', hud: 'none', 'omc-doctor': 'none', 'omc-help': 'none',
+  'learn-about-omc': 'none', note: 'none',
+  tdd: 'light', 'build-fix': 'light', analyze: 'light', skill: 'light',
+  'configure-notifications': 'light',
+  'code-review': 'medium', 'security-review': 'medium', plan: 'medium',
+  ralplan: 'medium', review: 'medium', 'external-context': 'medium',
+  sciomc: 'medium', learner: 'medium', 'omc-setup': 'medium',
+  'mcp-setup': 'medium', 'project-session-manager': 'medium',
+  'writer-memory': 'medium', 'ralph-init': 'medium', ccg: 'medium',
+  deepinit: 'heavy',
+};
+
+function getSkillProtectionLevel(skillName) {
+  const normalized = (skillName || '').toLowerCase().replace(/^oh-my-claudecode:/, '');
+  return SKILL_PROTECTION_MAP[normalized] || 'light';
+}
+
+function extractSkillName(toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return null;
+  const rawSkill = toolInput.skill || toolInput.skill_name || toolInput.skillName || toolInput.command || null;
+  if (typeof rawSkill !== 'string' || !rawSkill.trim()) return null;
+  const normalized = rawSkill.trim();
+  return normalized.includes(':') ? normalized.split(':').at(-1).toLowerCase() : normalized.toLowerCase();
+}
+
+function writeSkillActiveState(directory, skillName, sessionId) {
+  const protection = getSkillProtectionLevel(skillName);
+  if (protection === 'none') return;
+
+  const config = SKILL_PROTECTION_CONFIGS[protection];
+  const now = new Date().toISOString();
+  const normalized = (skillName || '').toLowerCase().replace(/^oh-my-claudecode:/, '');
+
+  const state = {
+    active: true,
+    skill_name: normalized,
+    session_id: sessionId || undefined,
+    started_at: now,
+    last_checked_at: now,
+    reinforcement_count: 0,
+    max_reinforcements: config.maxReinforcements,
+    stale_ttl_ms: config.staleTtlMs,
+  };
+
+  const stateDir = join(directory, '.omc', 'state');
+  const safeSessionId = sessionId && SESSION_ID_PATTERN.test(sessionId) ? sessionId : '';
+  const targetDir = safeSessionId
+    ? join(stateDir, 'sessions', safeSessionId)
+    : stateDir;
+  const targetPath = join(targetDir, 'skill-active-state.json');
+
+  try {
+    if (!existsSync(targetDir)) {
+      mkdirSync(targetDir, { recursive: true });
+    }
+    const tmpPath = targetPath + '.tmp';
+    writeFileSync(tmpPath, JSON.stringify(state, null, 2), { mode: 0o600 });
+    renameSync(tmpPath, targetPath);
+  } catch {
+    // Best-effort; don't fail the hook
+  }
+}
+
 // Record Skill/Task invocations to flow trace (best-effort)
 async function recordToolInvocation(data, directory) {
   try {
@@ -252,6 +430,19 @@ async function main() {
     try { data = JSON.parse(input); } catch {}
     recordToolInvocation(data, directory);
 
+    // Activate skill state when Skill tool is invoked (issue #1033)
+    // Writes skill-active-state.json so the persistent-mode Stop hook can
+    // prevent premature session termination while a skill is executing.
+    if (toolName === 'Skill') {
+      const toolInput = data.toolInput || data.tool_input || {};
+      const skillName = extractSkillName(toolInput);
+      if (skillName) {
+        const sid = typeof data.session_id === 'string' ? data.session_id
+          : typeof data.sessionId === 'string' ? data.sessionId : '';
+        writeSkillActiveState(directory, skillName, sid);
+      }
+    }
+
     const sessionId =
       typeof data.session_id === 'string'
         ? data.session_id
@@ -286,6 +477,20 @@ async function main() {
     }
 
     const todoStatus = getTodoStatus(directory);
+
+    if (AGENT_HEAVY_TOOLS.has(toolName)) {
+      const rawTranscriptPath = data.transcript_path || data.transcriptPath || '';
+      const transcriptPath = resolveTranscriptPath(rawTranscriptPath, directory);
+      const contextPercent = estimateContextPercent(transcriptPath);
+
+      if (contextPercent >= PREFLIGHT_CONTEXT_THRESHOLD) {
+        console.log(JSON.stringify({
+          decision: 'block',
+          reason: buildPreflightRecoveryAdvice(contextPercent),
+        }));
+        return;
+      }
+    }
 
     let message;
     if (toolName === 'Task' || toolName === 'TaskCreate' || toolName === 'TaskUpdate') {

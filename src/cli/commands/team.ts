@@ -20,18 +20,24 @@ const MIN_WORKER_COUNT = 1;
 const MAX_WORKER_COUNT = 20;
 
 const TEAM_HELP = `
-Usage: omc team [N:agent-type] "<task description>"
+Usage: omc team [N:agent-type[:role]] [--new-window] "<task description>"
        omc team status <team-name>
        omc team shutdown <team-name> [--force]
        omc team api <operation> [--input <json>] [--json]
        omc team api --help
 
 Examples:
-  omc team 3:executor "fix failing tests"
-  omc team 2:claude "build the auth module"
+  omc team 3:claude "fix failing tests"
+  omc team 2:codex:architect "design auth system"
+  omc team 1:gemini:executor "implement feature"
+  omc team 1:codex,1:gemini "compare approaches"
+  omc team 2:codex "review auth flow" --new-window
   omc team status fix-failing-tests
   omc team shutdown fix-failing-tests
   omc team api send-message --input '{"team_name":"my-team","from_worker":"worker-1","to_worker":"leader-fixed","body":"ACK"}' --json
+
+Roles (optional): architect, executor, planner, analyst, critic, debugger, verifier,
+  code-reviewer, security-reviewer, test-engineer, debugger, designer, writer, scientist
 `;
 
 const TEAM_API_HELP = `
@@ -109,12 +115,14 @@ function slugifyTask(task: string): string {
     .slice(0, 30) || 'team-task';
 }
 
-interface ParsedTeamArgs {
+export interface ParsedTeamArgs {
   workerCount: number;
-  agentType: string;
+  agentTypes: string[];
+  role?: string;
   task: string;
   teamName: string;
   json: boolean;
+  newWindow: boolean;
 }
 
 function getTeamWorkerIdentityFromEnv(env: NodeJS.ProcessEnv = process.env): string | null {
@@ -133,32 +141,89 @@ function assertTeamSpawnAllowed(env: NodeJS.ProcessEnv = process.env): void {
   );
 }
 
-function parseTeamArgs(tokens: string[]): ParsedTeamArgs {
+/** Regex for a single worker spec segment: N[:type[:role]] */
+const SINGLE_SPEC_RE = /^(\d+)(?::([a-z][a-z0-9-]*)(?::([a-z][a-z0-9-]*))?)?$/i;
+
+/** @internal Exported for testing */
+export function parseTeamArgs(tokens: string[]): ParsedTeamArgs {
   const args = [...tokens];
   let workerCount = 3;
-  let agentType = 'claude';
+  let agentTypes: string[] = [];
   let json = false;
+  let newWindow = false;
 
-  // Extract --json flag before parsing positional args
+  // Extract supported flags before parsing positional args
   const filteredArgs: string[] = [];
   for (const arg of args) {
     if (arg === '--json') {
       json = true;
+    } else if (arg === '--new-window') {
+      newWindow = true;
     } else {
       filteredArgs.push(arg);
     }
   }
 
   const first = filteredArgs[0] || '';
-  const match = first.match(/^(\d+)(?::([a-z][a-z0-9-]*))?$/i);
-  if (match) {
-    const count = Number.parseInt(match[1], 10);
-    if (!Number.isFinite(count) || count < MIN_WORKER_COUNT || count > MAX_WORKER_COUNT) {
-      throw new Error(`Invalid worker count "${match[1]}". Expected ${MIN_WORKER_COUNT}-${MAX_WORKER_COUNT}.`);
+
+  // Try comma-separated multi-type spec first (e.g. "1:codex,1:gemini" or "2:claude,1:codex:architect")
+  let role: string | undefined;
+  let specMatched = false;
+
+  if (first.includes(',')) {
+    const segments = first.split(',');
+    const parsedSegments: Array<{ count: number; type: string; role?: string }> = [];
+    let allValid = true;
+
+    for (const seg of segments) {
+      const m = seg.match(SINGLE_SPEC_RE);
+      if (!m) { allValid = false; break; }
+      const count = Number.parseInt(m[1], 10);
+      if (!Number.isFinite(count) || count < MIN_WORKER_COUNT || count > MAX_WORKER_COUNT) {
+        throw new Error(`Invalid worker count "${m[1]}". Expected ${MIN_WORKER_COUNT}-${MAX_WORKER_COUNT}.`);
+      }
+      parsedSegments.push({ count, type: m[2] || 'claude', role: m[3] });
     }
-    workerCount = count;
-    if (match[2]) agentType = match[2];
-    filteredArgs.shift();
+
+    if (allValid && parsedSegments.length > 0) {
+      workerCount = 0;
+      for (const seg of parsedSegments) {
+        workerCount += seg.count;
+        for (let i = 0; i < seg.count; i++) {
+          agentTypes.push(seg.type);
+        }
+      }
+      if (workerCount > MAX_WORKER_COUNT) {
+        throw new Error(`Total worker count ${workerCount} exceeds maximum ${MAX_WORKER_COUNT}.`);
+      }
+      // If every segment specifies the same role, use it; otherwise leave undefined
+      const roles = parsedSegments.map(s => s.role);
+      const uniqueRoles = [...new Set(roles)];
+      if (uniqueRoles.length === 1 && uniqueRoles[0]) role = uniqueRoles[0];
+      specMatched = true;
+      filteredArgs.shift();
+    }
+  }
+
+  // Fall back to single spec (e.g. "3:codex" or "2:codex:architect")
+  if (!specMatched) {
+    const match = first.match(SINGLE_SPEC_RE);
+    if (match) {
+      const count = Number.parseInt(match[1], 10);
+      if (!Number.isFinite(count) || count < MIN_WORKER_COUNT || count > MAX_WORKER_COUNT) {
+        throw new Error(`Invalid worker count "${match[1]}". Expected ${MIN_WORKER_COUNT}-${MAX_WORKER_COUNT}.`);
+      }
+      workerCount = count;
+      const type = match[2] || 'claude';
+      if (match[3]) role = match[3];
+      agentTypes = Array.from({ length: workerCount }, () => type);
+      filteredArgs.shift();
+    }
+  }
+
+  // Default: 3 claude workers if no spec matched
+  if (agentTypes.length === 0) {
+    agentTypes = Array.from({ length: workerCount }, () => 'claude');
   }
 
   const task = filteredArgs.join(' ').trim();
@@ -167,7 +232,7 @@ function parseTeamArgs(tokens: string[]): ParsedTeamArgs {
   }
 
   const teamName = slugifyTask(task);
-  return { workerCount, agentType, task, teamName, json };
+  return { workerCount, agentTypes, role, task, teamName, json, newWindow };
 }
 
 function sampleValueForField(field: string): unknown {
@@ -310,18 +375,28 @@ async function handleTeamStart(parsed: ParsedTeamArgs, cwd: string): Promise<voi
     });
   }
 
+  // Load role prompt if a role was specified (e.g., 3:codex:architect)
+  let rolePrompt: string | undefined;
+  if (parsed.role) {
+    const { loadAgentPrompt } = await import('../../agents/utils.js');
+    rolePrompt = loadAgentPrompt(parsed.role);
+  }
+
   // Use v2 runtime by default (OMC_RUNTIME_V2 opt-out), otherwise fall back to v1
   const { isRuntimeV2Enabled } = await import('../../team/runtime-v2.js');
   if (isRuntimeV2Enabled()) {
     const { startTeamV2, monitorTeamV2 } = await import('../../team/runtime-v2.js');
-    const agentTypes = Array.from({ length: parsed.workerCount }, () => parsed.agentType);
     const runtime = await startTeamV2({
       teamName: parsed.teamName,
       workerCount: parsed.workerCount,
-      agentTypes,
+      agentTypes: parsed.agentTypes,
       tasks,
       cwd,
+      newWindow: parsed.newWindow,
+      ...(rolePrompt ? { roleName: parsed.role, rolePrompt } : {}),
     });
+
+    const uniqueTypes = [...new Set(parsed.agentTypes)].join(',');
 
     if (parsed.json) {
       const snapshot = await monitorTeamV2(runtime.teamName, cwd);
@@ -329,7 +404,7 @@ async function handleTeamStart(parsed: ParsedTeamArgs, cwd: string): Promise<voi
         teamName: runtime.teamName,
         sessionName: runtime.sessionName,
         workerCount: runtime.config.worker_count,
-        agentType: parsed.agentType,
+        agentType: uniqueTypes,
         tasks: snapshot ? snapshot.tasks : null,
       }));
       return;
@@ -338,7 +413,7 @@ async function handleTeamStart(parsed: ParsedTeamArgs, cwd: string): Promise<voi
     console.log(`Team started: ${runtime.teamName}`);
     console.log(`tmux session: ${runtime.sessionName}`);
     console.log(`workers: ${runtime.config.worker_count}`);
-    console.log(`agent_type: ${parsed.agentType}`);
+    console.log(`agent_type: ${uniqueTypes}`);
 
     const snapshot = await monitorTeamV2(runtime.teamName, cwd);
     if (snapshot) {
@@ -349,14 +424,16 @@ async function handleTeamStart(parsed: ParsedTeamArgs, cwd: string): Promise<voi
 
   // v1 fallback
   const { startTeam, monitorTeam } = await import('../../team/runtime.js');
-  const agentTypes = Array.from({ length: parsed.workerCount }, () => parsed.agentType) as any;
   const runtime = await startTeam({
     teamName: parsed.teamName,
     workerCount: parsed.workerCount,
-    agentTypes,
+    agentTypes: parsed.agentTypes as any,
     tasks,
     cwd,
+    newWindow: parsed.newWindow,
   });
+
+  const uniqueTypesV1 = [...new Set(parsed.agentTypes)].join(',');
 
   if (parsed.json) {
     const snapshot = await monitorTeam(runtime.teamName, cwd, runtime.workerPaneIds);
@@ -364,7 +441,7 @@ async function handleTeamStart(parsed: ParsedTeamArgs, cwd: string): Promise<voi
       teamName: runtime.teamName,
       sessionName: runtime.sessionName,
       workerCount: runtime.workerNames.length,
-      agentType: parsed.agentType,
+      agentType: uniqueTypesV1,
       tasks: snapshot ? {
         total: snapshot.taskCounts.pending + snapshot.taskCounts.inProgress + snapshot.taskCounts.completed + snapshot.taskCounts.failed,
         pending: snapshot.taskCounts.pending,
@@ -379,7 +456,7 @@ async function handleTeamStart(parsed: ParsedTeamArgs, cwd: string): Promise<voi
   console.log(`Team started: ${runtime.teamName}`);
   console.log(`tmux session: ${runtime.sessionName}`);
   console.log(`workers: ${runtime.workerNames.length}`);
-  console.log(`agent_type: ${parsed.agentType}`);
+  console.log(`agent_type: ${uniqueTypesV1}`);
 
   const snapshot = await monitorTeam(runtime.teamName, cwd, runtime.workerPaneIds);
   if (snapshot) {

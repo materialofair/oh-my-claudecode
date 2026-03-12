@@ -41,6 +41,7 @@ import {
   getEffectivePermissions,
   findPermissionViolations,
 } from "./permissions.js";
+import { getBuiltinExternalDefaultModel } from "../config/models.js";
 import type { WorkerPermissions, PermissionViolation } from "./permissions.js";
 import { getTeamStatus } from "./team-status.js";
 import { measureCharCounts, recordTaskUsage } from "./usage-tracker.js";
@@ -520,7 +521,7 @@ function spawnCliProcess(
     args = [
       "exec",
       "-m",
-      model || "gpt-5.3-codex",
+      model || getBuiltinExternalDefaultModel("codex"),
       "--json",
       "--dangerously-bypass-approvals-and-sandbox",
       "--skip-git-repo-check",

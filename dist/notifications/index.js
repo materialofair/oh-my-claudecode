@@ -12,12 +12,12 @@
 export { dispatchNotifications, sendDiscord, sendDiscordBot, sendTelegram, sendSlack, sendSlackBot, sendWebhook, } from "./dispatcher.js";
 export { formatNotification, formatSessionStart, formatSessionStop, formatSessionEnd, formatSessionIdle, formatAskUserQuestion, formatAgentCall, } from "./formatter.js";
 export { getCurrentTmuxSession, getCurrentTmuxPaneId, getTeamTmuxSessions, formatTmuxInfo, } from "./tmux.js";
-export { getNotificationConfig, isEventEnabled, getEnabledPlatforms, getVerbosity, isEventAllowedByVerbosity, shouldIncludeTmuxTail, } from "./config.js";
+export { getNotificationConfig, isEventEnabled, getEnabledPlatforms, getVerbosity, getTmuxTailLines, isEventAllowedByVerbosity, shouldIncludeTmuxTail, } from "./config.js";
 export { getHookConfig, resolveEventTemplate, resetHookConfigCache, mergeHookConfigIntoNotificationConfig, } from "./hook-config.js";
 export { interpolateTemplate, getDefaultTemplate, validateTemplate, computeTemplateVariables, } from "./template-engine.js";
 export { verifySlackSignature, isTimestampValid, validateSlackEnvelope, validateSlackMessage, SlackConnectionStateTracker, } from "./slack-socket.js";
 export { redactTokens } from "./redact.js";
-import { getNotificationConfig, isEventEnabled, getVerbosity, isEventAllowedByVerbosity, shouldIncludeTmuxTail, } from "./config.js";
+import { getNotificationConfig, isEventEnabled, getVerbosity, getTmuxTailLines, isEventAllowedByVerbosity, shouldIncludeTmuxTail, } from "./config.js";
 import { formatNotification } from "./formatter.js";
 import { dispatchNotifications } from "./dispatcher.js";
 import { getCurrentTmuxSession } from "./tmux.js";
@@ -85,9 +85,11 @@ export async function notify(event, data) {
             (event === "session-idle" || event === "session-end" || event === "session-stop")) {
             try {
                 const { capturePaneContent } = await import("../features/rate-limit-wait/tmux-detector.js");
-                const tail = capturePaneContent(payload.tmuxPaneId, 15);
+                const tailLines = getTmuxTailLines(config);
+                const tail = capturePaneContent(payload.tmuxPaneId, tailLines);
                 if (tail) {
                     payload.tmuxTail = tail;
+                    payload.maxTailLines = tailLines;
                 }
             }
             catch {

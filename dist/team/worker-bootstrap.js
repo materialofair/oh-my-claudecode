@@ -1,6 +1,24 @@
 import { mkdir, writeFile, appendFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { sanitizePromptContent } from '../agents/prompt-helpers.js';
+function buildInstructionPath(...parts) {
+    return join(...parts).replaceAll('\\', '/');
+}
+export function generateTriggerMessage(teamName, workerName, teamStateRoot = '.omc/state') {
+    const inboxPath = buildInstructionPath(teamStateRoot, 'team', teamName, 'workers', workerName, 'inbox.md');
+    if (teamStateRoot !== '.omc/state') {
+        return `Read ${inboxPath}, work now, report progress.`;
+    }
+    return `Read ${inboxPath}, start work now, then report concrete progress (not ACK-only).`;
+}
+export function generateMailboxTriggerMessage(teamName, workerName, count = 1, teamStateRoot = '.omc/state') {
+    const normalizedCount = Number.isFinite(count) ? Math.max(1, Math.floor(count)) : 1;
+    const mailboxPath = buildInstructionPath(teamStateRoot, 'team', teamName, 'mailbox', `${workerName}.json`);
+    if (teamStateRoot !== '.omc/state') {
+        return `${normalizedCount} new msg(s): check ${mailboxPath}, act and report progress.`;
+    }
+    return `You have ${normalizedCount} new message(s). Check ${mailboxPath}, act now, and reply with concrete progress (not ACK-only).`;
+}
 function agentTypeGuidance(agentType) {
     switch (agentType) {
         case 'codex':
@@ -8,12 +26,14 @@ function agentTypeGuidance(agentType) {
                 '### Agent-Type Guidance (codex)',
                 '- Prefer short, explicit `omc team api ... --json` commands and parse outputs before next step.',
                 '- If a command fails, report the exact stderr to leader-fixed before retrying.',
+                '- You MUST run `omc team api claim-task` before starting work and `omc team api transition-task-status` when done.',
             ].join('\n');
         case 'gemini':
             return [
                 '### Agent-Type Guidance (gemini)',
                 '- Execute task work in small, verifiable increments and report each milestone to leader-fixed.',
                 '- Keep commit-sized changes scoped to assigned files only; no broad refactors.',
+                '- CRITICAL: You MUST run `omc team api claim-task` before starting work and `omc team api transition-task-status` when done. Do not exit without transitioning the task status.',
             ].join('\n');
         case 'claude':
         default:
@@ -56,6 +76,20 @@ Before doing anything else, write your ready sentinel file:
 mkdir -p $(dirname ${sentinelPath}) && touch ${sentinelPath}
 \`\`\`
 
+## MANDATORY WORKFLOW — Follow These Steps In Order
+You MUST complete ALL of these steps. Do NOT skip any step. Do NOT exit without step 4.
+
+1. **Claim** your task (run this command first):
+   \`omc team api claim-task --input "{\"team_name\":\"${teamName}\",\"task_id\":\"<id>\",\"worker\":\"${workerName}\"}" --json\`
+   Save the \`claim_token\` from the response — you need it for step 4.
+2. **Do the work** described in your task assignment below.
+3. **Send ACK** to the leader:
+   \`omc team api send-message --input "{\"team_name\":\"${teamName}\",\"from_worker\":\"${workerName}\",\"to_worker\":\"leader-fixed\",\"body\":\"ACK: ${workerName} initialized\"}" --json\`
+4. **Transition** the task status (REQUIRED before exit):
+   - On success: \`omc team api transition-task-status --input "{\"team_name\":\"${teamName}\",\"task_id\":\"<id>\",\"from\":\"in_progress\",\"to\":\"completed\",\"claim_token\":\"<claim_token>\"}" --json\`
+   - On failure: \`omc team api transition-task-status --input "{\"team_name\":\"${teamName}\",\"task_id\":\"<id>\",\"from\":\"in_progress\",\"to\":\"failed\",\"claim_token\":\"<claim_token>\"}" --json\`
+5. **Exit** immediately after transitioning.
+
 ## Identity
 - **Team**: ${teamName}
 - **Worker**: ${workerName}
@@ -65,19 +99,15 @@ mkdir -p $(dirname ${sentinelPath}) && touch ${sentinelPath}
 ## Your Tasks
 ${taskList}
 
-## Task Lifecycle Protocol (CLI API)
+## Task Lifecycle Reference (CLI API)
 Use the CLI API for all task lifecycle operations. Do NOT directly edit task files.
 
-1. Read your task file at \`${taskDir}/task-{taskId}.json\`
-2. Task id format: State/CLI APIs use task_id: "<id>" (example: "1"), not "task-1"
-3. Claim a task via CLI interop:
-   \`omc team api claim-task --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"worker\\":\\"${workerName}\\"}" --json\`
-4. Do the work described in the task
-5. On completion, transition via CLI interop (use the claim_token from step 3):
-   \`omc team api transition-task-status --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"from\\":\\"in_progress\\",\\"to\\":\\"completed\\",\\"claim_token\\":\\"<claim_token from step 3>\\"}" --json\`
-6. On failure, transition to "failed" with error (use the claim_token from step 3):
-   \`omc team api transition-task-status --input "{\\"team_name\\":\\"${teamName}\\",\\"task_id\\":\\"<id>\\",\\"from\\":\\"in_progress\\",\\"to\\":\\"failed\\",\\"claim_token\\":\\"<claim_token from step 3>\\"}" --json\`
-7. Use \`omc team api release-task-claim --json\` only for rollback to pending
+- Inspect task state: \`omc team api read-task --input "{\"team_name\":\"${teamName}\",\"task_id\":\"<id>\"}" --json\`
+- Task id format: State/CLI APIs use task_id: "<id>" (example: "1"), not "task-1"
+- Claim task: \`omc team api claim-task --input "{\"team_name\":\"${teamName}\",\"task_id\":\"<id>\",\"worker\":\"${workerName}\"}" --json\`
+- Complete task: \`omc team api transition-task-status --input "{\"team_name\":\"${teamName}\",\"task_id\":\"<id>\",\"from\":\"in_progress\",\"to\":\"completed\",\"claim_token\":\"<claim_token>\"}" --json\`
+- Fail task: \`omc team api transition-task-status --input "{\"team_name\":\"${teamName}\",\"task_id\":\"<id>\",\"from\":\"in_progress\",\"to\":\"failed\",\"claim_token\":\"<claim_token>\"}" --json\`
+- Release claim (rollback): \`omc team api release-task-claim --input "{\"team_name\":\"${teamName}\",\"task_id\":\"<id>\",\"claim_token\":\"<claim_token>\",\"worker\":\"${workerName}\"}" --json\`
 
 ## Communication Protocol
 - **Inbox**: Read ${inboxPath} for new instructions
@@ -121,7 +151,11 @@ When you see a shutdown request in your inbox:
 
 ${agentTypeGuidance(agentType)}
 
-${bootstrapInstructions ? `## Additional Instructions\n${bootstrapInstructions}\n` : ''}`;
+## BEFORE YOU EXIT
+You MUST call \`omc team api transition-task-status\` to mark your task as "completed" or "failed" before exiting.
+If you skip this step, the leader cannot track your work and the task will appear stuck.
+
+${bootstrapInstructions ? `## Role Context\n${bootstrapInstructions}\n` : ''}`;
 }
 /**
  * Write the initial inbox file for a worker.

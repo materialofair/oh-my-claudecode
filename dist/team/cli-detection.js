@@ -4,9 +4,13 @@ export { isCliAvailable, validateCliAvailable, getContract } from './model-contr
 import { spawnSync } from 'child_process';
 export function detectCli(binary) {
     try {
-        const versionResult = spawnSync(binary, ['--version'], { timeout: 5000 });
+        const versionResult = spawnSync(binary, ['--version'], {
+            timeout: 5000,
+            shell: process.platform === 'win32',
+        });
         if (versionResult.status === 0) {
-            const pathResult = spawnSync('which', [binary], { timeout: 5000 });
+            const finder = process.platform === 'win32' ? 'where' : 'which';
+            const pathResult = spawnSync(finder, [binary], { timeout: 5000 });
             return {
                 available: true,
                 version: versionResult.stdout?.toString().trim(),

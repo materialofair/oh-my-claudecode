@@ -353,7 +353,7 @@ async function main() {
 You have an active ultrawork session from ${ultraworkState.started_at}.
 Original task: ${ultraworkState.original_prompt}
 
-Continue working in ultrawork mode until all tasks are complete.
+Treat this as prior-session context only. Prioritize the user's newest request, and resume ultrawork only if the user explicitly asks to continue it.
 
 </session-restore>
 
@@ -387,7 +387,7 @@ You have an active ralph-loop session.
 Original task: ${ralphState.prompt || 'Task in progress'}
 Iteration: ${ralphState.iteration || 1}/${ralphState.max_iterations || 10}
 
-Continue working until the task is verified complete.
+Treat this as prior-session context only. Prioritize the user's newest request, and resume the ralph loop only if the user explicitly asks to continue it.
 
 </session-restore>
 
@@ -420,7 +420,7 @@ Continue working until the task is verified complete.
 [PENDING TASKS DETECTED]
 
 You have ${incompleteCount} incomplete tasks from a previous session.
-Please continue working on these tasks.
+Treat this as prior-session context only. Prioritize the user's newest request, and resume these tasks only if the user explicitly asks to continue them.
 
 </session-restore>
 

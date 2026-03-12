@@ -9,6 +9,7 @@ const PROVIDER_BINARIES = {
   codex: 'codex',
   gemini: 'gemini',
 };
+const SHOULD_USE_WINDOWS_SHELL = process.platform === 'win32';
 
 /**
  * Build CLI args for a given provider.
@@ -74,13 +75,37 @@ function parseArgs(argv) {
   return { provider, prompt: rest.join(' ').trim() };
 }
 
-function ensureBinary(binary) {
+const CODEX_STRIPPED_ENV_VARS = new Set(['RUST_LOG', 'RUST_BACKTRACE', 'RUST_LIB_BACKTRACE']);
+
+function buildProviderEnv(provider, env = process.env) {
+  if (provider !== 'codex') {
+    return env;
+  }
+
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => !CODEX_STRIPPED_ENV_VARS.has(key)),
+  );
+}
+
+function ensureBinary(provider, binary) {
   const probe = spawnSync(binary, ['--version'], {
     stdio: 'ignore',
     encoding: 'utf8',
+    env: buildProviderEnv(provider),
+    shell: SHOULD_USE_WINDOWS_SHELL,
   });
 
-  if (probe.error && probe.error.code === 'ENOENT') {
+  const isMissingOnWindowsShell = SHOULD_USE_WINDOWS_SHELL
+    && probe.status !== 0
+    && (() => {
+      const whereResult = spawnSync('where', [binary], {
+        encoding: 'utf8',
+        env: buildProviderEnv(provider),
+      });
+      return whereResult.status !== 0 || !whereResult.stdout?.trim();
+    })();
+
+  if ((probe.error && probe.error.code === 'ENOENT') || isMissingOnWindowsShell) {
     const verify = `${binary} --version`;
     console.error(`[ask-${binary}] Missing required local CLI binary: ${binary}`);
     console.error(`[ask-${binary}] Install/configure ${binary} CLI, then verify with: ${verify}`);
@@ -182,12 +207,14 @@ async function main() {
   const { provider, prompt } = parseArgs(process.argv.slice(2));
   const binary = PROVIDER_BINARIES[provider];
 
-  ensureBinary(binary);
+  ensureBinary(provider, binary);
 
   const providerArgs = buildProviderArgs(provider, prompt);
   const run = spawnSync(binary, providerArgs, {
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
+    env: buildProviderEnv(provider),
+    shell: SHOULD_USE_WINDOWS_SHELL,
   });
 
   const stdout = run.stdout || '';

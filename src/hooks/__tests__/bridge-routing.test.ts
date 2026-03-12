@@ -101,6 +101,30 @@ describe('processHook - Routing Matrix', () => {
       expect(typeof result.message).toBe('string');
     });
 
+    it('should route code review keyword to the review mode message', async () => {
+      const input: HookInput = {
+        sessionId: 'test-session',
+        prompt: 'code review this change',
+        directory: '/tmp/test-routing',
+      };
+
+      const result = await processHook('keyword-detector', input);
+      expect(result.continue).toBe(true);
+      expect(result.message).toContain('[CODE REVIEW MODE ACTIVATED]');
+    });
+
+    it('should route security review keyword to the security mode message', async () => {
+      const input: HookInput = {
+        sessionId: 'test-session',
+        prompt: 'security review this change',
+        directory: '/tmp/test-routing',
+      };
+
+      const result = await processHook('keyword-detector', input);
+      expect(result.continue).toBe(true);
+      expect(result.message).toContain('[SECURITY REVIEW MODE ACTIVATED]');
+    });
+
     it('should handle keyword-detector with no keyword prompt', async () => {
       const input: HookInput = {
         sessionId: 'test-session',
@@ -211,7 +235,9 @@ describe('processHook - Routing Matrix', () => {
         } as HookInput);
 
         expect(result.continue).toBe(false);
-        expect(result.message).toContain('[TEAM MODE CONTINUATION]');
+        // checkTeamPipeline() in persistent-mode now handles team enforcement
+        // instead of bridge.ts's own team enforcement
+        expect(result.message).toContain('team-pipeline-continuation');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -238,6 +264,41 @@ describe('processHook - Routing Matrix', () => {
         expect(result.continue).toBe(true);
         expect(result.message).toMatch(/authentication/i);
         expect(result.message).not.toContain('[TEAM MODE CONTINUATION]');
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+
+
+    it('should not append legacy team continuation when ralplan already blocks stop', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'bridge-routing-ralplan-team-'));
+      const sessionId = 'ralplan-team-double-block';
+      try {
+        execFileSync('git', ['init'], { cwd: tempDir, stdio: 'pipe' });
+        const sessionStateDir = join(tempDir, '.omc', 'state', 'sessions', sessionId);
+        mkdirSync(sessionStateDir, { recursive: true });
+        writeFileSync(
+          join(sessionStateDir, 'ralplan-state.json'),
+          JSON.stringify({ active: true, session_id: sessionId, current_phase: 'ralplan' }, null, 2)
+        );
+
+        const globalStateDir = join(tempDir, '.omc', 'state');
+        mkdirSync(globalStateDir, { recursive: true });
+        writeFileSync(
+          join(globalStateDir, 'team-state.json'),
+          JSON.stringify({ active: true, stage: 'team-exec' }, null, 2)
+        );
+
+        const result = await processHook('persistent-mode', {
+          sessionId,
+          directory: tempDir,
+          stop_reason: 'end_turn',
+        } as HookInput);
+
+        expect(result.continue).toBe(false);
+        expect(result.message).toContain('ralplan-continuation');
+        expect(result.message).not.toContain('team-stage-continuation');
+        expect(result.message).not.toContain('team-pipeline-continuation');
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }

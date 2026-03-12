@@ -97,6 +97,8 @@ export interface NotificationConfig {
     enabled: boolean;
     /** Verbosity level controlling which events fire and tmux tail inclusion */
     verbosity?: VerbosityLevel;
+    /** Number of tmux pane lines to capture for notification tail content */
+    tmuxTailLines?: number;
     /** Default platform configs (used when event-specific config is not set) */
     discord?: DiscordNotificationConfig;
     "discord-bot"?: DiscordBotNotificationConfig;
@@ -160,6 +162,8 @@ export interface NotificationPayload {
     agentType?: string;
     /** Captured tmux pane content (last N lines) */
     tmuxTail?: string;
+    /** Max meaningful lines to display from tmux tail */
+    maxTailLines?: number;
     /** Reply channel name (from OPENCLAW_REPLY_CHANNEL env var) */
     replyChannel?: string;
     /** Reply target (from OPENCLAW_REPLY_TARGET env var) */

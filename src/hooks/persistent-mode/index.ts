@@ -10,7 +10,7 @@
  * Priority order: Ralph > Ultrawork > Todo Continuation
  */
 
-import { existsSync, readFileSync, unlinkSync, statSync, openSync, readSync, closeSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, statSync, openSync, readSync, closeSync, mkdirSync } from 'fs';
 import { atomicWriteJsonSync } from '../../lib/atomic-write.js';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -24,6 +24,7 @@ import {
   type UltraworkState
 } from '../ultrawork/index.js';
 import { resolveToWorktreeRoot, resolveSessionStatePath, getOmcRoot } from '../../lib/worktree-paths.js';
+import { readModeState } from '../../lib/mode-state-io.js';
 import {
   readRalphState,
   writeRalphState,
@@ -32,6 +33,7 @@ import {
   getPrdCompletionStatus,
   getRalphContext,
   readVerificationState,
+  startVerification,
   recordArchitectFeedback,
   getArchitectVerificationPrompt,
   getArchitectRejectionContinuationPrompt,
@@ -62,7 +64,7 @@ export interface PersistentModeResult {
   /** Message to inject into context */
   message: string;
   /** Which mode triggered the block */
-  mode: 'ralph' | 'ultrawork' | 'todo-continuation' | 'autopilot' | 'none';
+  mode: 'ralph' | 'ultrawork' | 'todo-continuation' | 'autopilot' | 'team' | 'ralplan' | 'none';
   /** Additional metadata */
   metadata?: {
     todoCount?: number;
@@ -298,6 +300,7 @@ export function recordIdleNotificationSent(stateDir: string, sessionId?: string)
 
 /** Max bytes to read from the tail of a transcript for architect approval detection. */
 const TRANSCRIPT_TAIL_BYTES = 32 * 1024; // 32 KB
+const CRITICAL_CONTEXT_STOP_PERCENT = 95;
 
 /**
  * Read the tail of a potentially large transcript file.
@@ -318,6 +321,43 @@ function readTranscriptTail(transcriptPath: string): string {
   } finally {
     closeSync(fd);
   }
+}
+
+function estimateTranscriptContextPercent(transcriptPath?: string): number {
+  if (!transcriptPath || !existsSync(transcriptPath)) {
+    return 0;
+  }
+
+  try {
+    const content = readTranscriptTail(transcriptPath);
+    const windowMatches = [...content.matchAll(/"context_window"\s{0,5}:\s{0,5}(\d+)/g)];
+    const inputMatches = [...content.matchAll(/"input_tokens"\s{0,5}:\s{0,5}(\d+)/g)];
+    const lastWindow = windowMatches.at(-1)?.[1];
+    const lastInput = inputMatches.at(-1)?.[1];
+
+    if (!lastWindow || !lastInput) {
+      return 0;
+    }
+
+    const contextWindow = parseInt(lastWindow, 10);
+    const inputTokens = parseInt(lastInput, 10);
+    if (!Number.isFinite(contextWindow) || contextWindow <= 0 || !Number.isFinite(inputTokens)) {
+      return 0;
+    }
+
+    return Math.round((inputTokens / contextWindow) * 100);
+  } catch {
+    return 0;
+  }
+}
+
+function isCriticalContextStop(stopContext?: StopContext): boolean {
+  if (isContextLimitStop(stopContext)) {
+    return true;
+  }
+
+  const transcriptPath = stopContext?.transcript_path ?? stopContext?.transcriptPath;
+  return estimateTranscriptContextPercent(transcriptPath) >= CRITICAL_CONTEXT_STOP_PERCENT;
 }
 
 /**
@@ -463,20 +503,6 @@ async function checkRalphLoop(
     }
   }
 
-  // Check for PRD-based completion (all stories have passes: true)
-  const prdStatus = getPrdCompletionStatus(workingDir);
-  if (prdStatus.hasPrd && prdStatus.allComplete) {
-    // All PRD stories complete - allow completion
-    clearRalphState(workingDir, sessionId);
-    clearVerificationState(workingDir, sessionId);
-    deactivateUltrawork(workingDir, sessionId);
-    return {
-      shouldBlock: false,
-      message: `[RALPH LOOP COMPLETE - PRD] All ${prdStatus.status?.total || 0} stories are complete! Great work!`,
-      mode: 'none'
-    };
-  }
-
   // Check for existing verification state (architect verification in progress)
   const verificationState = readVerificationState(workingDir, sessionId);
 
@@ -490,9 +516,14 @@ async function checkRalphLoop(
         clearVerificationState(workingDir, sessionId);
         clearRalphState(workingDir, sessionId);
         deactivateUltrawork(workingDir, sessionId);
+        const criticLabel = verificationState.critic_mode === 'codex'
+          ? 'Codex critic'
+          : verificationState.critic_mode === 'critic'
+            ? 'Critic'
+            : 'Architect';
         return {
           shouldBlock: false,
-          message: `[RALPH LOOP VERIFIED COMPLETE] Architect verified task completion after ${state.iteration} iteration(s). Excellent work!`,
+          message: `[RALPH LOOP VERIFIED COMPLETE] ${criticLabel} verified task completion after ${state.iteration} iteration(s). Excellent work!`,
           mode: 'none'
         };
       }
@@ -519,7 +550,7 @@ async function checkRalphLoop(
       }
     }
 
-    // Verification still pending - remind to spawn architect
+    // Verification still pending - remind to run the selected reviewer
     // Get current story for story-aware verification
     const prdInfo = getPrdCompletionStatus(workingDir);
     const currentStory = prdInfo.nextStory ?? undefined;
@@ -527,6 +558,29 @@ async function checkRalphLoop(
     return {
       shouldBlock: true,
       message: verificationPrompt,
+      mode: 'ralph',
+      metadata: {
+        iteration: state.iteration,
+        maxIterations: state.max_iterations
+      }
+    };
+  }
+
+  // Check for PRD-based completion (all stories have passes: true).
+  // Enter a verification phase instead of clearing Ralph immediately.
+  const prdStatus = getPrdCompletionStatus(workingDir);
+  if (prdStatus.hasPrd && prdStatus.allComplete) {
+    const startedVerification = startVerification(
+      workingDir,
+      `All ${prdStatus.status?.total || 0} PRD stories are marked passes: true.`,
+      state.prompt,
+      state.critic_mode,
+      sessionId
+    );
+
+    return {
+      shouldBlock: true,
+      message: getArchitectVerificationPrompt(startedVerification),
       mode: 'ralph',
       metadata: {
         iteration: state.iteration,
@@ -570,7 +624,7 @@ CRITICAL INSTRUCTIONS:
 1. Review your progress and the original task
 ${prdInstruction}
 3. Continue from where you left off
-4. When FULLY complete (after Architect verification), run \`/oh-my-claudecode:cancel\` to cleanly exit and clean up state files. If cancel fails, retry with \`/oh-my-claudecode:cancel --force\`.
+4. When FULLY complete (after ${state.critic_mode === 'codex' ? 'Codex critic' : state.critic_mode === 'critic' ? 'Critic' : 'Architect'} verification), run \`/oh-my-claudecode:cancel\` to cleanly exit and clean up state files. If cancel fails, retry with \`/oh-my-claudecode:cancel --force\`.
 5. Do NOT stop until the task is truly done
 
 ${newState.prompt ? `Original task: ${newState.prompt}` : ''}
@@ -590,6 +644,274 @@ ${newState.prompt ? `Original task: ${newState.prompt}` : ''}
       maxIterations: newState.max_iterations,
       toolError: toolError || undefined
     }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Stop Breaker helpers (shared by team pipeline and ralplan)
+// ---------------------------------------------------------------------------
+
+interface StopBreakerState {
+  count: number;
+  updated_at: string;
+}
+
+function readStopBreaker(directory: string, name: string, sessionId?: string, ttlMs?: number): number {
+  const stateDir = sessionId
+    ? join(getOmcRoot(directory), 'state', 'sessions', sessionId)
+    : join(getOmcRoot(directory), 'state');
+  const breakerPath = join(stateDir, `${name}-stop-breaker.json`);
+
+  try {
+    if (!existsSync(breakerPath)) return 0;
+    const raw = JSON.parse(readFileSync(breakerPath, 'utf-8')) as StopBreakerState;
+    if (ttlMs && raw.updated_at) {
+      const updatedAt = new Date(raw.updated_at).getTime();
+      if (Number.isFinite(updatedAt) && Date.now() - updatedAt > ttlMs) {
+        unlinkSync(breakerPath);
+        return 0;
+      }
+    }
+    return typeof raw.count === 'number' ? raw.count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeStopBreaker(directory: string, name: string, count: number, sessionId?: string): void {
+  const stateDir = sessionId
+    ? join(getOmcRoot(directory), 'state', 'sessions', sessionId)
+    : join(getOmcRoot(directory), 'state');
+
+  try {
+    mkdirSync(stateDir, { recursive: true });
+    const breakerPath = join(stateDir, `${name}-stop-breaker.json`);
+    const data: StopBreakerState = { count, updated_at: new Date().toISOString() };
+    atomicWriteJsonSync(breakerPath, data);
+  } catch {
+    // Ignore write errors — fail-open
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Team Pipeline enforcement (standalone team mode)
+// ---------------------------------------------------------------------------
+
+const TEAM_PIPELINE_STOP_BLOCKER_MAX = 20;
+const TEAM_PIPELINE_STOP_BLOCKER_TTL_MS = 5 * 60 * 1000; // 5 min
+
+/**
+ * Check Team Pipeline state for standalone team mode enforcement.
+ * When team runs WITHOUT ralph, this provides the stop-hook blocking.
+ * When team runs WITH ralph, checkRalphLoop() handles it (higher priority).
+ */
+async function checkTeamPipeline(
+  sessionId?: string,
+  directory?: string,
+  cancelInProgress?: boolean
+): Promise<PersistentModeResult | null> {
+  const workingDir = resolveToWorktreeRoot(directory);
+  const teamState = readTeamPipelineState(workingDir, sessionId);
+
+  if (!teamState) {
+    return null;
+  }
+
+  if (!teamState.active) {
+    writeStopBreaker(workingDir, 'team-pipeline', 0, sessionId);
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'team'
+    };
+  }
+
+
+  // Session isolation: readTeamPipelineState already checks session_id match
+  // and returns null on mismatch (team-pipeline/state.ts:81)
+
+  // Cancel-in-progress bypass
+  if (cancelInProgress) {
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'team'
+    };
+  }
+
+  // Read phase from canonical team-pipeline/current_phase shape first,
+  // then fall back to bridge.ts / legacy stage fields for compatibility.
+  const rawPhase = teamState.phase
+    ?? (teamState as unknown as Record<string, unknown>).current_phase
+    ?? (teamState as unknown as Record<string, unknown>).currentStage
+    ?? (teamState as unknown as Record<string, unknown>).current_stage
+    ?? (teamState as unknown as Record<string, unknown>).stage;
+
+  if (typeof rawPhase !== 'string') {
+    // Fail-open but still claim mode='team' so bridge.ts defers to this result
+    // instead of running its own team enforcement (which could falsely block).
+    return { shouldBlock: false, message: '', mode: 'team' };
+  }
+  const phase = rawPhase.trim().toLowerCase();
+
+  // Terminal phases — allow stop
+  if (phase === 'complete' || phase === 'completed' || phase === 'failed' || phase === 'cancelled' || phase === 'canceled' || phase === 'cancel') {
+    writeStopBreaker(workingDir, 'team-pipeline', 0, sessionId);
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'team'
+    };
+  }
+
+  // Fail-open: only known active phases should block.
+  // Missing, malformed, or unknown phases do not block (safety principle).
+  const KNOWN_ACTIVE_PHASES = new Set(['team-plan', 'team-prd', 'team-exec', 'team-verify', 'team-fix']);
+  if (!KNOWN_ACTIVE_PHASES.has(phase)) {
+    // Still claim mode='team' so bridge.ts defers
+    return { shouldBlock: false, message: '', mode: 'team' };
+  }
+
+  // Status-level terminal check (bridge.ts format uses `status` field)
+  const rawStatus = (teamState as unknown as Record<string, unknown>).status;
+  const status = typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : null;
+  if (status === 'cancelled' || status === 'canceled' || status === 'cancel' || status === 'failed' || status === 'complete' || status === 'completed') {
+    writeStopBreaker(workingDir, 'team-pipeline', 0, sessionId);
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'team'
+    };
+  }
+
+  // Cancel requested on team state — allow stop
+  if (teamState.cancel?.requested) {
+    writeStopBreaker(workingDir, 'team-pipeline', 0, sessionId);
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'team'
+    };
+  }
+
+  // Circuit breaker
+  const breakerCount = readStopBreaker(workingDir, 'team-pipeline', sessionId, TEAM_PIPELINE_STOP_BLOCKER_TTL_MS) + 1;
+  if (breakerCount > TEAM_PIPELINE_STOP_BLOCKER_MAX) {
+    writeStopBreaker(workingDir, 'team-pipeline', 0, sessionId);
+    return {
+      shouldBlock: false,
+      message: `[TEAM PIPELINE CIRCUIT BREAKER] Stop enforcement exceeded ${TEAM_PIPELINE_STOP_BLOCKER_MAX} reinforcements. Allowing stop to prevent infinite blocking.`,
+      mode: 'team'
+    };
+  }
+  writeStopBreaker(workingDir, 'team-pipeline', breakerCount, sessionId);
+
+  return {
+    shouldBlock: true,
+    message: `<team-pipeline-continuation>
+
+[TEAM PIPELINE - PHASE: ${phase.toUpperCase()} | REINFORCEMENT ${breakerCount}/${TEAM_PIPELINE_STOP_BLOCKER_MAX}]
+
+The team pipeline is active in phase "${phase}". Continue working on the team workflow.
+Do not stop until the pipeline reaches a terminal state (complete/failed/cancelled).
+When done, run \`/oh-my-claudecode:cancel\` to cleanly exit.
+
+</team-pipeline-continuation>
+
+---
+
+`,
+    mode: 'team',
+    metadata: {
+      phase,
+      tasksCompleted: teamState.execution?.tasks_completed,
+      tasksTotal: teamState.execution?.tasks_total,
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ralplan enforcement (standalone consensus planning)
+// ---------------------------------------------------------------------------
+
+const RALPLAN_STOP_BLOCKER_MAX = 30;
+const RALPLAN_STOP_BLOCKER_TTL_MS = 45 * 60 * 1000; // 45 min
+
+interface RalplanState {
+  active: boolean;
+  session_id?: string;
+}
+
+/**
+ * Check Ralplan state for standalone ralplan mode enforcement.
+ * Ralplan state is written by the MCP state_write tool.
+ * Only `active` and `session_id` are used for blocking decisions.
+ */
+async function checkRalplan(
+  sessionId?: string,
+  directory?: string,
+  cancelInProgress?: boolean
+): Promise<PersistentModeResult | null> {
+  const workingDir = resolveToWorktreeRoot(directory);
+  const state = readModeState<RalplanState>('ralplan', workingDir, sessionId);
+
+  if (!state || !state.active) {
+    return null;
+  }
+
+  // Session isolation
+  if (sessionId && state.session_id && state.session_id !== sessionId) {
+    return null;
+  }
+
+  // Terminal phase detection — allow stop when ralplan has completed
+  const currentPhase = (state as unknown as Record<string, unknown>).current_phase;
+  if (typeof currentPhase === 'string') {
+    const terminal = ['complete', 'completed', 'failed', 'cancelled', 'done'];
+    if (terminal.includes(currentPhase.toLowerCase())) {
+      writeStopBreaker(workingDir, 'ralplan', 0, sessionId);
+      return { shouldBlock: false, message: '', mode: 'ralplan' };
+    }
+  }
+
+
+  // Cancel-in-progress bypass
+  if (cancelInProgress) {
+    return {
+      shouldBlock: false,
+      message: '',
+      mode: 'ralplan'
+    };
+  }
+
+  // Circuit breaker
+  const breakerCount = readStopBreaker(workingDir, 'ralplan', sessionId, RALPLAN_STOP_BLOCKER_TTL_MS) + 1;
+  if (breakerCount > RALPLAN_STOP_BLOCKER_MAX) {
+    writeStopBreaker(workingDir, 'ralplan', 0, sessionId);
+    return {
+      shouldBlock: false,
+      message: `[RALPLAN CIRCUIT BREAKER] Stop enforcement exceeded ${RALPLAN_STOP_BLOCKER_MAX} reinforcements. Allowing stop to prevent infinite blocking.`,
+      mode: 'ralplan'
+    };
+  }
+  writeStopBreaker(workingDir, 'ralplan', breakerCount, sessionId);
+
+  return {
+    shouldBlock: true,
+    message: `<ralplan-continuation>
+
+[RALPLAN - CONSENSUS PLANNING | REINFORCEMENT ${breakerCount}/${RALPLAN_STOP_BLOCKER_MAX}]
+
+The ralplan consensus workflow is active. Continue the Planner/Architect/Critic loop.
+Do not stop until consensus is reached or the workflow completes.
+When done, run \`/oh-my-claudecode:cancel\` to cleanly exit.
+
+</ralplan-continuation>
+
+---
+
+`,
+    mode: 'ralplan',
   };
 }
 
@@ -723,10 +1045,10 @@ export async function checkPersistentModes(
 ): Promise<PersistentModeResult> {
   const workingDir = resolveToWorktreeRoot(directory);
 
-  // CRITICAL: Never block context-limit stops.
-  // Blocking these causes a deadlock where Claude Code cannot compact.
+  // CRITICAL: Never block context-limit/critical-context stops.
+  // Blocking these causes a deadlock where Claude Code cannot compact or exit.
   // See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/213
-  if (isContextLimitStop(stopContext)) {
+  if (isCriticalContextStop(stopContext)) {
     return {
       shouldBlock: false,
       message: '',
@@ -819,6 +1141,24 @@ export async function checkPersistentModes(
         }
       };
     }
+  }
+
+  // Priority 1.7: Team Pipeline (standalone team mode)
+  // When team runs without ralph, this provides stop-hook blocking.
+  // When team runs with ralph, checkRalphLoop() handles it (Priority 1).
+  // Return ANY non-null result (including circuit breaker shouldBlock=false with message).
+  const teamResult = await checkTeamPipeline(sessionId, workingDir, cancelInProgress);
+  if (teamResult) {
+    return teamResult;
+  }
+
+  // Priority 1.8: Ralplan (standalone consensus planning)
+  // Ralplan consensus loops (Planner/Architect/Critic) need hard-blocking.
+  // When ralplan runs under ralph, checkRalphLoop() handles it (Priority 1).
+  // Return ANY non-null result (including circuit breaker shouldBlock=false with message).
+  const ralplanResult = await checkRalplan(sessionId, workingDir, cancelInProgress);
+  if (ralplanResult) {
+    return ralplanResult;
   }
 
   // Priority 2: Ultrawork Mode (performance mode with persistence)

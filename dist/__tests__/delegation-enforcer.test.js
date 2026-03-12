@@ -8,7 +8,7 @@ describe('delegation-enforcer', () => {
     let originalDebugEnv;
     // Save/restore env vars that trigger non-Claude provider detection (issue #1201)
     // so existing tests run in a standard Claude environment
-    const providerEnvKeys = ['ANTHROPIC_BASE_URL', 'CLAUDE_MODEL', 'ANTHROPIC_MODEL', 'OMC_ROUTING_FORCE_INHERIT'];
+    const providerEnvKeys = ['ANTHROPIC_BASE_URL', 'CLAUDE_MODEL', 'ANTHROPIC_MODEL', 'OMC_ROUTING_FORCE_INHERIT', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_BEDROCK_OPUS_MODEL', 'CLAUDE_CODE_BEDROCK_SONNET_MODEL', 'CLAUDE_CODE_BEDROCK_HAIKU_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'OMC_MODEL_HIGH', 'OMC_MODEL_MEDIUM', 'OMC_MODEL_LOW'];
     const savedProviderEnv = {};
     beforeEach(() => {
         originalDebugEnv = process.env.OMC_DEBUG;
@@ -34,7 +34,7 @@ describe('delegation-enforcer', () => {
         }
     });
     describe('enforceModel', () => {
-        it('preserves explicitly specified model', () => {
+        it('preserves explicitly specified model (already an alias)', () => {
             const input = {
                 description: 'Test task',
                 prompt: 'Do something',
@@ -44,7 +44,28 @@ describe('delegation-enforcer', () => {
             const result = enforceModel(input);
             expect(result.injected).toBe(false);
             expect(result.modifiedInput.model).toBe('haiku');
-            expect(result.modifiedInput).toEqual(input);
+        });
+        it('normalizes explicit full model ID to CC alias (issue #1415)', () => {
+            const input = {
+                description: 'Test task',
+                prompt: 'Do something',
+                subagent_type: 'oh-my-claudecode:executor',
+                model: 'claude-sonnet-4-6'
+            };
+            const result = enforceModel(input);
+            expect(result.injected).toBe(false);
+            expect(result.modifiedInput.model).toBe('sonnet');
+        });
+        it('normalizes explicit Bedrock model ID to CC alias (issue #1415)', () => {
+            const input = {
+                description: 'Test task',
+                prompt: 'Do something',
+                subagent_type: 'oh-my-claudecode:executor',
+                model: 'us.anthropic.claude-sonnet-4-6-v1:0'
+            };
+            const result = enforceModel(input);
+            expect(result.injected).toBe(false);
+            expect(result.modifiedInput.model).toBe('sonnet');
         });
         it('injects model from agent definition when not specified', () => {
             const input = {
@@ -54,7 +75,7 @@ describe('delegation-enforcer', () => {
             };
             const result = enforceModel(input);
             expect(result.injected).toBe(true);
-            expect(result.modifiedInput.model).toBe('sonnet'); // executor defaults to sonnet
+            expect(result.modifiedInput.model).toBe('sonnet'); // executor defaults to claude-sonnet-4-6
             expect(result.originalInput.model).toBeUndefined();
         });
         it('handles agent type without prefix', () => {
@@ -65,7 +86,18 @@ describe('delegation-enforcer', () => {
             };
             const result = enforceModel(input);
             expect(result.injected).toBe(true);
-            expect(result.modifiedInput.model).toBe('sonnet'); // debugger defaults to sonnet
+            expect(result.modifiedInput.model).toBe('sonnet'); // debugger defaults to claude-sonnet-4-6
+        });
+        it('rewrites deprecated aliases to canonical agent names before injecting model', () => {
+            const input = {
+                description: 'Test task',
+                prompt: 'Do something',
+                subagent_type: 'oh-my-claudecode:build-fixer'
+            };
+            const result = enforceModel(input);
+            expect(result.injected).toBe(true);
+            expect(result.modifiedInput.subagent_type).toBe('oh-my-claudecode:debugger');
+            expect(result.modifiedInput.model).toBe('sonnet');
         });
         it('throws error for unknown agent type', () => {
             const input = {
@@ -90,7 +122,7 @@ describe('delegation-enforcer', () => {
             const resultWithDebug = enforceModel(input);
             expect(resultWithDebug.warning).toBeDefined();
             expect(resultWithDebug.warning).toContain('Auto-injecting model');
-            expect(resultWithDebug.warning).toContain('sonnet');
+            expect(resultWithDebug.warning).toContain('claude-sonnet-4-6');
             expect(resultWithDebug.warning).toContain('executor');
         });
         it('does not log warning when OMC_DEBUG is false', () => {
@@ -111,7 +143,7 @@ describe('delegation-enforcer', () => {
                 { agent: 'designer', expectedModel: 'sonnet' },
                 { agent: 'debugger', expectedModel: 'sonnet' },
                 { agent: 'verifier', expectedModel: 'sonnet' },
-                { agent: 'quality-reviewer', expectedModel: 'sonnet' },
+                { agent: 'code-reviewer', expectedModel: 'opus' },
                 { agent: 'test-engineer', expectedModel: 'sonnet' }
             ];
             for (const testCase of testCases) {
@@ -167,6 +199,19 @@ describe('delegation-enforcer', () => {
             expect(result.modifiedInput).toEqual(toolInput);
             expect(result.warning).toBeUndefined();
         });
+        it('rewrites deprecated aliases in pre-tool-use enforcement even when model is explicit', () => {
+            const toolInput = {
+                description: 'Test',
+                prompt: 'Test',
+                subagent_type: 'quality-reviewer',
+                model: 'opus'
+            };
+            const result = processPreToolUse('Task', toolInput);
+            expect(result.modifiedInput).toEqual({
+                ...toolInput,
+                subagent_type: 'code-reviewer',
+            });
+        });
         it('enforces model for agent calls', () => {
             const toolInput = {
                 description: 'Test',
@@ -213,6 +258,7 @@ describe('delegation-enforcer', () => {
             expect(getModelForAgent('executor')).toBe('sonnet');
             expect(getModelForAgent('debugger')).toBe('sonnet');
             expect(getModelForAgent('architect')).toBe('opus');
+            expect(getModelForAgent('build-fixer')).toBe('sonnet');
         });
         it('throws error for unknown agent', () => {
             expect(() => getModelForAgent('unknown')).toThrow('Unknown agent type');
@@ -225,11 +271,11 @@ describe('delegation-enforcer', () => {
             expect(result.tool).toBe('Task');
             expect(result.agentOrModel).toBe('code-reviewer');
         });
-        it('routes performance-reviewer to quality-reviewer', () => {
+        it('routes performance-reviewer to code-reviewer', () => {
             const result = resolveDelegation({ agentRole: 'performance-reviewer' });
             expect(result.provider).toBe('claude');
             expect(result.tool).toBe('Task');
-            expect(result.agentOrModel).toBe('quality-reviewer');
+            expect(result.agentOrModel).toBe('code-reviewer');
         });
         it('routes dependency-expert to document-specialist', () => {
             const result = resolveDelegation({ agentRole: 'dependency-expert' });
@@ -237,17 +283,36 @@ describe('delegation-enforcer', () => {
             expect(result.tool).toBe('Task');
             expect(result.agentOrModel).toBe('document-specialist');
         });
-        it('routes quality-strategist to quality-reviewer', () => {
+        it('routes quality-strategist to code-reviewer', () => {
             const result = resolveDelegation({ agentRole: 'quality-strategist' });
             expect(result.provider).toBe('claude');
             expect(result.tool).toBe('Task');
-            expect(result.agentOrModel).toBe('quality-reviewer');
+            expect(result.agentOrModel).toBe('code-reviewer');
         });
         it('routes vision to document-specialist', () => {
             const result = resolveDelegation({ agentRole: 'vision' });
             expect(result.provider).toBe('claude');
             expect(result.tool).toBe('Task');
             expect(result.agentOrModel).toBe('document-specialist');
+        });
+    });
+    describe('env-resolved agent defaults (issue #1415)', () => {
+        it('injects Bedrock family env model IDs instead of hardcoded tier aliases', () => {
+            process.env.CLAUDE_CODE_BEDROCK_SONNET_MODEL = 'us.anthropic.claude-sonnet-4-6-v1:0';
+            const input = {
+                description: 'Test task',
+                prompt: 'Do something',
+                subagent_type: 'executor'
+            };
+            const result = enforceModel(input);
+            expect(result.injected).toBe(true);
+            // Even with Bedrock env vars, enforceModel normalizes to CC aliases
+            expect(result.model).toBe('sonnet');
+            expect(result.modifiedInput.model).toBe('sonnet');
+        });
+        it('getModelForAgent returns normalized CC aliases even with Bedrock env vars', () => {
+            process.env.CLAUDE_CODE_BEDROCK_OPUS_MODEL = 'us.anthropic.claude-opus-4-6-v1:0';
+            expect(getModelForAgent('architect')).toBe('opus');
         });
     });
     describe('modelAliases config override (issue #1211)', () => {

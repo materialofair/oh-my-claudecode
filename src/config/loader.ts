@@ -13,9 +13,8 @@ import type { PluginConfig, ExternalModelsConfig } from '../shared/types.js';
 import { getConfigDir } from '../utils/paths.js';
 import { parseJsonc } from '../utils/jsonc.js';
 import {
-  getDefaultModelHigh,
-  getDefaultModelMedium,
-  getDefaultModelLow,
+  getDefaultTierModels,
+  BUILTIN_EXTERNAL_MODEL_DEFAULTS,
   isNonClaudeProvider,
   isBedrock,
   isVertexAI,
@@ -32,115 +31,112 @@ import {
  * OMC_GEMINI_DEFAULT_MODEL) are read lazily in loadEnvConfig() to avoid
  * capturing stale values at module load time.
  */
-export const DEFAULT_CONFIG: PluginConfig = {
-  agents: {
-    omc: { model: getDefaultModelHigh() },
-    explore: { model: getDefaultModelLow() },
-    analyst: { model: getDefaultModelHigh() },
-    planner: { model: getDefaultModelHigh() },
-    architect: { model: getDefaultModelHigh() },
-    debugger: { model: getDefaultModelMedium() },
-    executor: { model: getDefaultModelMedium() },
-    verifier: { model: getDefaultModelMedium() },
-    qualityReviewer: { model: getDefaultModelMedium() },
-    securityReviewer: { model: getDefaultModelMedium() },
-    codeReviewer: { model: getDefaultModelHigh() },
-    deepExecutor: { model: getDefaultModelHigh() },
-    testEngineer: { model: getDefaultModelMedium() },
-    buildFixer: { model: getDefaultModelMedium() },
-    designer: { model: getDefaultModelMedium() },
-    writer: { model: getDefaultModelLow() },
-    qaTester: { model: getDefaultModelMedium() },
-    scientist: { model: getDefaultModelMedium() },
-    gitMaster: { model: getDefaultModelMedium() },
-    codeSimplifier: { model: getDefaultModelHigh() },
-    critic: { model: getDefaultModelHigh() },
-    documentSpecialist: { model: getDefaultModelMedium() },
-  },
-  features: {
-    parallelExecution: true,
-    lspTools: true,   // Real LSP integration with language servers
-    astTools: true,   // Real AST tools using ast-grep
-    continuationEnforcement: true,
-    autoContextInjection: true
-  },
-  mcpServers: {
-    exa: { enabled: true },
-    context7: { enabled: true }
-  },
-  permissions: {
-    allowBash: true,
-    allowEdit: true,
-    allowWrite: true,
-    maxBackgroundTasks: 5
-  },
-  magicKeywords: {
-    ultrawork: ['ultrawork', 'ulw', 'uw'],
-    search: ['search', 'find', 'locate'],
-    analyze: ['analyze', 'investigate', 'examine'],
-    ultrathink: ['ultrathink', 'think', 'reason', 'ponder']
-  },
-  // Intelligent model routing configuration
-  routing: {
-    enabled: true,
-    defaultTier: 'MEDIUM',
-    forceInherit: false,
-    escalationEnabled: true,
-    maxEscalations: 2,
-    tierModels: {
-      LOW: getDefaultModelLow(),
-      MEDIUM: getDefaultModelMedium(),
-      HIGH: getDefaultModelHigh()
+export function buildDefaultConfig(): PluginConfig {
+  const defaultTierModels = getDefaultTierModels();
+
+  return {
+    agents: {
+      omc: { model: defaultTierModels.HIGH },
+      explore: { model: defaultTierModels.LOW },
+      analyst: { model: defaultTierModels.HIGH },
+      planner: { model: defaultTierModels.HIGH },
+      architect: { model: defaultTierModels.HIGH },
+      debugger: { model: defaultTierModels.MEDIUM },
+      executor: { model: defaultTierModels.MEDIUM },
+      verifier: { model: defaultTierModels.MEDIUM },
+      securityReviewer: { model: defaultTierModels.MEDIUM },
+      codeReviewer: { model: defaultTierModels.HIGH },
+      testEngineer: { model: defaultTierModels.MEDIUM },
+      designer: { model: defaultTierModels.MEDIUM },
+      writer: { model: defaultTierModels.LOW },
+      qaTester: { model: defaultTierModels.MEDIUM },
+      scientist: { model: defaultTierModels.MEDIUM },
+      gitMaster: { model: defaultTierModels.MEDIUM },
+      codeSimplifier: { model: defaultTierModels.HIGH },
+      critic: { model: defaultTierModels.HIGH },
+      documentSpecialist: { model: defaultTierModels.MEDIUM },
     },
-    agentOverrides: {
-      architect: { tier: 'HIGH', reason: 'Advisory agent requires deep reasoning' },
-      planner: { tier: 'HIGH', reason: 'Strategic planning requires deep reasoning' },
-      critic: { tier: 'HIGH', reason: 'Critical review requires deep reasoning' },
-      analyst: { tier: 'HIGH', reason: 'Pre-planning analysis requires deep reasoning' },
-      explore: { tier: 'LOW', reason: 'Exploration is search-focused' },
-      'writer': { tier: 'LOW', reason: 'Documentation is straightforward' }
+    features: {
+      parallelExecution: true,
+      lspTools: true,   // Real LSP integration with language servers
+      astTools: true,   // Real AST tools using ast-grep
+      continuationEnforcement: true,
+      autoContextInjection: true
     },
-    escalationKeywords: [
-      'critical', 'production', 'urgent', 'security', 'breaking',
-      'architecture', 'refactor', 'redesign', 'root cause'
-    ],
-    simplificationKeywords: [
-      'find', 'list', 'show', 'where', 'search', 'locate', 'grep'
-    ]
-  },
-  // External models configuration (Codex, Gemini)
-  // Static defaults only — env var overrides applied in loadEnvConfig()
-  externalModels: {
-    defaults: {
-      codexModel: 'gpt-5.3-codex',
-      geminiModel: 'gemini-3.1-pro-preview',
+    mcpServers: {
+      exa: { enabled: true },
+      context7: { enabled: true }
     },
-    fallbackPolicy: {
-      onModelFailure: 'provider_chain',
-      allowCrossProvider: false,
-      crossProviderOrder: ['codex', 'gemini'],
+    permissions: {
+      allowBash: true,
+      allowEdit: true,
+      allowWrite: true,
+      maxBackgroundTasks: 5
     },
-  },
-  // Delegation routing configuration (opt-in feature for external model routing)
-  delegationRouting: {
-    enabled: false,  // Opt-in feature
-    defaultProvider: 'claude',
-    roles: {},
-  },
-  // Startup codebase map injection (issue #804)
-  startupCodebaseMap: {
-    enabled: true,
-    maxFiles: 200,
-    maxDepth: 4,
-  },
-  // Task size detection (issue #790): prevent over-orchestration for small tasks
-  taskSizeDetection: {
-    enabled: true,
-    smallWordLimit: 50,
-    largeWordLimit: 200,
-    suppressHeavyModesForSmallTasks: true,
-  },
-};
+    magicKeywords: {
+      ultrawork: ['ultrawork', 'ulw', 'uw'],
+      search: ['search', 'find', 'locate'],
+      analyze: ['analyze', 'investigate', 'examine'],
+      ultrathink: ['ultrathink', 'think', 'reason', 'ponder']
+    },
+    // Intelligent model routing configuration
+    routing: {
+      enabled: true,
+      defaultTier: 'MEDIUM',
+      forceInherit: false,
+      escalationEnabled: true,
+      maxEscalations: 2,
+      tierModels: { ...defaultTierModels },
+      agentOverrides: {
+        architect: { tier: 'HIGH', reason: 'Advisory agent requires deep reasoning' },
+        planner: { tier: 'HIGH', reason: 'Strategic planning requires deep reasoning' },
+        critic: { tier: 'HIGH', reason: 'Critical review requires deep reasoning' },
+        analyst: { tier: 'HIGH', reason: 'Pre-planning analysis requires deep reasoning' },
+        explore: { tier: 'LOW', reason: 'Exploration is search-focused' },
+        'writer': { tier: 'LOW', reason: 'Documentation is straightforward' }
+      },
+      escalationKeywords: [
+        'critical', 'production', 'urgent', 'security', 'breaking',
+        'architecture', 'refactor', 'redesign', 'root cause'
+      ],
+      simplificationKeywords: [
+        'find', 'list', 'show', 'where', 'search', 'locate', 'grep'
+      ]
+    },
+    // External models configuration (Codex, Gemini)
+    // Static defaults only — env var overrides applied in loadEnvConfig()
+    externalModels: {
+      defaults: {
+        codexModel: BUILTIN_EXTERNAL_MODEL_DEFAULTS.codexModel,
+        geminiModel: BUILTIN_EXTERNAL_MODEL_DEFAULTS.geminiModel,
+      },
+      fallbackPolicy: {
+        onModelFailure: 'provider_chain',
+        allowCrossProvider: false,
+        crossProviderOrder: ['codex', 'gemini'],
+      },
+    },
+    // Delegation routing configuration (opt-in feature for external model routing)
+    delegationRouting: {
+      enabled: false,
+      defaultProvider: 'claude',
+      roles: {},
+    },
+    startupCodebaseMap: {
+      enabled: true,
+      maxFiles: 200,
+      maxDepth: 4,
+    },
+    taskSizeDetection: {
+      enabled: true,
+      smallWordLimit: 50,
+      largeWordLimit: 200,
+      suppressHeavyModesForSmallTasks: true,
+    },
+  };
+}
+
+export const DEFAULT_CONFIG: PluginConfig = buildDefaultConfig();
 
 /**
  * Configuration file locations
@@ -175,12 +171,13 @@ export function loadJsoncFile(path: string): PluginConfig | null {
 /**
  * Deep merge two objects
  */
-export function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial<T>): T {
+export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   const result = { ...target };
+  const mutableResult = result as Record<string, unknown>;
 
   for (const key of Object.keys(source) as (keyof T)[]) {
     const sourceValue = source[key];
-    const targetValue = result[key];
+    const targetValue = mutableResult[key as string];
 
     if (
       sourceValue !== undefined &&
@@ -191,16 +188,16 @@ export function deepMerge<T extends Record<string, unknown>>(target: T, source: 
       targetValue !== null &&
       !Array.isArray(targetValue)
     ) {
-      result[key] = deepMerge(
+      mutableResult[key as string] = deepMerge(
         targetValue as Record<string, unknown>,
         sourceValue as Record<string, unknown>
-      ) as T[keyof T];
+      );
     } else if (sourceValue !== undefined) {
-      result[key] = sourceValue as T[keyof T];
+      mutableResult[key as string] = sourceValue as unknown;
     }
   }
 
-  return result;
+  return result as T;
 }
 
 /**
@@ -361,8 +358,8 @@ export function loadEnvConfig(): Partial<PluginConfig> {
 export function loadConfig(): PluginConfig {
   const paths = getConfigPaths();
 
-  // Start with defaults
-  let config = { ...DEFAULT_CONFIG };
+  // Start with fresh defaults so env-based model overrides are resolved at call time
+  let config = buildDefaultConfig();
 
   // Merge user config
   const userConfig = loadJsoncFile(paths.user);
@@ -398,6 +395,46 @@ export function loadConfig(): PluginConfig {
   }
 
   return config;
+}
+
+const OMC_STARTUP_COMPACTABLE_SECTIONS = [
+  'agent_catalog',
+  'skills',
+  'team_compositions',
+] as const;
+
+function looksLikeOmcGuidance(content: string): boolean {
+  return content.includes('<guidance_schema_contract>')
+    && /oh-my-(claudecode|codex)/i.test(content)
+    && OMC_STARTUP_COMPACTABLE_SECTIONS.some(section =>
+      content.includes(`<${section}>`) && content.includes(`</${section}>`)
+    );
+}
+
+export function compactOmcStartupGuidance(content: string): string {
+  if (!looksLikeOmcGuidance(content)) {
+    return content;
+  }
+
+  let compacted = content;
+  let removedAny = false;
+
+  for (const section of OMC_STARTUP_COMPACTABLE_SECTIONS) {
+    const pattern = new RegExp(`\n*<${section}>[\\s\\S]*?<\/${section}>\n*`, 'g');
+    const next = compacted.replace(pattern, '\n\n');
+    removedAny = removedAny || next !== compacted;
+    compacted = next;
+  }
+
+
+  if (!removedAny) {
+    return content;
+  }
+
+  return compacted
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n\n---\n\n---\n\n/g, '\n\n---\n\n')
+    .trim();
 }
 
 /**
@@ -445,7 +482,7 @@ export function loadContextFromFiles(files: string[]): string {
 
   for (const file of files) {
     try {
-      const content = readFileSync(file, 'utf-8');
+      const content = compactOmcStartupGuidance(readFileSync(file, 'utf-8'));
       contexts.push(`## Context from ${file}\n\n${content}`);
     } catch (error) {
       console.warn(`Warning: Could not read context file ${file}:`, error);
@@ -502,10 +539,6 @@ export function generateConfigSchema(): object {
             type: 'object',
             properties: { model: { type: 'string' } }
           },
-          qualityReviewer: {
-            type: 'object',
-            properties: { model: { type: 'string' } }
-          },
           securityReviewer: {
             type: 'object',
             properties: { model: { type: 'string' } }
@@ -514,15 +547,7 @@ export function generateConfigSchema(): object {
             type: 'object',
             properties: { model: { type: 'string' } }
           },
-          deepExecutor: {
-            type: 'object',
-            properties: { model: { type: 'string' } }
-          },
           testEngineer: {
-            type: 'object',
-            properties: { model: { type: 'string' } }
-          },
-          buildFixer: {
             type: 'object',
             properties: { model: { type: 'string' } }
           },
@@ -632,12 +657,12 @@ export function generateConfigSchema(): object {
               },
               codexModel: {
                 type: 'string',
-                default: 'gpt-5.3-codex',
+                default: BUILTIN_EXTERNAL_MODEL_DEFAULTS.codexModel,
                 description: 'Default Codex model'
               },
               geminiModel: {
                 type: 'string',
-                default: 'gemini-3.1-pro-preview',
+                default: BUILTIN_EXTERNAL_MODEL_DEFAULTS.geminiModel,
                 description: 'Default Gemini model'
               }
             }

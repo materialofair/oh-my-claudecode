@@ -854,6 +854,30 @@ function findPermissionViolations(changedPaths, permissions, cwd) {
   return violations;
 }
 
+// src/config/models.ts
+var CLAUDE_FAMILY_DEFAULTS = {
+  HAIKU: "claude-haiku-4-5",
+  SONNET: "claude-sonnet-4-6",
+  OPUS: "claude-opus-4-6"
+};
+var BUILTIN_TIER_MODEL_DEFAULTS = {
+  LOW: CLAUDE_FAMILY_DEFAULTS.HAIKU,
+  MEDIUM: CLAUDE_FAMILY_DEFAULTS.SONNET,
+  HIGH: CLAUDE_FAMILY_DEFAULTS.OPUS
+};
+var CLAUDE_FAMILY_HIGH_VARIANTS = {
+  HAIKU: `${CLAUDE_FAMILY_DEFAULTS.HAIKU}-high`,
+  SONNET: `${CLAUDE_FAMILY_DEFAULTS.SONNET}-high`,
+  OPUS: `${CLAUDE_FAMILY_DEFAULTS.OPUS}-high`
+};
+var BUILTIN_EXTERNAL_MODEL_DEFAULTS = {
+  codexModel: "gpt-5.3-codex",
+  geminiModel: "gemini-3.1-pro-preview"
+};
+function getBuiltinExternalDefaultModel(provider) {
+  return provider === "codex" ? BUILTIN_EXTERNAL_MODEL_DEFAULTS.codexModel : BUILTIN_EXTERNAL_MODEL_DEFAULTS.geminiModel;
+}
+
 // src/team/team-status.ts
 var import_fs7 = require("fs");
 var import_path9 = require("path");
@@ -1330,7 +1354,7 @@ function spawnCliProcess(provider, prompt, model, cwd, timeoutMs) {
     args = [
       "exec",
       "-m",
-      model || "gpt-5.3-codex",
+      model || getBuiltinExternalDefaultModel("codex"),
       "--json",
       "--dangerously-bypass-approvals-and-sandbox",
       "--skip-git-repo-check"

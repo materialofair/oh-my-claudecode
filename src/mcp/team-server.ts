@@ -15,7 +15,7 @@ import { join } from 'path';
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { homedir } from 'os';
-import { killWorkerPanes } from '../team/tmux-session.js';
+import { killWorkerPanes, killTeamSession } from '../team/tmux-session.js';
 import { validateTeamName } from '../team/team-name.js';
 import { NudgeTracker } from '../team/idle-nudge.js';
 import {
@@ -69,6 +69,7 @@ function buildCliReplacement(toolName: DeprecatedTeamToolName, args: unknown): s
   if (toolName === 'omc_run_team_start') {
     const teamName = typeof parsed.teamName === 'string' ? parsed.teamName.trim() : '';
     const cwd = typeof parsed.cwd === 'string' ? parsed.cwd.trim() : '';
+    const newWindow = parsed.newWindow === true;
     const agentTypes = Array.isArray(parsed.agentTypes)
       ? parsed.agentTypes.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
       : [];
@@ -84,6 +85,7 @@ function buildCliReplacement(toolName: DeprecatedTeamToolName, args: unknown): s
     const flags: string[] = ['omc', 'team', 'start'];
     if (teamName) flags.push('--name', quoteCliValue(teamName));
     if (cwd) flags.push('--cwd', quoteCliValue(cwd));
+    if (newWindow) flags.push('--new-window');
 
     if (agentTypes.length > 0) {
       const uniqueAgentTypes = new Set(agentTypes);
@@ -167,7 +169,7 @@ function loadJobFromDisk(jobId: string): OmcTeamJob | undefined {
   }
 }
 
-async function loadPaneIds(jobId: string): Promise<{ paneIds: string[]; leaderPaneId: string } | null> {
+async function loadPaneIds(jobId: string): Promise<{ paneIds: string[]; leaderPaneId: string; sessionName?: string; ownsWindow?: boolean } | null> {
   const p = join(OMC_JOBS_DIR, `${jobId}-panes.json`);
   try { return JSON.parse(await readFile(p, 'utf-8')); }
   catch { return null; }
@@ -201,6 +203,7 @@ const startSchema = z.object({
     description: z.string().describe('Full task description'),
   })).describe('Tasks to distribute to workers'),
   cwd: z.string().describe('Working directory (absolute path)'),
+  newWindow: z.boolean().optional().describe('Spawn workers in a dedicated tmux window instead of splitting the current window'),
 });
 
 const statusSchema = z.object({
@@ -212,7 +215,7 @@ const waitSchema = z.object({
   timeout_ms: z.number().optional().describe('Maximum wait time in ms (default: 300000, max: 3600000)'),
   nudge_delay_ms: z.number().optional().describe('Milliseconds a pane must be idle before nudging (default: 30000)'),
   nudge_max_count: z.number().optional().describe('Maximum nudges per pane (default: 3)'),
-  nudge_message: z.string().optional().describe('Message sent as nudge (default: "Continue working on your assigned task.")'),
+  nudge_message: z.string().optional().describe('Message sent as nudge (default: "Continue working on your assigned task and report concrete progress (not ACK-only).")'),
 });
 
 const cleanupSchema = z.object({
@@ -412,7 +415,20 @@ export async function handleCleanup(args: unknown): Promise<{ content: Array<{ t
 
   const panes = await loadPaneIds(job_id);
   let paneCleanupMessage = 'No pane IDs recorded for this job — pane cleanup skipped.';
-  if (panes?.paneIds?.length) {
+  if (panes?.sessionName && (panes.ownsWindow === true || !panes.sessionName.includes(':'))) {
+    const sessionMode = panes.ownsWindow === true
+      ? (panes.sessionName.includes(':') ? 'dedicated-window' : 'detached-session')
+      : 'detached-session';
+    await killTeamSession(
+      panes.sessionName,
+      panes.paneIds,
+      panes.leaderPaneId,
+      { sessionMode },
+    );
+    paneCleanupMessage = panes.ownsWindow
+      ? 'Cleaned up team tmux window.'
+      : `Cleaned up ${panes.paneIds.length} worker pane(s).`;
+  } else if (panes?.paneIds?.length) {
     await killWorkerPanes({
       paneIds: panes.paneIds,
       leaderPaneId: panes.leaderPaneId,
@@ -452,6 +468,7 @@ const TOOLS = [
           description: 'Tasks to distribute to workers',
         },
         cwd: { type: 'string', description: 'Working directory (absolute path)' },
+        newWindow: { type: 'boolean', description: 'Spawn workers in a dedicated tmux window instead of splitting the current window' },
       },
       required: ['teamName', 'agentTypes', 'tasks', 'cwd'],
     },
@@ -477,7 +494,7 @@ const TOOLS = [
         timeout_ms: { type: 'number', description: 'Maximum wait time in ms (default: 300000, max: 3600000)' },
         nudge_delay_ms: { type: 'number', description: 'Milliseconds a pane must be idle before nudging (default: 30000)' },
         nudge_max_count: { type: 'number', description: 'Maximum nudges per pane (default: 3)' },
-        nudge_message: { type: 'string', description: 'Message sent as nudge (default: "Continue working on your assigned task.")' },
+        nudge_message: { type: 'string', description: 'Message sent as nudge (default: "Continue working on your assigned task and report concrete progress (not ACK-only).")' },
       },
       required: ['job_id'],
     },

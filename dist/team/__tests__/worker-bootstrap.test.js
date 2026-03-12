@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateWorkerOverlay, getWorkerEnv } from '../worker-bootstrap.js';
+import { generateMailboxTriggerMessage, generateTriggerMessage, generateWorkerOverlay, getWorkerEnv } from '../worker-bootstrap.js';
 describe('worker-bootstrap', () => {
     const baseParams = {
         teamName: 'test-team',
@@ -11,6 +11,26 @@ describe('worker-bootstrap', () => {
         cwd: '/tmp',
     };
     describe('generateWorkerOverlay', () => {
+        it('uses urgent trigger wording that requires immediate work and concrete progress', () => {
+            expect(generateTriggerMessage('test-team', 'worker-1')).toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
+            expect(generateTriggerMessage('test-team', 'worker-1')).toContain('start work now');
+            expect(generateTriggerMessage('test-team', 'worker-1')).toContain('concrete progress');
+            expect(generateTriggerMessage('test-team', 'worker-1')).toContain('ACK-only');
+            expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('.omc/state/team/test-team/mailbox/worker-1.json');
+            expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('act now');
+            expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('concrete progress');
+            expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2)).toContain('ACK-only');
+        });
+        it('supports state-root placeholders for worktree-backed trigger paths', () => {
+            expect(generateTriggerMessage('test-team', 'worker-1', '$OMC_TEAM_STATE_ROOT'))
+                .toContain('$OMC_TEAM_STATE_ROOT/team/test-team/workers/worker-1/inbox.md');
+            expect(generateTriggerMessage('test-team', 'worker-1', '$OMC_TEAM_STATE_ROOT'))
+                .toContain('work now');
+            expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2, '$OMC_TEAM_STATE_ROOT'))
+                .toContain('$OMC_TEAM_STATE_ROOT/team/test-team/mailbox/worker-1.json');
+            expect(generateMailboxTriggerMessage('test-team', 'worker-1', 2, '$OMC_TEAM_STATE_ROOT'))
+                .toContain('report progress');
+        });
         it('includes sentinel file write instruction first', () => {
             const overlay = generateWorkerOverlay(baseParams);
             const sentinelIdx = overlay.indexOf('.ready');
@@ -38,11 +58,11 @@ describe('worker-bootstrap', () => {
         });
         it('does not include bootstrap instructions when not provided', () => {
             const overlay = generateWorkerOverlay(baseParams);
-            expect(overlay).not.toContain('Additional Instructions');
+            expect(overlay).not.toContain('Role Context');
         });
         it('includes bootstrap instructions when provided', () => {
             const overlay = generateWorkerOverlay({ ...baseParams, bootstrapInstructions: 'Focus on TypeScript' });
-            expect(overlay).toContain('Additional Instructions');
+            expect(overlay).toContain('Role Context');
             expect(overlay).toContain('Focus on TypeScript');
         });
         it('includes explicit worker-not-leader prohibitions', () => {
@@ -55,6 +75,15 @@ describe('worker-bootstrap', () => {
             const geminiOverlay = generateWorkerOverlay({ ...baseParams, agentType: 'gemini' });
             expect(geminiOverlay).toContain('Agent-Type Guidance (gemini)');
             expect(geminiOverlay).toContain('milestone');
+        });
+        it('documents CLI lifecycle examples that match the active team api contract', () => {
+            const overlay = generateWorkerOverlay(baseParams);
+            expect(overlay).toContain('omc team api read-task');
+            expect(overlay).toContain('omc team api claim-task');
+            expect(overlay).toContain('omc team api transition-task-status');
+            expect(overlay).toContain('omc team api release-task-claim --input');
+            expect(overlay).toContain('claim_token');
+            expect(overlay).not.toContain('Read your task file at');
         });
     });
     describe('getWorkerEnv', () => {

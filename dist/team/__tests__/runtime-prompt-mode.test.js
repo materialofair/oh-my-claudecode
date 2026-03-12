@@ -71,6 +71,7 @@ function makeRuntime(cwd, agentType) {
         teamName: 'test-team',
         sessionName: 'test-session:0',
         leaderPaneId: '%0',
+        ownsWindow: false,
         config: {
             teamName: 'test-team',
             workerCount: 1,
@@ -120,6 +121,8 @@ describe('spawnWorkerForTask – prompt mode (Gemini & Codex)', () => {
         expect(launchCmd).toContain("'-i'");
         // Should contain the inbox path reference
         expect(launchCmd).toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
+        expect(launchCmd).toContain('start work now');
+        expect(launchCmd).toContain('concrete progress');
         rmSync(cwd, { recursive: true, force: true });
     });
     it('gemini worker skips trust-confirm (no "1" sent via send-keys)', async () => {
@@ -155,6 +158,8 @@ describe('spawnWorkerForTask – prompt mode (Gemini & Codex)', () => {
         expect(launchCmd).not.toContain("'-i'");
         // Should contain the inbox path as a positional argument
         expect(launchCmd).toContain('.omc/state/team/test-team/workers/worker-1/inbox.md');
+        expect(launchCmd).toContain('start work now');
+        expect(launchCmd).toContain('concrete progress');
         rmSync(cwd, { recursive: true, force: true });
     });
     it('codex worker skips interactive send-keys notification (uses prompt mode)', async () => {
@@ -173,7 +178,7 @@ describe('spawnWorkerForTask – prompt mode (Gemini & Codex)', () => {
         await spawnWorkerForTask(runtime, 'worker-1', 0);
         const captureCalls = tmuxCalls.args.filter(args => args[0] === 'capture-pane');
         expect(captureCalls.length).toBeGreaterThan(0);
-        const readInstructionCalls = tmuxCalls.args.filter(args => args[0] === 'send-keys' && args.includes('-l') && (args[args.length - 1] ?? '').includes('Read and execute your task from:'));
+        const readInstructionCalls = tmuxCalls.args.filter(args => args[0] === 'send-keys' && args.includes('-l') && (args[args.length - 1] ?? '').includes('start work now'));
         expect(readInstructionCalls.length).toBe(1);
         rmSync(cwd, { recursive: true, force: true });
     });
@@ -215,11 +220,25 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         tmuxCalls.args = [];
         tmuxCalls.capturePaneText = '❯ ready\n';
         delete process.env.OMC_SHELL_READY_TIMEOUT_MS;
-        // Clear model env vars before each test
+        // Clear model/provider env vars before each test
         delete process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL;
         delete process.env.OMC_CODEX_DEFAULT_MODEL;
         delete process.env.OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL;
         delete process.env.OMC_GEMINI_DEFAULT_MODEL;
+        delete process.env.ANTHROPIC_MODEL;
+        delete process.env.CLAUDE_MODEL;
+        delete process.env.ANTHROPIC_BASE_URL;
+        delete process.env.CLAUDE_CODE_USE_BEDROCK;
+        delete process.env.CLAUDE_CODE_USE_VERTEX;
+        delete process.env.CLAUDE_CODE_BEDROCK_OPUS_MODEL;
+        delete process.env.CLAUDE_CODE_BEDROCK_SONNET_MODEL;
+        delete process.env.CLAUDE_CODE_BEDROCK_HAIKU_MODEL;
+        delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+        delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+        delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+        delete process.env.OMC_MODEL_HIGH;
+        delete process.env.OMC_MODEL_MEDIUM;
+        delete process.env.OMC_MODEL_LOW;
         cwd = mkdtempSync(join(tmpdir(), 'runtime-model-passthrough-'));
         setupTaskDir(cwd);
     });
@@ -256,9 +275,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
-        expect(launchCmd).toContain("'--model'");
-        expect(launchCmd).toContain("'gpt-4o'");
-        expect(launchCmd).not.toContain("'o3-mini'");
+        expect(launchCmd).toContain("'--model' 'gpt-4o'");
     });
     it('gemini worker passes model from OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL', async () => {
         process.env.OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
@@ -288,9 +305,7 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
-        expect(launchCmd).toContain("'--model'");
-        expect(launchCmd).toContain("'gemini-2.0-flash'");
-        expect(launchCmd).not.toContain("'gemini-1.5-pro'");
+        expect(launchCmd).toContain("'--model' 'gemini-2.0-flash'");
     });
     it('claude worker does not pass model flag (not supported)', async () => {
         process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL = 'gpt-4o';
@@ -300,6 +315,67 @@ describe('spawnWorkerForTask – model passthrough from environment variables', 
         expect(launchCall).toBeDefined();
         const launchCmd = launchCall[launchCall.length - 1];
         // Claude worker should not have --model flag
+        expect(launchCmd).not.toContain("'--model'");
+    });
+    it('claude worker propagates ANTHROPIC_MODEL into the pane startup env', async () => {
+        process.env.ANTHROPIC_MODEL = 'claude-opus-4-1';
+        const runtime = makeRuntime(cwd, 'claude');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        expect(launchCmd).toContain('ANTHROPIC_MODEL=');
+        expect(launchCmd).toContain('claude-opus-4-1');
+        expect(launchCmd).not.toContain("'--model'");
+    });
+    it('claude worker propagates custom provider env needed for inherited model selection', async () => {
+        process.env.CLAUDE_MODEL = 'vertex_ai/claude-3-5-sonnet';
+        process.env.ANTHROPIC_BASE_URL = 'https://gateway.example.invalid';
+        const runtime = makeRuntime(cwd, 'claude');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        expect(launchCmd).toContain('CLAUDE_MODEL=');
+        expect(launchCmd).toContain('vertex_ai/claude-3-5-sonnet');
+        expect(launchCmd).toContain('ANTHROPIC_BASE_URL=');
+        expect(launchCmd).toContain('https://gateway.example.invalid');
+    });
+    it('claude worker propagates tiered Bedrock/env model selection variables', async () => {
+        process.env.CLAUDE_CODE_USE_BEDROCK = '1';
+        process.env.CLAUDE_CODE_BEDROCK_OPUS_MODEL = 'us.anthropic.claude-opus-4-6-v1:0';
+        process.env.CLAUDE_CODE_BEDROCK_SONNET_MODEL = 'us.anthropic.claude-sonnet-4-6-v1:0';
+        process.env.CLAUDE_CODE_BEDROCK_HAIKU_MODEL = 'us.anthropic.claude-haiku-4-5-v1:0';
+        process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'claude-opus-4-6-custom';
+        process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'claude-sonnet-4-6-custom';
+        process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = 'claude-haiku-4-5-custom';
+        process.env.OMC_MODEL_HIGH = 'claude-opus-4-6-override';
+        process.env.OMC_MODEL_MEDIUM = 'claude-sonnet-4-6-override';
+        process.env.OMC_MODEL_LOW = 'claude-haiku-4-5-override';
+        const runtime = makeRuntime(cwd, 'claude');
+        await spawnWorkerForTask(runtime, 'worker-1', 0);
+        const launchCall = tmuxCalls.args.find(args => args[0] === 'send-keys' && args.includes('-l'));
+        expect(launchCall).toBeDefined();
+        const launchCmd = launchCall[launchCall.length - 1];
+        expect(launchCmd).toContain('CLAUDE_CODE_USE_BEDROCK=');
+        expect(launchCmd).toContain('CLAUDE_CODE_BEDROCK_OPUS_MODEL=');
+        expect(launchCmd).toContain('us.anthropic.claude-opus-4-6-v1:0');
+        expect(launchCmd).toContain('CLAUDE_CODE_BEDROCK_SONNET_MODEL=');
+        expect(launchCmd).toContain('us.anthropic.claude-sonnet-4-6-v1:0');
+        expect(launchCmd).toContain('CLAUDE_CODE_BEDROCK_HAIKU_MODEL=');
+        expect(launchCmd).toContain('us.anthropic.claude-haiku-4-5-v1:0');
+        expect(launchCmd).toContain('ANTHROPIC_DEFAULT_OPUS_MODEL=');
+        expect(launchCmd).toContain('claude-opus-4-6-custom');
+        expect(launchCmd).toContain('ANTHROPIC_DEFAULT_SONNET_MODEL=');
+        expect(launchCmd).toContain('claude-sonnet-4-6-custom');
+        expect(launchCmd).toContain('ANTHROPIC_DEFAULT_HAIKU_MODEL=');
+        expect(launchCmd).toContain('claude-haiku-4-5-custom');
+        expect(launchCmd).toContain('OMC_MODEL_HIGH=');
+        expect(launchCmd).toContain('claude-opus-4-6-override');
+        expect(launchCmd).toContain('OMC_MODEL_MEDIUM=');
+        expect(launchCmd).toContain('claude-sonnet-4-6-override');
+        expect(launchCmd).toContain('OMC_MODEL_LOW=');
+        expect(launchCmd).toContain('claude-haiku-4-5-override');
         expect(launchCmd).not.toContain("'--model'");
     });
     it('codex worker does not pass model flag when no env var is set', async () => {

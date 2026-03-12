@@ -1,6 +1,7 @@
 import { spawnSync } from 'child_process';
 import { isAbsolute, normalize, win32 as win32Path } from 'path';
 import { validateTeamName } from './team-name.js';
+import { normalizeToCcAlias } from '../features/delegation-enforcer.js';
 const resolvedPathCache = new Map();
 const UNTRUSTED_PATH_PATTERNS = [
     /^\/tmp(\/|$)/,
@@ -102,7 +103,7 @@ const CONTRACTS = {
         buildLaunchArgs(model, extraFlags = []) {
             const args = ['--dangerously-skip-permissions'];
             if (model)
-                args.push('--model', model);
+                args.push('--model', normalizeToCcAlias(model));
             return [...args, ...extraFlags];
         },
         parseOutput(rawOutput) {
@@ -203,7 +204,10 @@ export function isCliAvailable(agentType) {
             const result = spawnSync(comspec, ['/d', '/s', '/c', `"${resolvedBinary}" --version`], { timeout: 5000 });
             return result.status === 0;
         }
-        const result = spawnSync(resolvedBinary, ['--version'], { timeout: 5000 });
+        const result = spawnSync(resolvedBinary, ['--version'], {
+            timeout: 5000,
+            shell: process.platform === 'win32',
+        });
         return result.status === 0;
     }
     catch {
@@ -240,13 +244,40 @@ export function buildWorkerCommand(agentType, config) {
         .map((part) => `'${part.replace(/'/g, `'\"'\"'`)}'`)
         .join(' ');
 }
-export function getWorkerEnv(teamName, workerName, agentType) {
+const WORKER_MODEL_ENV_ALLOWLIST = [
+    'ANTHROPIC_MODEL',
+    'CLAUDE_MODEL',
+    'ANTHROPIC_BASE_URL',
+    'CLAUDE_CODE_USE_BEDROCK',
+    'CLAUDE_CODE_USE_VERTEX',
+    'CLAUDE_CODE_BEDROCK_OPUS_MODEL',
+    'CLAUDE_CODE_BEDROCK_SONNET_MODEL',
+    'CLAUDE_CODE_BEDROCK_HAIKU_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    'OMC_MODEL_HIGH',
+    'OMC_MODEL_MEDIUM',
+    'OMC_MODEL_LOW',
+    'OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL',
+    'OMC_CODEX_DEFAULT_MODEL',
+    'OMC_EXTERNAL_MODELS_DEFAULT_GEMINI_MODEL',
+    'OMC_GEMINI_DEFAULT_MODEL',
+];
+export function getWorkerEnv(teamName, workerName, agentType, env = process.env) {
     validateTeamName(teamName);
-    return {
+    const workerEnv = {
         OMC_TEAM_WORKER: `${teamName}/${workerName}`,
         OMC_TEAM_NAME: teamName,
         OMC_WORKER_AGENT_TYPE: agentType,
     };
+    for (const key of WORKER_MODEL_ENV_ALLOWLIST) {
+        const value = env[key];
+        if (typeof value === 'string' && value.length > 0) {
+            workerEnv[key] = value;
+        }
+    }
+    return workerEnv;
 }
 export function parseCliOutput(agentType, rawOutput) {
     return getContract(agentType).parseOutput(rawOutput);

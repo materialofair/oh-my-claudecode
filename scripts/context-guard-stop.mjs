@@ -26,6 +26,7 @@ import { execSync } from 'node:child_process';
 import { readStdin } from './lib/stdin.mjs';
 
 const THRESHOLD = parseInt(process.env.OMC_CONTEXT_GUARD_THRESHOLD || '75', 10);
+const CRITICAL_THRESHOLD = 95;
 const MAX_BLOCKS = 2;
 
 /**
@@ -33,19 +34,22 @@ const MAX_BLOCKS = 2;
  * Mirrors the logic in persistent-mode.cjs to stay consistent.
  */
 function isContextLimitStop(data) {
-  const reason = (data.stop_reason || data.stopReason || '').toLowerCase();
+  const reasons = [
+    data.stop_reason,
+    data.stopReason,
+    data.end_turn_reason,
+    data.endTurnReason,
+    data.reason,
+  ]
+    .filter((value) => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.toLowerCase().replace(/[\s-]+/g, '_'));
   const contextPatterns = [
     'context_limit', 'context_window', 'context_exceeded',
     'context_full', 'max_context', 'token_limit',
     'max_tokens', 'conversation_too_long', 'input_too_long',
   ];
 
-  if (contextPatterns.some(p => reason.includes(p))) return true;
-
-  const endTurnReason = (data.end_turn_reason || data.endTurnReason || '').toLowerCase();
-  if (endTurnReason && contextPatterns.some(p => endTurnReason.includes(p))) return true;
-
-  return false;
+  return reasons.some((reason) => contextPatterns.some(p => reason.includes(p)));
 }
 
 /**
@@ -192,6 +196,14 @@ function incrementBlockCount(sessionId) {
   } catch { /* ignore */ }
 }
 
+function buildStopRecoveryAdvice(contextPercent, blockCount) {
+  const severity = contextPercent >= 90 ? 'CRITICAL' : 'HIGH';
+  return `[OMC ${severity}] Context at ${contextPercent}% (threshold: ${THRESHOLD}%). ` +
+    `Run /compact immediately before continuing. If /compact cannot complete, ` +
+    `stop spawning new agents and recover in a fresh session using existing checkpoints ` +
+    `(.omc/state, .omc/notepad.md). (Block ${blockCount}/${MAX_BLOCKS})`;
+}
+
 async function main() {
   try {
     const input = await readStdin();
@@ -214,6 +226,11 @@ async function main() {
     const transcriptPath = resolveTranscriptPath(rawTranscriptPath, data.cwd);
     const pct = estimateContextPercent(transcriptPath);
 
+    if (pct >= CRITICAL_THRESHOLD) {
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+      return;
+    }
+
     if (pct >= THRESHOLD) {
       // Check retry guard
       const blockCount = getBlockCount(sessionId);
@@ -226,10 +243,9 @@ async function main() {
       incrementBlockCount(sessionId);
 
       console.log(JSON.stringify({
+        continue: false,
         decision: 'block',
-        reason: `[OMC] Context at ${pct}% (threshold: ${THRESHOLD}%). ` +
-          `Quality degrades at high context. Run /compact or start a fresh session. ` +
-          `(Block ${blockCount + 1}/${MAX_BLOCKS})`
+        reason: buildStopRecoveryAdvice(pct, blockCount + 1)
       }));
       return;
     }

@@ -8,7 +8,7 @@ describe('team cli help text surfaces', () => {
     expect(source).toContain('omc team resume <team_name>');
     expect(source).toContain('omc team shutdown <team_name>');
     expect(source).toContain('omc team api <operation>');
-    expect(source).toContain('omc team [ralph] <N:agent-type>');
+    expect(source).toContain('omc team [ralph] <N:agent-type[:role]>');
   });
 
   it('team.ts help text includes team api/resume/shutdown', () => {

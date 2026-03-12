@@ -2,10 +2,36 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import { triggerStopCallbacks } from './callbacks.js';
+import { getOMCConfig } from '../../features/auto-update.js';
+import { buildConfigFromEnv, getEnabledPlatforms, getNotificationConfig } from '../../notifications/config.js';
 import { notify } from '../../notifications/index.js';
 import { cleanupBridgeSessions } from '../../tools/python-repl/bridge-manager.js';
-import { resolveToWorktreeRoot, getOmcRoot, validateSessionId, isValidTranscriptPath } from '../../lib/worktree-paths.js';
+import { resolveToWorktreeRoot, getOmcRoot, validateSessionId, isValidTranscriptPath, resolveSessionStatePath } from '../../lib/worktree-paths.js';
 import { SESSION_END_MODE_STATE_FILES, SESSION_METRICS_MODE_FILES } from '../../lib/mode-names.js';
+import { clearModeStateFile, readModeState } from '../../lib/mode-state-io.js';
+function hasExplicitNotificationConfig(profileName) {
+    const config = getOMCConfig();
+    if (profileName) {
+        const profile = config.notificationProfiles?.[profileName];
+        if (profile && typeof profile.enabled === 'boolean') {
+            return true;
+        }
+    }
+    if (config.notifications && typeof config.notifications.enabled === 'boolean') {
+        return true;
+    }
+    return buildConfigFromEnv() !== null;
+}
+function getLegacyPlatformsCoveredByNotifications(enabledPlatforms) {
+    const overlappingPlatforms = [];
+    if (enabledPlatforms.includes('telegram')) {
+        overlappingPlatforms.push('telegram');
+    }
+    if (enabledPlatforms.includes('discord')) {
+        overlappingPlatforms.push('discord');
+    }
+    return overlappingPlatforms;
+}
 /**
  * Read agent tracking to get spawn/completion counts
  */
@@ -191,6 +217,75 @@ export function cleanupTransientState(directory) {
         }
     };
     removeTmpFiles(omcDir);
+    // Remove transient state files that accumulate across sessions
+    const stateDir = path.join(omcDir, 'state');
+    if (fs.existsSync(stateDir)) {
+        const transientPatterns = [
+            /^agent-replay-.*\.jsonl$/,
+            /^last-tool-error\.json$/,
+            /^hud-state\.json$/,
+            /^hud-stdin-cache\.json$/,
+            /^idle-notif-cooldown\.json$/,
+            /^.*-stop-breaker\.json$/,
+        ];
+        try {
+            const stateFiles = fs.readdirSync(stateDir);
+            for (const file of stateFiles) {
+                if (transientPatterns.some(p => p.test(file))) {
+                    try {
+                        fs.unlinkSync(path.join(stateDir, file));
+                        filesRemoved++;
+                    }
+                    catch (_error) {
+                        // Ignore removal errors
+                    }
+                }
+            }
+        }
+        catch (_error) {
+            // Ignore errors
+        }
+        // Clean up cancel signal files and empty session directories
+        const sessionsDir = path.join(stateDir, 'sessions');
+        if (fs.existsSync(sessionsDir)) {
+            try {
+                const sessionDirs = fs.readdirSync(sessionsDir);
+                for (const sid of sessionDirs) {
+                    const sessionDir = path.join(sessionsDir, sid);
+                    try {
+                        const stat = fs.statSync(sessionDir);
+                        if (!stat.isDirectory())
+                            continue;
+                        const sessionFiles = fs.readdirSync(sessionDir);
+                        for (const file of sessionFiles) {
+                            if (/^cancel-signal/.test(file) || /stop-breaker/.test(file)) {
+                                try {
+                                    fs.unlinkSync(path.join(sessionDir, file));
+                                    filesRemoved++;
+                                }
+                                catch (_error) { /* ignore */ }
+                            }
+                        }
+                        // Remove empty session directories
+                        const remaining = fs.readdirSync(sessionDir);
+                        if (remaining.length === 0) {
+                            try {
+                                fs.rmdirSync(sessionDir);
+                                filesRemoved++;
+                            }
+                            catch (_error) { /* ignore */ }
+                        }
+                    }
+                    catch (_error) {
+                        // Ignore per-session errors
+                    }
+                }
+            }
+            catch (_error) {
+                // Ignore errors
+            }
+        }
+    }
     return filesRemoved;
 }
 /**
@@ -268,11 +363,15 @@ export function cleanupModeStates(directory, sessionId) {
     }
     for (const { file, mode } of SESSION_END_MODE_STATE_FILES) {
         const localPath = path.join(stateDir, file);
-        // Check if local state exists and is active
-        if (fs.existsSync(localPath)) {
-            try {
-                // For JSON files, check if active before removing
-                if (file.endsWith('.json')) {
+        const sessionPath = sessionId ? resolveSessionStatePath(mode, sessionId, directory) : undefined;
+        try {
+            // For JSON files, check if active before removing
+            if (file.endsWith('.json')) {
+                const sessionState = sessionId
+                    ? readModeState(mode, directory, sessionId)
+                    : null;
+                let shouldCleanup = sessionState?.active === true;
+                if (!shouldCleanup && fs.existsSync(localPath)) {
                     const content = fs.readFileSync(localPath, 'utf-8');
                     const state = JSON.parse(content);
                     // Only clean if marked as active AND belongs to this session
@@ -283,26 +382,37 @@ export function cleanupModeStates(directory, sessionId) {
                         // If state.session_id matches our sessionId, clean it
                         const stateSessionId = state.session_id;
                         if (!sessionId || !stateSessionId || stateSessionId === sessionId) {
-                            fs.unlinkSync(localPath);
-                            filesRemoved++;
-                            if (!modesCleaned.includes(mode)) {
-                                modesCleaned.push(mode);
-                            }
+                            shouldCleanup = true;
                         }
                     }
                 }
-                else {
-                    // For marker files, always remove
-                    fs.unlinkSync(localPath);
-                    filesRemoved++;
-                    if (!modesCleaned.includes(mode)) {
-                        modesCleaned.push(mode);
+                if (shouldCleanup) {
+                    const hadLocalPath = fs.existsSync(localPath);
+                    const hadSessionPath = Boolean(sessionPath && fs.existsSync(sessionPath));
+                    if (clearModeStateFile(mode, directory, sessionId)) {
+                        if (hadLocalPath && !fs.existsSync(localPath)) {
+                            filesRemoved++;
+                        }
+                        if (sessionPath && hadSessionPath && !fs.existsSync(sessionPath)) {
+                            filesRemoved++;
+                        }
+                        if (!modesCleaned.includes(mode)) {
+                            modesCleaned.push(mode);
+                        }
                     }
                 }
             }
-            catch {
-                // Ignore errors, continue with other files
+            else if (fs.existsSync(localPath)) {
+                // For marker files, always remove
+                fs.unlinkSync(localPath);
+                filesRemoved++;
+                if (!modesCleaned.includes(mode)) {
+                    modesCleaned.push(mode);
+                }
             }
+        }
+        catch {
+            // Ignore errors, continue with other files
         }
     }
     return { filesRemoved, modesCleaned };
@@ -360,27 +470,43 @@ export async function processSessionEnd(input) {
     catch {
         // Ignore cleanup errors
     }
-    // Trigger stop hook callbacks (#395)
+    const profileName = process.env.OMC_NOTIFY_PROFILE;
+    const notificationConfig = getNotificationConfig(profileName);
+    const shouldUseNewNotificationSystem = Boolean(notificationConfig && hasExplicitNotificationConfig(profileName));
+    const enabledNotificationPlatforms = shouldUseNewNotificationSystem && notificationConfig
+        ? getEnabledPlatforms(notificationConfig, 'session-end')
+        : [];
+    // Trigger stop hook callbacks (#395). When an explicit session-end notification
+    // config already covers Discord/Telegram, skip the overlapping legacy callback
+    // path so session-end is only dispatched once per platform.
     await triggerStopCallbacks(metrics, {
         session_id: input.session_id,
         cwd: input.cwd,
+    }, {
+        skipPlatforms: shouldUseNewNotificationSystem
+            ? getLegacyPlatformsCoveredByNotifications(enabledNotificationPlatforms)
+            : [],
     });
-    // Trigger new notification system (in addition to legacy callbacks)
-    try {
-        await notify('session-end', {
-            sessionId: input.session_id,
-            projectPath: input.cwd,
-            durationMs: metrics.duration_ms,
-            agentsSpawned: metrics.agents_spawned,
-            agentsCompleted: metrics.agents_completed,
-            modesUsed: metrics.modes_used,
-            reason: metrics.reason,
-            timestamp: metrics.ended_at,
-            profileName: process.env.OMC_NOTIFY_PROFILE,
-        });
-    }
-    catch {
-        // Notification failures should never block session end
+    // Trigger the new notification system when session-end notifications come
+    // from an explicit notifications/profile/env config. Legacy stopHookCallbacks
+    // are already handled above and must not be dispatched twice.
+    if (shouldUseNewNotificationSystem) {
+        try {
+            await notify('session-end', {
+                sessionId: input.session_id,
+                projectPath: input.cwd,
+                durationMs: metrics.duration_ms,
+                agentsSpawned: metrics.agents_spawned,
+                agentsCompleted: metrics.agents_completed,
+                modesUsed: metrics.modes_used,
+                reason: metrics.reason,
+                timestamp: metrics.ended_at,
+                profileName,
+            });
+        }
+        catch {
+            // Notification failures should never block session end
+        }
     }
     // Clean up reply session registry and stop daemon if no active sessions remain
     try {

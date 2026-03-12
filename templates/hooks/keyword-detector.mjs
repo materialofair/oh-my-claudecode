@@ -9,16 +9,18 @@
  * 1. cancelomc/stopomc: Stop active modes
  * 2. ralph: Persistence mode until task completion
  * 3. autopilot: Full autonomous execution
- * 4. team: Coordinated team execution
+ * 4. team: Explicit-only via /team (not auto-triggered)
  * 5. ultrawork/ulw: Maximum parallel execution
-* 6. pipeline: Sequential agent chaining
+ * 6. ccg: Claude-Codex-Gemini tri-model orchestration
  * 7. ralplan: Iterative planning with consensus
- * 8. plan: Planning interview mode
- * 9. tdd: Test-driven development
- * 10. ultrathink: Extended reasoning
- * 11. deepsearch: Codebase search (restricted patterns)
- * 12. analyze: Analysis mode (restricted patterns)
- * 13. ccg: Claude-Codex-Gemini tri-model orchestration
+ * 8. deep interview: Socratic interview workflow
+ * 9. ai-slop-cleaner: Cleanup/deslop anti-slop workflow
+ * 10. tdd: Test-driven development
+ * 11. code review: Comprehensive review mode
+ * 12. security review: Security-focused review mode
+ * 13. ultrathink: Extended reasoning
+ * 14. deepsearch: Codebase search (restricted patterns)
+ * 15. analyze: Analysis mode (restricted patterns)
  */
 
 import { writeFileSync, mkdirSync, existsSync, unlinkSync, readFileSync } from 'fs';
@@ -49,6 +51,40 @@ Use your extended thinking capabilities to provide the most thorough and well-re
 ---
 `;
 
+const ANALYZE_MESSAGE = `<analyze-mode>
+ANALYSIS MODE. Gather context before diving deep:
+- Search relevant code paths first
+- Compare working vs broken behavior
+- Synthesize findings before proposing changes
+</analyze-mode>
+
+---
+`;
+
+const TDD_MESSAGE = `<tdd-mode>
+[TDD MODE ACTIVATED]
+Write or update tests first when practical, confirm they fail for the right reason, then implement the minimal fix and re-run verification.
+</tdd-mode>
+
+---
+`;
+
+const CODE_REVIEW_MESSAGE = `<code-review-mode>
+[CODE REVIEW MODE ACTIVATED]
+Perform a comprehensive code review of the relevant changes or target area. Focus on correctness, maintainability, edge cases, regressions, and test adequacy before recommending changes.
+</code-review-mode>
+
+---
+`;
+
+const SECURITY_REVIEW_MESSAGE = `<security-review-mode>
+[SECURITY REVIEW MODE ACTIVATED]
+Perform a focused security review of the relevant changes or target area. Check trust boundaries, auth/authz, data exposure, input validation, command/file access, secrets handling, and escalation risks before recommending changes.
+</security-review-mode>
+
+---
+`;
+
 // Extract prompt from various JSON structures
 function extractPrompt(input) {
   try {
@@ -69,6 +105,15 @@ function extractPrompt(input) {
 }
 
 // Sanitize text to prevent false positives from code blocks, XML tags, URLs, and file paths
+const ANTI_SLOP_EXPLICIT_PATTERN = /\b(ai[\s-]?slop|anti[\s-]?slop|deslop|de[\s-]?slop)\b/i;
+const ANTI_SLOP_ACTION_PATTERN = /\b(clean(?:\s*up)?|cleanup|refactor|simplify|dedupe|de-duplicate|prune)\b/i;
+const ANTI_SLOP_SMELL_PATTERN = /\b(slop|duplicate(?:d|s)?|duplication|dead\s+code|unused\s+code|over[\s-]?abstract(?:ion|ed)?|wrapper\s+layers?|boundary\s+violations?|needless\s+abstractions?|unnecessary\s+abstractions?|ai[\s-]?generated|generated\s+code|tech\s+debt)\b/i;
+
+function isAntiSlopCleanupRequest(text) {
+  return ANTI_SLOP_EXPLICIT_PATTERN.test(text) ||
+    (ANTI_SLOP_ACTION_PATTERN.test(text) && ANTI_SLOP_SMELL_PATTERN.test(text));
+}
+
 function sanitizeForKeywordDetection(text) {
   return text
     // 1. Strip XML-style tag blocks: <tag-name ...>...</tag-name> (multi-line, greedy on tag name)
@@ -229,8 +274,8 @@ function resolveConflicts(matches) {
   // Team keyword detection removed — team is now explicit-only via /team skill.
 
   // Sort by priority order
-const priorityOrder = ['cancel','ralph','autopilot','ultrawork',
-    'pipeline','ccg','ralplan','plan','tdd','research','ultrathink','deepsearch','analyze'];
+  const priorityOrder = ['cancel','ralph','autopilot','ultrawork',
+    'ccg','ralplan','deep-interview','ai-slop-cleaner','tdd','code-review','security-review','ultrathink','deepsearch','analyze'];
   resolved.sort((a, b) => priorityOrder.indexOf(a.name) - priorityOrder.indexOf(b.name));
 
   return resolved;
@@ -337,10 +382,6 @@ async function main() {
       matches.push({ name: 'ultrawork', args: '' });
     }
 
-    // Pipeline keywords
-    if (/\bagent\s+pipeline\b/i.test(cleanPrompt) || /\bchain\s+agents\b/i.test(cleanPrompt)) {
-      matches.push({ name: 'pipeline', args: '' });
-    }
 
     // CCG keywords (Claude-Codex-Gemini tri-model orchestration)
     if (/\b(ccg|claude-codex-gemini)\b/i.test(cleanPrompt)) {
@@ -352,10 +393,31 @@ async function main() {
       matches.push({ name: 'ralplan', args: '' });
     }
 
+    // Deep interview keywords
+    if (/\b(deep[\s-]interview|ouroboros)\b/i.test(cleanPrompt)) {
+      matches.push({ name: 'deep-interview', args: '' });
+    }
+
+    // AI slop cleanup keywords
+    if (isAntiSlopCleanupRequest(cleanPrompt)) {
+      matches.push({ name: 'ai-slop-cleaner', args: '' });
+    }
+
     // TDD keywords
     if (/\b(tdd)\b/i.test(cleanPrompt) ||
-        /\btest\s+first\b/i.test(cleanPrompt)) {
+        /\btest\s+first\b/i.test(cleanPrompt) ||
+        /\bred\s+green\b/i.test(cleanPrompt)) {
       matches.push({ name: 'tdd', args: '' });
+    }
+
+    // Code review keywords
+    if (/\b(code\s+review|review\s+code)\b/i.test(cleanPrompt)) {
+      matches.push({ name: 'code-review', args: '' });
+    }
+
+    // Security review keywords
+    if (/\b(security\s+review|review\s+security)\b/i.test(cleanPrompt)) {
+      matches.push({ name: 'security-review', args: '' });
     }
 
     // Ultrathink keywords
@@ -396,7 +458,7 @@ async function main() {
 
     // Handle cancel specially - clear states and emit
     if (resolved.length > 0 && resolved[0].name === 'cancel') {
-      clearStateFiles(directory, ['ralph', 'autopilot', 'ultrawork', 'pipeline']);
+      clearStateFiles(directory, ['ralph', 'autopilot', 'ultrawork']);
       console.log(JSON.stringify(createHookOutput(createSkillInvocation('cancel', prompt))));
       return;
     }
@@ -415,27 +477,33 @@ async function main() {
       activateState(directory, prompt, 'ultrawork', sessionId);
     }
 
-    // Handle ultrathink specially - prepend message instead of skill invocation
-    const ultrathinkIndex = resolved.findIndex(m => m.name === 'ultrathink');
-    if (ultrathinkIndex !== -1) {
-      // Remove ultrathink from skill list
-      resolved.splice(ultrathinkIndex, 1);
-
-      // If ultrathink was the only match, emit message
-      if (resolved.length === 0) {
-        console.log(JSON.stringify(createHookOutput(ULTRATHINK_MESSAGE)));
-        return;
+    const additionalContextParts = [];
+    for (const [keywordName, message] of [
+      ['ultrathink', ULTRATHINK_MESSAGE],
+      ['analyze', ANALYZE_MESSAGE],
+      ['tdd', TDD_MESSAGE],
+      ['code-review', CODE_REVIEW_MESSAGE],
+      ['security-review', SECURITY_REVIEW_MESSAGE],
+    ]) {
+      const index = resolved.findIndex(m => m.name === keywordName);
+      if (index !== -1) {
+        resolved.splice(index, 1);
+        additionalContextParts.push(message);
       }
+    }
 
-      // Otherwise, prepend ultrathink message to skill invocation
-      const skillMessage = createMultiSkillInvocation(resolved, prompt);
-      console.log(JSON.stringify(createHookOutput(ULTRATHINK_MESSAGE + skillMessage)));
+    if (resolved.length === 0 && additionalContextParts.length > 0) {
+      console.log(JSON.stringify(createHookOutput(additionalContextParts.join(''))));
       return;
     }
 
-    const skillMatches = resolved;
-    if (skillMatches.length > 0) {
-      console.log(JSON.stringify(createHookOutput(createMultiSkillInvocation(skillMatches, prompt))));
+    if (resolved.length > 0) {
+      additionalContextParts.push(createMultiSkillInvocation(resolved, prompt));
+    }
+
+    if (additionalContextParts.length > 0) {
+      console.log(JSON.stringify(createHookOutput(additionalContextParts.join(''))));
+      return;
     }
   } catch (error) {
     // On any error, allow continuation

@@ -15,9 +15,10 @@
  * Architecture mirrors runtime.ts: startTeam, monitorTeam, shutdownTeam,
  * assignTask, resumeTeam as discrete operations driven by the caller.
  */
+import { execFile } from 'child_process';
 import { join, resolve } from 'path';
 import { existsSync } from 'fs';
-import { mkdir, readdir, writeFile } from 'fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'fs/promises';
 import { performance } from 'perf_hooks';
 import { TeamPaths, absPath, teamStateRoot } from './state-paths.js';
 import { readTeamConfig, readWorkerStatus, readWorkerHeartbeat, readMonitorSnapshot, writeMonitorSnapshot, writeShutdownRequest, readShutdownAck, writeWorkerInbox, listTasksFromFiles, saveTeamConfig, cleanupTeamState, } from './monitor.js';
@@ -25,8 +26,10 @@ import { appendTeamEvent, emitMonitorDerivedEvents } from './events.js';
 import { inferPhase } from './phase-controller.js';
 import { validateTeamName } from './team-name.js';
 import { buildWorkerArgv, resolveValidatedBinaryPath, getWorkerEnv as getModelWorkerEnv, isPromptModeAgent, getPromptModeArgs, } from './model-contract.js';
-import { createTeamSession, spawnWorkerInPane, sendToWorker, waitForPaneReady, } from './tmux-session.js';
-import { composeInitialInbox, ensureWorkerStateDir, writeWorkerOverlay, } from './worker-bootstrap.js';
+import { createTeamSession, spawnWorkerInPane, sendToWorker, waitForPaneReady, paneHasActiveTask, paneLooksReady, } from './tmux-session.js';
+import { composeInitialInbox, ensureWorkerStateDir, writeWorkerOverlay, generateTriggerMessage, } from './worker-bootstrap.js';
+import { queueInboxInstruction } from './mcp-comm.js';
+import { cleanupTeamWorktrees } from './git-worktree.js';
 // ---------------------------------------------------------------------------
 // Feature flag
 // ---------------------------------------------------------------------------
@@ -37,6 +40,7 @@ export function isRuntimeV2Enabled(env = process.env) {
     const normalized = raw.trim().toLowerCase();
     return !['0', 'false', 'no', 'off'].includes(normalized);
 }
+const MONITOR_SIGNAL_STALE_MS = 30_000;
 // ---------------------------------------------------------------------------
 // Helper: sanitize team name
 // ---------------------------------------------------------------------------
@@ -57,6 +61,38 @@ async function isWorkerPaneAlive(paneId) {
         return false;
     }
 }
+async function captureWorkerPane(paneId) {
+    if (!paneId)
+        return '';
+    return await new Promise((resolve) => {
+        execFile('tmux', ['capture-pane', '-t', paneId, '-p', '-S', '-80'], (err, stdout) => {
+            if (err)
+                resolve('');
+            else
+                resolve(stdout ?? '');
+        });
+    });
+}
+function isFreshTimestamp(value, maxAgeMs = MONITOR_SIGNAL_STALE_MS) {
+    if (!value)
+        return false;
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed))
+        return false;
+    return Date.now() - parsed <= maxAgeMs;
+}
+function findOutstandingWorkerTask(worker, taskById, inProgressByOwner) {
+    if (typeof worker.assigned_tasks === 'object') {
+        for (const taskId of worker.assigned_tasks) {
+            const task = taskById.get(taskId);
+            if (task && (task.status === 'pending' || task.status === 'in_progress')) {
+                return task;
+            }
+        }
+    }
+    const owned = inProgressByOwner.get(worker.name) ?? [];
+    return owned[0] ?? null;
+}
 // ---------------------------------------------------------------------------
 // V2 task instruction builder — CLI API lifecycle, NO done.json
 // ---------------------------------------------------------------------------
@@ -66,30 +102,38 @@ async function isWorkerPaneAlive(paneId) {
  */
 function buildV2TaskInstruction(teamName, workerName, task, taskId) {
     return [
-        `## Initial Task Assignment`,
+        `## REQUIRED: Task Lifecycle Commands`,
+        `You MUST run these commands. Do NOT skip any step.`,
+        ``,
+        `1. Claim your task:`,
+        `   omc team api claim-task --input '{"team_name":"${teamName}","task_id":"${taskId}","worker":"${workerName}"}' --json`,
+        `   Save the claim_token from the response.`,
+        `2. Do the work described below.`,
+        `3. On completion (use claim_token from step 1):`,
+        `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"completed","claim_token":"<claim_token>"}' --json`,
+        `4. On failure (use claim_token from step 1):`,
+        `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"failed","claim_token":"<claim_token>"}' --json`,
+        `5. Exit immediately after transitioning.`,
+        ``,
+        `## Task Assignment`,
         `Task ID: ${taskId}`,
         `Worker: ${workerName}`,
         `Subject: ${task.subject}`,
         ``,
         task.description,
         ``,
-        `## Task Lifecycle (CLI API)`,
-        `1. Claim your task:`,
-        `   omc team api claim-task --input '{"team_name":"${teamName}","task_id":"${taskId}","worker":"${workerName}"}' --json`,
-        `2. Do the work described above`,
-        `3. On completion (use the claim_token from step 1):`,
-        `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"completed","claim_token":"<claim_token>"}' --json`,
-        `4. On failure (use the claim_token from step 1):`,
-        `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"failed","claim_token":"<claim_token>"}' --json`,
-        ``,
-        `IMPORTANT: Use the CLI API commands above for all task state transitions.`,
-        `Do NOT write done.json or edit task files directly.`,
-        `After completing or failing the task, exit immediately.`,
+        `REMINDER: You MUST run transition-task-status before exiting. Do NOT write done.json or edit task files directly.`,
     ].join('\n');
 }
 // ---------------------------------------------------------------------------
 // V2 worker spawning — direct tmux pane creation, no v1 delegation
 // ---------------------------------------------------------------------------
+async function notifyStartupInbox(sessionName, paneId, message) {
+    const notified = await notifyPaneWithRetry(sessionName, paneId, message);
+    return notified
+        ? { ok: true, transport: 'tmux_send_keys', reason: 'worker_pane_notified' }
+        : { ok: false, transport: 'tmux_send_keys', reason: 'worker_notify_failed' };
+}
 async function notifyPaneWithRetry(sessionName, paneId, message, maxAttempts = 6, retryDelayMs = 350) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         if (await sendToWorker(sessionName, paneId, message)) {
@@ -97,6 +141,39 @@ async function notifyPaneWithRetry(sessionName, paneId, message, maxAttempts = 6
         }
         if (attempt < maxAttempts) {
             await new Promise(r => setTimeout(r, retryDelayMs));
+        }
+    }
+    return false;
+}
+function hasWorkerStatusProgress(status, taskId) {
+    if (status.current_task_id === taskId)
+        return true;
+    return ['working', 'blocked', 'done', 'failed'].includes(status.state);
+}
+async function hasWorkerTaskClaimEvidence(teamName, workerName, cwd, taskId) {
+    try {
+        const raw = await readFile(absPath(cwd, TeamPaths.taskFile(teamName, taskId)), 'utf-8');
+        const task = JSON.parse(raw);
+        return task.owner === workerName && ['in_progress', 'completed', 'failed'].includes(task.status);
+    }
+    catch {
+        return false;
+    }
+}
+async function hasClaudeStartupEvidence(teamName, workerName, taskId, cwd) {
+    const [hasClaimEvidence, status] = await Promise.all([
+        hasWorkerTaskClaimEvidence(teamName, workerName, cwd, taskId),
+        readWorkerStatus(teamName, workerName, cwd),
+    ]);
+    return hasClaimEvidence || hasWorkerStatusProgress(status, taskId);
+}
+async function waitForClaudeStartupEvidence(teamName, workerName, taskId, cwd, attempts = 3, delayMs = 250) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        if (await hasClaudeStartupEvidence(teamName, workerName, taskId, cwd)) {
+            return true;
+        }
+        if (attempt < attempts) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
     }
     return false;
@@ -120,15 +197,23 @@ async function spawnV2Worker(opts) {
         '-c', opts.cwd,
     ]);
     const paneId = splitResult.stdout.split('\n')[0]?.trim();
-    if (!paneId)
-        return null;
+    if (!paneId) {
+        return { paneId: null, startupAssigned: false, startupFailureReason: 'pane_id_missing' };
+    }
     const usePromptMode = isPromptModeAgent(opts.agentType);
     // Build v2 task instruction (CLI API, NO done.json)
     const instruction = buildV2TaskInstruction(opts.teamName, opts.workerName, opts.task, opts.taskId);
-    await composeInitialInbox(opts.teamName, opts.workerName, instruction, opts.cwd);
     const relInboxPath = `.omc/state/team/${opts.teamName}/workers/${opts.workerName}/inbox.md`;
+    const inboxTriggerMessage = generateTriggerMessage(opts.teamName, opts.workerName);
+    if (usePromptMode) {
+        await composeInitialInbox(opts.teamName, opts.workerName, instruction, opts.cwd);
+    }
     // Build env and launch command
-    const envVars = getModelWorkerEnv(opts.teamName, opts.workerName, opts.agentType);
+    const envVars = {
+        ...getModelWorkerEnv(opts.teamName, opts.workerName, opts.agentType),
+        OMC_TEAM_STATE_ROOT: teamStateRoot(opts.cwd, opts.teamName),
+        OMC_TEAM_LEADER_CWD: opts.cwd,
+    };
     const resolvedBinaryPath = opts.resolvedBinaryPaths[opts.agentType]
         ?? resolveValidatedBinaryPath(opts.agentType);
     // Resolve model from environment variables
@@ -154,7 +239,7 @@ async function spawnV2Worker(opts) {
     });
     // For prompt-mode agents (codex, gemini), pass instruction via CLI flag
     if (usePromptMode) {
-        const promptArgs = getPromptModeArgs(opts.agentType, `Read and execute your task from: ${relInboxPath}`);
+        const promptArgs = getPromptModeArgs(opts.agentType, inboxTriggerMessage);
         launchArgs.push(...promptArgs);
     }
     const paneConfig = {
@@ -173,39 +258,77 @@ async function spawnV2Worker(opts) {
         ]);
     }
     catch { /* layout is best-effort */ }
-    // For interactive agents, wait for pane readiness then send inbox path
+    // For interactive agents, wait for pane readiness before dispatching startup inbox.
     if (!usePromptMode) {
         const paneReady = await waitForPaneReady(paneId);
         if (!paneReady) {
-            try {
-                await execFileAsync('tmux', ['kill-pane', '-t', paneId]);
-            }
-            catch { /* best-effort cleanup */ }
-            return null;
-        }
-        // Handle gemini trust-confirm
-        if (opts.agentType === 'gemini') {
-            const confirmed = await notifyPaneWithRetry(opts.sessionName, paneId, '1');
-            if (!confirmed) {
-                try {
-                    await execFileAsync('tmux', ['kill-pane', '-t', paneId]);
-                }
-                catch { /* best-effort cleanup */ }
-                return null;
-            }
-            await new Promise(r => setTimeout(r, 800));
-        }
-        // Send inbox path to worker
-        const notified = await notifyPaneWithRetry(opts.sessionName, paneId, `Read and execute your task from: ${relInboxPath}`);
-        if (!notified) {
-            try {
-                await execFileAsync('tmux', ['kill-pane', '-t', paneId]);
-            }
-            catch { /* best-effort cleanup */ }
-            return null;
+            return {
+                paneId,
+                startupAssigned: false,
+                startupFailureReason: 'worker_pane_not_ready',
+            };
         }
     }
-    return paneId;
+    const dispatchOutcome = await queueInboxInstruction({
+        teamName: opts.teamName,
+        workerName: opts.workerName,
+        workerIndex: opts.workerIndex + 1,
+        paneId,
+        inbox: instruction,
+        triggerMessage: inboxTriggerMessage,
+        cwd: opts.cwd,
+        transportPreference: usePromptMode ? 'prompt_stdin' : 'transport_direct',
+        fallbackAllowed: false,
+        inboxCorrelationKey: `startup:${opts.workerName}:${opts.taskId}`,
+        notify: async (_target, triggerMessage) => {
+            if (usePromptMode) {
+                return { ok: true, transport: 'prompt_stdin', reason: 'prompt_mode_launch_args' };
+            }
+            if (opts.agentType === 'gemini') {
+                const confirmed = await notifyPaneWithRetry(opts.sessionName, paneId, '1');
+                if (!confirmed) {
+                    return { ok: false, transport: 'tmux_send_keys', reason: 'worker_notify_failed:trust-confirm' };
+                }
+                await new Promise(r => setTimeout(r, 800));
+            }
+            return notifyStartupInbox(opts.sessionName, paneId, triggerMessage);
+        },
+        deps: {
+            writeWorkerInbox,
+        },
+    });
+    if (!dispatchOutcome.ok) {
+        return {
+            paneId,
+            startupAssigned: false,
+            startupFailureReason: dispatchOutcome.reason,
+        };
+    }
+    if (opts.agentType === 'claude') {
+        const settled = await waitForClaudeStartupEvidence(opts.teamName, opts.workerName, opts.taskId, opts.cwd);
+        if (!settled) {
+            const renotified = await notifyStartupInbox(opts.sessionName, paneId, inboxTriggerMessage);
+            if (!renotified.ok) {
+                return {
+                    paneId,
+                    startupAssigned: false,
+                    startupFailureReason: `${renotified.reason}:startup_evidence_missing`,
+                };
+            }
+            const settledAfterRetry = await waitForClaudeStartupEvidence(opts.teamName, opts.workerName, opts.taskId, opts.cwd);
+            if (!settledAfterRetry) {
+                return {
+                    paneId,
+                    startupAssigned: false,
+                    startupFailureReason: 'claude_startup_evidence_missing',
+                };
+            }
+        }
+    }
+    return {
+        paneId,
+        startupAssigned: true,
+    };
 }
 // ---------------------------------------------------------------------------
 // startTeamV2 — direct tmux creation, CLI API inbox, NO watchdog
@@ -258,12 +381,16 @@ export async function startTeamV2(config) {
                 id: String(idx + 1), subject: t.subject, description: t.description,
             })),
             cwd: leaderCwd,
+            ...(config.rolePrompt ? { bootstrapInstructions: config.rolePrompt } : {}),
         });
     }
     // Create tmux session (leader only — workers spawned below)
-    const session = await createTeamSession(sanitized, 0, leaderCwd);
+    const session = await createTeamSession(sanitized, 0, leaderCwd, {
+        newWindow: Boolean(config.newWindow),
+    });
     const sessionName = session.sessionName;
     const leaderPaneId = session.leaderPaneId;
+    const ownsWindow = session.sessionMode !== 'split-pane';
     const workerPaneIds = [];
     // Build workers info for config
     const workersInfo = workerNames.map((wName, i) => ({
@@ -284,6 +411,7 @@ export async function startTeamV2(config) {
         workers: workersInfo,
         created_at: new Date().toISOString(),
         tmux_session: sessionName,
+        tmux_window_owned: ownsWindow,
         next_task_id: config.tasks.length + 1,
         leader_cwd: leaderCwd,
         team_state_root: teamStateRoot(leaderCwd, sanitized),
@@ -291,6 +419,7 @@ export async function startTeamV2(config) {
         hud_pane_id: null,
         resize_hook_name: null,
         resize_hook_target: null,
+        ...(ownsWindow ? { workspace_mode: 'single' } : {}),
     };
     await saveTeamConfig(teamConfig, leaderCwd);
     // Spawn workers for initial tasks (up to workerCount concurrent)
@@ -301,7 +430,7 @@ export async function startTeamV2(config) {
         const task = config.tasks[i];
         if (!task)
             break;
-        const paneId = await spawnV2Worker({
+        const workerLaunch = await spawnV2Worker({
             sessionName,
             leaderPaneId,
             existingWorkerPaneIds: workerPaneIds,
@@ -314,13 +443,20 @@ export async function startTeamV2(config) {
             cwd: leaderCwd,
             resolvedBinaryPaths,
         });
-        if (paneId) {
-            workerPaneIds.push(paneId);
+        if (workerLaunch.paneId) {
+            workerPaneIds.push(workerLaunch.paneId);
             const workerInfo = workersInfo[i];
             if (workerInfo) {
-                workerInfo.pane_id = paneId;
-                workerInfo.assigned_tasks = [taskId];
+                workerInfo.pane_id = workerLaunch.paneId;
+                workerInfo.assigned_tasks = workerLaunch.startupAssigned ? [taskId] : [];
             }
+        }
+        if (workerLaunch.startupFailureReason) {
+            await appendTeamEvent(sanitized, {
+                type: 'team_leader_nudge',
+                worker: 'leader-fixed',
+                reason: `startup_manual_intervention_required:${wName}:${workerLaunch.startupFailureReason}`,
+            }, leaderCwd);
         }
     }
     // Persist config with pane IDs
@@ -338,6 +474,7 @@ export async function startTeamV2(config) {
         sessionName,
         config: teamConfig,
         cwd: leaderCwd,
+        ownsWindow: ownsWindow,
     };
 }
 // ---------------------------------------------------------------------------
@@ -475,15 +612,18 @@ export async function monitorTeamV2(teamName, cwd) {
     const workerScanStartMs = performance.now();
     const workerSignals = await Promise.all(config.workers.map(async (worker) => {
         const alive = await isWorkerPaneAlive(worker.pane_id);
-        const [status, heartbeat] = await Promise.all([
+        const [status, heartbeat, paneCapture] = await Promise.all([
             readWorkerStatus(sanitized, worker.name, cwd),
             readWorkerHeartbeat(sanitized, worker.name, cwd),
+            alive ? captureWorkerPane(worker.pane_id) : Promise.resolve(''),
         ]);
-        return { worker, alive, status, heartbeat };
+        return { worker, alive, status, heartbeat, paneCapture };
     }));
     const workerScanMs = performance.now() - workerScanStartMs;
-    for (const { worker: w, alive, status, heartbeat } of workerSignals) {
+    for (const { worker: w, alive, status, heartbeat, paneCapture } of workerSignals) {
         const currentTask = status.current_task_id ? taskById.get(status.current_task_id) ?? null : null;
+        const outstandingTask = currentTask ?? findOutstandingWorkerTask(w, taskById, inProgressByOwner);
+        const expectedTaskId = status.current_task_id ?? outstandingTask?.id ?? w.assigned_tasks[0] ?? '';
         const previousTurns = previousSnapshot ? (previousSnapshot.workerTurnCountByName[w.name] ?? 0) : null;
         const previousTaskId = previousSnapshot?.workerTaskIdByName[w.name] ?? '';
         const currentTaskId = status.current_task_id ?? '';
@@ -511,9 +651,31 @@ export async function monitorTeamV2(teamName, cwd) {
                 recommendations.push(`Reassign task-${t.id} from dead ${w.name}`);
             }
         }
-        if (alive && turnsWithoutProgress > 5) {
+        const paneSuggestsIdle = alive && paneLooksReady(paneCapture) && !paneHasActiveTask(paneCapture);
+        const statusFresh = isFreshTimestamp(status.updated_at);
+        const heartbeatFresh = isFreshTimestamp(heartbeat?.last_turn_at);
+        const hasWorkStartEvidence = expectedTaskId !== '' && hasWorkerStatusProgress(status, expectedTaskId);
+        let stallReason = null;
+        if (paneSuggestsIdle && expectedTaskId !== '' && !hasWorkStartEvidence) {
+            stallReason = 'no_work_start_evidence';
+        }
+        else if (paneSuggestsIdle && expectedTaskId !== '' && (!statusFresh || !heartbeatFresh)) {
+            stallReason = 'stale_or_missing_worker_reports';
+        }
+        else if (paneSuggestsIdle && turnsWithoutProgress > 5) {
+            stallReason = 'no_meaningful_turn_progress';
+        }
+        if (stallReason) {
             nonReportingWorkers.push(w.name);
-            recommendations.push(`Send reminder to non-reporting ${w.name}`);
+            if (stallReason === 'no_work_start_evidence') {
+                recommendations.push(`Investigate ${w.name}: assigned work but no work-start evidence; pane is idle at prompt`);
+            }
+            else if (stallReason === 'stale_or_missing_worker_reports') {
+                recommendations.push(`Investigate ${w.name}: pane is idle while status/heartbeat are stale or missing`);
+            }
+            else {
+                recommendations.push(`Investigate ${w.name}: no meaningful turn progress and pane is idle at prompt`);
+            }
         }
     }
     // Count tasks
@@ -687,15 +849,18 @@ export async function shutdownTeamV2(teamName, cwd, options = {}) {
         const workerPaneIds = config.workers
             .map((w) => w.pane_id)
             .filter((p) => typeof p === 'string' && p.trim().length > 0);
+        const ownsWindow = config.tmux_window_owned === true;
         await killWorkerPanes({
             paneIds: workerPaneIds,
             leaderPaneId: config.leader_pane_id ?? undefined,
             teamName: sanitized,
             cwd,
         });
-        // Destroy tmux session if it's a standalone session
-        if (config.tmux_session && !config.tmux_session.includes(':')) {
-            await killTeamSession(config.tmux_session, [], undefined);
+        if (config.tmux_session && (ownsWindow || !config.tmux_session.includes(':'))) {
+            const sessionMode = ownsWindow
+                ? (config.tmux_session.includes(':') ? 'dedicated-window' : 'detached-session')
+                : 'detached-session';
+            await killTeamSession(config.tmux_session, workerPaneIds, config.leader_pane_id ?? undefined, { sessionMode });
         }
     }
     catch (err) {
@@ -714,6 +879,12 @@ export async function shutdownTeamV2(teamName, cwd, options = {}) {
         }, cwd).catch(() => { });
     }
     // 6. Clean up state
+    try {
+        cleanupTeamWorktrees(sanitized, cwd);
+    }
+    catch (err) {
+        process.stderr.write(`[team/runtime-v2] worktree cleanup: ${err}\n`);
+    }
     await cleanupTeamState(sanitized, cwd);
 }
 // ---------------------------------------------------------------------------
@@ -735,6 +906,7 @@ export async function resumeTeamV2(teamName, cwd) {
             teamName: sanitized,
             sanitizedName: sanitized,
             sessionName,
+            ownsWindow: config.tmux_window_owned === true,
             config,
             cwd,
         };

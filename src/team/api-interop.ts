@@ -42,6 +42,10 @@ import {
   teamWriteTaskApproval,
   type TeamMonitorSnapshotState,
 } from './team-ops.js';
+import { queueBroadcastMailboxMessage, queueDirectMailboxMessage, type DispatchOutcome } from './mcp-comm.js';
+import { injectToLeaderPane, sendToWorker } from './tmux-session.js';
+import { listDispatchRequests, markDispatchRequestDelivered, markDispatchRequestNotified } from './dispatch-queue.js';
+import { generateMailboxTriggerMessage } from './worker-bootstrap.js';
 
 const TEAM_UPDATE_TASK_MUTABLE_FIELDS = new Set(['subject', 'description', 'blocked_by', 'requires_code_change']);
 const TEAM_UPDATE_TASK_REQUEST_FIELDS = new Set(['team_name', 'task_id', 'workingDirectory', ...TEAM_UPDATE_TASK_MUTABLE_FIELDS]);
@@ -192,6 +196,26 @@ function readTeamStateRootFromFile(path: string): string | null {
 
 function stateRootToWorkingDirectory(stateRoot: string): string {
   const absolute = resolvePath(stateRoot);
+  const normalized = absolute.replaceAll('\\', '/');
+
+  for (const marker of ['/.omc/state/team/', '/.omx/state/team/']) {
+    const idx = normalized.lastIndexOf(marker);
+    if (idx >= 0) {
+      const workspaceRoot = absolute.slice(0, idx);
+      if (workspaceRoot && workspaceRoot !== '/') return workspaceRoot;
+      return dirname(dirname(dirname(dirname(absolute))));
+    }
+  }
+
+  for (const marker of ['/.omc/state', '/.omx/state']) {
+    const idx = normalized.lastIndexOf(marker);
+    if (idx >= 0) {
+      const workspaceRoot = absolute.slice(0, idx);
+      if (workspaceRoot && workspaceRoot !== '/') return workspaceRoot;
+      return dirname(dirname(absolute));
+    }
+  }
+
   return dirname(dirname(absolute));
 }
 
@@ -271,6 +295,131 @@ export function buildLegacyTeamDeprecationHint(
   return `Use CLI interop: ${teamApiCli} ${operation} --input '${payload}' --json`;
 }
 
+
+const QUEUED_FOR_HOOK_DISPATCH_REASON = 'queued_for_hook_dispatch';
+const LEADER_PANE_MISSING_MAILBOX_PERSISTED_REASON = 'leader_pane_missing_mailbox_persisted';
+const WORKTREE_TRIGGER_STATE_ROOT = '$OMC_TEAM_STATE_ROOT';
+
+function resolveInstructionStateRoot(worktreePath?: string | null): string | undefined {
+  return worktreePath ? WORKTREE_TRIGGER_STATE_ROOT : undefined;
+}
+
+function queuedForHookDispatch(): DispatchOutcome {
+  return {
+    ok: true,
+    transport: 'hook',
+    reason: QUEUED_FOR_HOOK_DISPATCH_REASON,
+  };
+}
+
+async function notifyMailboxTarget(
+  teamName: string,
+  toWorker: string,
+  triggerMessage: string,
+  cwd: string,
+): Promise<DispatchOutcome> {
+  const config = await teamReadConfig(teamName, cwd);
+  if (!config) return queuedForHookDispatch();
+
+  const sessionName = typeof config.tmux_session === 'string' ? config.tmux_session.trim() : '';
+  if (!sessionName) return queuedForHookDispatch();
+
+  if (toWorker === 'leader-fixed') {
+    const leaderPaneId = typeof config.leader_pane_id === 'string' ? config.leader_pane_id.trim() : '';
+    if (!leaderPaneId) {
+      return {
+        ok: true,
+        transport: 'mailbox',
+        reason: LEADER_PANE_MISSING_MAILBOX_PERSISTED_REASON,
+      };
+    }
+    const injected = await injectToLeaderPane(sessionName, leaderPaneId, triggerMessage);
+    return injected
+      ? { ok: true, transport: 'tmux_send_keys', reason: 'leader_pane_notified' }
+      : queuedForHookDispatch();
+  }
+
+  const workerPaneId = config.workers.find((worker) => worker.name === toWorker)?.pane_id?.trim();
+  if (!workerPaneId) return queuedForHookDispatch();
+
+  const notified = await sendToWorker(sessionName, workerPaneId, triggerMessage);
+  return notified
+    ? { ok: true, transport: 'tmux_send_keys', reason: 'worker_pane_notified' }
+    : queuedForHookDispatch();
+}
+
+function findWorkerDispatchTarget(
+  teamName: string,
+  toWorker: string,
+  cwd: string,
+): Promise<{ paneId?: string; workerIndex?: number; instructionStateRoot?: string }>
+{
+  return teamReadConfig(teamName, cwd).then((config) => {
+    const recipient = config?.workers.find((worker) => worker.name === toWorker);
+    return {
+      paneId: recipient?.pane_id,
+      workerIndex: recipient?.index,
+      instructionStateRoot: resolveInstructionStateRoot(recipient?.worktree_path),
+    };
+  });
+}
+
+async function findMailboxDispatchRequestId(
+  teamName: string,
+  workerName: string,
+  messageId: string,
+  cwd: string,
+): Promise<string | null> {
+  const requests = await listDispatchRequests(
+    teamName,
+    cwd,
+    { kind: 'mailbox', to_worker: workerName },
+  );
+  const matching = requests
+    .filter((request) => request.message_id === messageId)
+    .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+  return matching[0]?.request_id ?? null;
+}
+
+async function syncMailboxDispatchNotified(
+  teamName: string,
+  workerName: string,
+  messageId: string,
+  cwd: string,
+): Promise<void> {
+  const requestId = await findMailboxDispatchRequestId(teamName, workerName, messageId, cwd);
+  if (!requestId) return;
+  await markDispatchRequestNotified(
+    teamName,
+    requestId,
+    { message_id: messageId, last_reason: 'mailbox_mark_notified' },
+    cwd,
+  ).catch(() => {});
+}
+
+async function syncMailboxDispatchDelivered(
+  teamName: string,
+  workerName: string,
+  messageId: string,
+  cwd: string,
+): Promise<void> {
+  const requestId = await findMailboxDispatchRequestId(teamName, workerName, messageId, cwd);
+  if (!requestId) return;
+
+  await markDispatchRequestNotified(
+    teamName,
+    requestId,
+    { message_id: messageId, last_reason: 'mailbox_mark_delivered' },
+    cwd,
+  ).catch(() => {});
+  await markDispatchRequestDelivered(
+    teamName,
+    requestId,
+    { message_id: messageId, last_reason: 'mailbox_mark_delivered' },
+    cwd,
+  ).catch(() => {});
+}
+
 function validateCommonFields(args: Record<string, unknown>): void {
   const teamName = String(args.team_name || '').trim();
   if (teamName && !TEAM_NAME_SAFE_PATTERN.test(teamName)) {
@@ -312,7 +461,31 @@ export async function executeTeamApiOperation(
         if (!teamName || !toWorker || !body) {
           return { ok: false, operation, error: { code: 'invalid_input', message: 'team_name, from_worker, to_worker, body are required' } };
         }
-        const message = await sendDirectMessage(teamName, fromWorker, toWorker, body, cwd);
+
+        let message: Awaited<ReturnType<typeof sendDirectMessage>> | null = null;
+        const target = await findWorkerDispatchTarget(teamName, toWorker, cwd);
+        await queueDirectMailboxMessage({
+          teamName,
+          fromWorker,
+          toWorker,
+          toWorkerIndex: target.workerIndex,
+          toPaneId: target.paneId,
+          body,
+          triggerMessage: generateMailboxTriggerMessage(teamName, toWorker, 1, target.instructionStateRoot),
+          cwd,
+          notify: ({ workerName }, triggerMessage) => notifyMailboxTarget(teamName, workerName, triggerMessage, cwd),
+          deps: {
+            sendDirectMessage: async (resolvedTeamName, resolvedFromWorker, resolvedToWorker, resolvedBody, resolvedCwd) => {
+              message = await sendDirectMessage(resolvedTeamName, resolvedFromWorker, resolvedToWorker, resolvedBody, resolvedCwd);
+              return message;
+            },
+            broadcastMessage,
+            markMessageNotified: async (resolvedTeamName, workerName, messageId, resolvedCwd) => {
+              await markMessageNotified(resolvedTeamName, workerName, messageId, resolvedCwd);
+            },
+          },
+        });
+
         return { ok: true, operation, data: { message } };
       }
       case 'broadcast': {
@@ -322,7 +495,43 @@ export async function executeTeamApiOperation(
         if (!teamName || !fromWorker || !body) {
           return { ok: false, operation, error: { code: 'invalid_input', message: 'team_name, from_worker, body are required' } };
         }
-        const messages = await broadcastMessage(teamName, fromWorker, body, cwd);
+
+        let messages: Awaited<ReturnType<typeof broadcastMessage>> = [];
+        const config = await teamReadConfig(teamName, cwd);
+        const recipients = (config?.workers ?? [])
+          .filter((worker) => worker.name !== fromWorker)
+          .map((worker) => ({
+            workerName: worker.name,
+            workerIndex: worker.index,
+            paneId: worker.pane_id,
+            instructionStateRoot: resolveInstructionStateRoot(worker.worktree_path),
+          }));
+
+        await queueBroadcastMailboxMessage({
+          teamName,
+          fromWorker,
+          recipients,
+          body,
+          cwd,
+          triggerFor: (workerName) => generateMailboxTriggerMessage(
+            teamName,
+            workerName,
+            1,
+            recipients.find((recipient) => recipient.workerName === workerName)?.instructionStateRoot,
+          ),
+          notify: ({ workerName }, triggerMessage) => notifyMailboxTarget(teamName, workerName, triggerMessage, cwd),
+          deps: {
+            sendDirectMessage,
+            broadcastMessage: async (resolvedTeamName, resolvedFromWorker, resolvedBody, resolvedCwd) => {
+              messages = await broadcastMessage(resolvedTeamName, resolvedFromWorker, resolvedBody, resolvedCwd);
+              return messages;
+            },
+            markMessageNotified: async (resolvedTeamName, workerName, messageId, resolvedCwd) => {
+              await markMessageNotified(resolvedTeamName, workerName, messageId, resolvedCwd);
+            },
+          },
+        });
+
         return { ok: true, operation, data: { count: messages.length, messages } };
       }
       case 'mailbox-list': {
@@ -344,6 +553,9 @@ export async function executeTeamApiOperation(
           return { ok: false, operation, error: { code: 'invalid_input', message: 'team_name, worker, message_id are required' } };
         }
         const updated = await markMessageDelivered(teamName, worker, messageId, cwd);
+        if (updated) {
+          await syncMailboxDispatchDelivered(teamName, worker, messageId, cwd);
+        }
         return { ok: true, operation, data: { worker, message_id: messageId, updated } };
       }
       case 'mailbox-mark-notified': {
@@ -354,6 +566,9 @@ export async function executeTeamApiOperation(
           return { ok: false, operation, error: { code: 'invalid_input', message: 'team_name, worker, message_id are required' } };
         }
         const notified = await markMessageNotified(teamName, worker, messageId, cwd);
+        if (notified) {
+          await syncMailboxDispatchNotified(teamName, worker, messageId, cwd);
+        }
         return { ok: true, operation, data: { worker, message_id: messageId, notified } };
       }
       case 'create-task': {

@@ -7,6 +7,17 @@
  *   omc team shutdown <team-name> [--force] Shutdown team
  *   omc team api <operation> --input '...'  Worker CLI API
  */
+export interface ParsedTeamArgs {
+    workerCount: number;
+    agentTypes: string[];
+    role?: string;
+    task: string;
+    teamName: string;
+    json: boolean;
+    newWindow: boolean;
+}
+/** @internal Exported for testing */
+export declare function parseTeamArgs(tokens: string[]): ParsedTeamArgs;
 /**
  * Main team subcommand handler.
  * Routes:

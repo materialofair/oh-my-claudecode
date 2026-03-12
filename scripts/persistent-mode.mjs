@@ -132,6 +132,29 @@ Do NOT skip this step. Do NOT move on without fixing the error.
  * from causing the stop hook to malfunction in new sessions.
  */
 const STALE_STATE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+const TEAM_TERMINAL_PHASES = new Set([
+  "completed",
+  "complete",
+  "failed",
+  "cancelled",
+  "canceled",
+  "aborted",
+  "terminated",
+  "done",
+]);
+const TEAM_ACTIVE_PHASES = new Set([
+  "team-plan",
+  "team-prd",
+  "team-exec",
+  "team-verify",
+  "team-fix",
+  "planning",
+  "executing",
+  "verify",
+  "verification",
+  "fix",
+  "fixing",
+]);
 
 /**
  * Check if a state is stale based on its timestamps.
@@ -151,6 +174,23 @@ function isStaleState(state) {
 
   const age = Date.now() - mostRecent;
   return age > STALE_STATE_THRESHOLD_MS;
+}
+
+function normalizeTeamPhase(state) {
+  if (!state || typeof state !== "object") return null;
+
+  const rawPhase = state.current_phase ?? state.phase ?? state.stage;
+  if (typeof rawPhase !== "string") return null;
+
+  const phase = rawPhase.trim().toLowerCase();
+  if (!phase || TEAM_TERMINAL_PHASES.has(phase)) return null;
+  return TEAM_ACTIVE_PHASES.has(phase) ? phase : null;
+}
+
+function getSafeReinforcementCount(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : 0;
 }
 
 /**
@@ -325,7 +365,15 @@ function countIncompleteTodos(sessionId, projectDir) {
  * See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/213
  */
 function isContextLimitStop(data) {
-  const reason = (data.stop_reason || data.stopReason || "").toLowerCase();
+  const reasons = [
+    data.stop_reason,
+    data.stopReason,
+    data.end_turn_reason,
+    data.endTurnReason,
+    data.reason,
+  ]
+    .filter((value) => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.toLowerCase().replace(/[\s-]+/g, "_"));
 
   const contextPatterns = [
     "context_limit",
@@ -339,20 +387,26 @@ function isContextLimitStop(data) {
     "input_too_long",
   ];
 
-  if (contextPatterns.some((p) => reason.includes(p))) {
-    return true;
-  }
+  return reasons.some((reason) => contextPatterns.some((p) => reason.includes(p)));
+}
 
-  const endTurnReason = (
-    data.end_turn_reason ||
-    data.endTurnReason ||
-    ""
-  ).toLowerCase();
-  if (endTurnReason && contextPatterns.some((p) => endTurnReason.includes(p))) {
-    return true;
-  }
+const CRITICAL_CONTEXT_STOP_PERCENT = 95;
 
-  return false;
+function estimateContextPercent(transcriptPath) {
+  if (!transcriptPath || !existsSync(transcriptPath)) return 0;
+  try {
+    const content = readFileSync(transcriptPath, "utf-8");
+    const windowMatch = content.match(/"context_window"\s{0,5}:\s{0,5}(\d+)/g);
+    const inputMatch = content.match(/"input_tokens"\s{0,5}:\s{0,5}(\d+)/g);
+    if (!windowMatch || !inputMatch) return 0;
+
+    const lastWindow = parseInt(windowMatch[windowMatch.length - 1].match(/(\d+)/)[1], 10);
+    const lastInput = parseInt(inputMatch[inputMatch.length - 1].match(/(\d+)/)[1], 10);
+    if (!Number.isFinite(lastWindow) || lastWindow <= 0 || !Number.isFinite(lastInput)) return 0;
+    return Math.round((lastInput / lastWindow) * 100);
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -429,6 +483,12 @@ async function main() {
     // Blocking these causes a deadlock where Claude Code cannot compact.
     // See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/213
     if (isContextLimitStop(data)) {
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+      return;
+    }
+
+    const criticalTranscriptPath = data.transcript_path || data.transcriptPath || "";
+    if (estimateContextPercent(criticalTranscriptPath) >= CRITICAL_CONTEXT_STOP_PERCENT) {
       console.log(JSON.stringify({ continue: true, suppressOutput: true }));
       return;
     }
@@ -720,10 +780,9 @@ async function main() {
         ? team.state.session_id === sessionId
         : !team.state.session_id || team.state.session_id === sessionId;
       if (sessionMatches) {
-        const phase = team.state.current_phase || "executing";
-        const terminalPhases = ["completed", "complete", "failed", "cancelled"];
-        if (!terminalPhases.includes(phase)) {
-          const newCount = (team.state.reinforcement_count || 0) + 1;
+        const phase = normalizeTeamPhase(team.state);
+        if (phase) {
+          const newCount = getSafeReinforcementCount(team.state.reinforcement_count) + 1;
           if (newCount <= 20) {
             const toolError = readLastToolError(stateDir);
             const errorGuidance = getToolErrorRetryGuidance(toolError);
@@ -760,10 +819,9 @@ async function main() {
         ? omcTeams.state.session_id === sessionId
         : !omcTeams.state.session_id || omcTeams.state.session_id === sessionId;
       if (sessionMatches) {
-        const phase = omcTeams.state.current_phase || "executing";
-        const terminalPhases = ["completed", "complete", "failed", "cancelled"];
-        if (!terminalPhases.includes(phase)) {
-          const newCount = (omcTeams.state.reinforcement_count || 0) + 1;
+        const phase = normalizeTeamPhase(omcTeams.state);
+        if (phase) {
+          const newCount = getSafeReinforcementCount(omcTeams.state.reinforcement_count) + 1;
           if (newCount <= 20) {
             const toolError = readLastToolError(stateDir);
             const errorGuidance = getToolErrorRetryGuidance(toolError);

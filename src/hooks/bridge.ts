@@ -14,8 +14,8 @@
  */
 
 import { pathToFileURL } from 'url';
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import { resolveToWorktreeRoot, getOmcRoot } from "../lib/worktree-paths.js";
 
 // Hot-path imports: needed on every/most hook invocations (keyword-detector, pre/post-tool-use)
@@ -27,13 +27,16 @@ import {
   getRunningTaskCount,
 } from "../hud/background-tasks.js";
 import { readHudState, writeHudState } from "../hud/state.js";
-import { loadConfig } from "../config/loader.js";
+import { compactOmcStartupGuidance, loadConfig } from "../config/loader.js";
 import { writeSkillActiveState } from "./skill-state/index.js";
 import {
   ULTRAWORK_MESSAGE,
   ULTRATHINK_MESSAGE,
   SEARCH_MESSAGE,
   ANALYZE_MESSAGE,
+  TDD_MESSAGE,
+  CODE_REVIEW_MESSAGE,
+  SECURITY_REVIEW_MESSAGE,
   RALPH_MESSAGE,
   PROMPT_TRANSLATION_MESSAGE,
 } from "../installer/hooks.js";
@@ -50,7 +53,11 @@ import {
 import type { SubagentStartInput, SubagentStopInput } from "./subagent-tracker/index.js";
 import type { PreCompactInput } from "./pre-compact/index.js";
 import type { SetupInput } from "./setup/index.js";
-import type { PermissionRequestInput } from "./permission-handler/index.js";
+import {
+  getBackgroundBashPermissionFallback,
+  getBackgroundTaskPermissionFallback,
+  type PermissionRequestInput,
+} from "./permission-handler/index.js";
 import type { SessionEndInput } from "./session-end/index.js";
 import type { StopContext } from "./todo-continuation/index.js";
 // Security: wrap untrusted file content to prevent prompt injection
@@ -73,12 +80,33 @@ const TEAM_TERMINAL_VALUES = new Set([
   "terminated",
   "done",
 ]);
+const TEAM_ACTIVE_STAGES = new Set([
+  "team-plan",
+  "team-prd",
+  "team-exec",
+  "team-verify",
+  "team-fix",
+]);
+const TEAM_STOP_BLOCKER_MAX = 20;
+const TEAM_STOP_BLOCKER_TTL_MS = 5 * 60 * 1000;
+const TEAM_STAGE_ALIASES: Record<string, string> = {
+  planning: "team-plan",
+  prd: "team-prd",
+  executing: "team-exec",
+  execution: "team-exec",
+  verify: "team-verify",
+  verification: "team-verify",
+  fix: "team-fix",
+  fixing: "team-fix",
+};
 
 interface TeamStagedState {
   active?: boolean;
   stage?: string;
   current_stage?: string;
   currentStage?: string;
+  current_phase?: string;
+  phase?: string;
   status?: string;
   session_id?: string;
   sessionId?: string;
@@ -91,6 +119,8 @@ interface TeamStagedState {
   canceled?: boolean;
   completed?: boolean;
   terminal?: boolean;
+  reinforcement_count?: number;
+  last_checked_at?: string;
 }
 
 function readTeamStagedState(
@@ -131,7 +161,84 @@ function readTeamStagedState(
 }
 
 function getTeamStage(state: TeamStagedState): string {
-  return state.stage || state.current_stage || state.currentStage || "team-exec";
+  return (
+    state.stage ||
+    state.current_stage ||
+    state.currentStage ||
+    state.current_phase ||
+    state.phase ||
+    "team-exec"
+  );
+}
+
+function getTeamStageForEnforcement(state: TeamStagedState): string | null {
+  const rawStage = state.stage ?? state.current_stage ?? state.currentStage ?? state.current_phase ?? state.phase;
+  if (typeof rawStage !== "string") {
+    return null;
+  }
+  const stage = rawStage.trim().toLowerCase();
+  if (!stage) {
+    return null;
+  }
+  if (TEAM_ACTIVE_STAGES.has(stage)) {
+    return stage;
+  }
+  const alias = TEAM_STAGE_ALIASES[stage];
+  return alias && TEAM_ACTIVE_STAGES.has(alias) ? alias : null;
+}
+
+function readTeamStopBreakerCount(directory: string, sessionId?: string): number {
+  const stateDir = join(getOmcRoot(directory), "state");
+  const breakerPath = sessionId
+    ? join(stateDir, "sessions", sessionId, "team-stop-breaker.json")
+    : join(stateDir, "team-stop-breaker.json");
+
+  try {
+    if (!existsSync(breakerPath)) {
+      return 0;
+    }
+    const parsed = JSON.parse(readFileSync(breakerPath, "utf-8")) as { count?: unknown; updated_at?: unknown };
+    if (typeof parsed.updated_at === "string") {
+      const updatedAt = new Date(parsed.updated_at).getTime();
+      if (Number.isFinite(updatedAt) && Date.now() - updatedAt > TEAM_STOP_BLOCKER_TTL_MS) {
+        return 0;
+      }
+    }
+    const count = typeof parsed.count === "number" ? parsed.count : Number.NaN;
+    return Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeTeamStopBreakerCount(directory: string, sessionId: string | undefined, count: number): void {
+  const stateDir = join(getOmcRoot(directory), "state");
+  const breakerPath = sessionId
+    ? join(stateDir, "sessions", sessionId, "team-stop-breaker.json")
+    : join(stateDir, "team-stop-breaker.json");
+  const safeCount = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+
+  if (safeCount === 0) {
+    try {
+      if (existsSync(breakerPath)) {
+        unlinkSync(breakerPath);
+      }
+    } catch {
+      // no-op
+    }
+    return;
+  }
+
+  try {
+    mkdirSync(dirname(breakerPath), { recursive: true });
+    writeFileSync(
+      breakerPath,
+      JSON.stringify({ count: safeCount, updated_at: new Date().toISOString() }, null, 2),
+      "utf-8",
+    );
+  } catch {
+    // no-op
+  }
 }
 
 function isTeamStateTerminal(state: TeamStagedState): boolean {
@@ -421,11 +528,13 @@ async function processKeywordDetector(input: HookInput): Promise<HookOutput> {
     switch (keywordType) {
       case "ralph": {
         // Lazy-load ralph module
-        const { createRalphLoopHook, findPrdPath: findPrd, initPrd: initPrdFn, initProgress: initProgressFn, detectNoPrdFlag: detectNoPrd, stripNoPrdFlag: stripNoPrd } = await import("./ralph/index.js");
+        const { createRalphLoopHook, findPrdPath: findPrd, initPrd: initPrdFn, initProgress: initProgressFn, detectNoPrdFlag: detectNoPrd, stripNoPrdFlag: stripNoPrd, detectCriticModeFlag, stripCriticModeFlag } = await import("./ralph/index.js");
 
         // Handle --no-prd flag
         const noPrd = detectNoPrd(promptText);
-        const cleanPrompt = noPrd ? stripNoPrd(promptText) : promptText;
+        const criticMode = detectCriticModeFlag(promptText) ?? undefined;
+        const promptWithoutCriticFlag = stripCriticModeFlag(promptText);
+        const cleanPrompt = noPrd ? stripNoPrd(promptWithoutCriticFlag) : promptWithoutCriticFlag;
 
         // Auto-generate scaffold PRD if none exists and --no-prd not set
         const existingPrd = findPrd(directory);
@@ -445,7 +554,7 @@ async function processKeywordDetector(input: HookInput): Promise<HookOutput> {
 
         // Activate ralph state which also auto-activates ultrawork
         const hook = createRalphLoopHook(directory);
-        hook.startLoop(sessionId, cleanPrompt);
+        hook.startLoop(sessionId, cleanPrompt, criticMode ? { criticMode } : undefined);
 
         messages.push(RALPH_MESSAGE);
         break;
@@ -472,12 +581,24 @@ async function processKeywordDetector(input: HookInput): Promise<HookOutput> {
         messages.push(ANALYZE_MESSAGE);
         break;
 
+      case "tdd":
+        messages.push(TDD_MESSAGE);
+        break;
+
+      case "code-review":
+        messages.push(CODE_REVIEW_MESSAGE);
+        break;
+
+      case "security-review":
+        messages.push(SECURITY_REVIEW_MESSAGE);
+        break;
+
       // For modes without dedicated message constants, return generic activation message
       // These are handled by UserPromptSubmit hook for skill invocation
       case "cancel":
       case "autopilot":
       case "ralplan":
-      case "tdd":
+      case "deep-interview":
         messages.push(
           `[MODE: ${keywordType.toUpperCase()}] Skill invocation handled by UserPromptSubmit hook.`,
         );
@@ -566,13 +687,28 @@ async function processPersistentMode(input: HookInput): Promise<HookOutput> {
     toolName: input.toolName,
     tool_input: (input as Record<string, unknown>).tool_input,
     toolInput: input.toolInput,
+    reason: (input as Record<string, unknown>).reason as string | undefined,
+    transcript_path: (input as Record<string, unknown>).transcript_path as
+      | string
+      | undefined,
+    transcriptPath: (input as Record<string, unknown>).transcriptPath as
+      | string
+      | undefined,
   };
 
   const result = await checkPersistentModes(sessionId, directory, stopContext);
   const output = createHookOutput(result);
 
+  // Skip legacy bridge.ts team enforcement if persistent-mode already
+  // handled this stop event (or intentionally emitted a stop message).
+  // Prevents mixed/double continuation prompts across modes.
+  if (result.mode !== 'none' || Boolean(output.message)) {
+    return output;
+  }
+
   const teamState = readTeamStagedState(directory, sessionId);
   if (!teamState || teamState.active !== true || isTeamStateTerminal(teamState)) {
+    writeTeamStopBreakerCount(directory, sessionId, 0);
     // No persistent mode and no active team — Claude is truly idle.
     // Send session-idle notification (non-blocking) unless this was a user abort or context limit.
     if (result.mode === "none" && sessionId) {
@@ -606,16 +742,32 @@ async function processPersistentMode(input: HookInput): Promise<HookOutput> {
 
   // Explicit cancel should suppress team continuation prompts.
   if (isExplicitCancelCommand(stopContext)) {
+    writeTeamStopBreakerCount(directory, sessionId, 0);
     return output;
   }
 
   // Auth failures (401/403/expired OAuth) should not inject Team continuation.
   // Otherwise stop hooks can force a retry loop while credentials are invalid.
   if (isAuthenticationError(stopContext)) {
+    writeTeamStopBreakerCount(directory, sessionId, 0);
     return output;
   }
 
-  const stage = getTeamStage(teamState);
+  const stage = getTeamStageForEnforcement(teamState);
+  if (!stage) {
+    // Fail-open for missing/corrupt/unknown phase/state values.
+    writeTeamStopBreakerCount(directory, sessionId, 0);
+    return output;
+  }
+
+  const newBreakerCount = readTeamStopBreakerCount(directory, sessionId) + 1;
+  if (newBreakerCount > TEAM_STOP_BLOCKER_MAX) {
+    // Circuit breaker: never allow infinite stop-hook blocking loops.
+    writeTeamStopBreakerCount(directory, sessionId, 0);
+    return output;
+  }
+  writeTeamStopBreakerCount(directory, sessionId, newBreakerCount);
+
   const stagePrompt = getTeamStagePrompt(stage);
   const teamName = teamState.team_name || teamState.teamName || "team";
   const currentMessage = output.message ? `${output.message}\n` : "";
@@ -716,7 +868,7 @@ You have an active autopilot session from ${autopilotState.started_at}.
 Original idea: ${autopilotState.originalIdea}
 Current phase: ${autopilotState.phase}
 
-Continue autopilot execution until complete.
+Treat this as prior-session context only. Prioritize the user's newest request, and resume autopilot only if the user explicitly asks to continue it.
 
 </session-restore>
 
@@ -735,7 +887,7 @@ Continue autopilot execution until complete.
 You have an active ultrawork session from ${ultraworkState.started_at}.
 Original task: ${ultraworkState.original_prompt}
 
-Continue working in ultrawork mode until all tasks are complete.
+Treat this as prior-session context only. Prioritize the user's newest request, and resume ultrawork only if the user explicitly asks to continue it.
 
 </session-restore>
 
@@ -771,7 +923,7 @@ You have an active Team staged run for "${teamName}".
 Current stage: ${stage}
 ${getTeamStagePrompt(stage)}
 
-Resume from this stage and continue the staged Team workflow.
+Treat this as prior-session context only. Prioritize the user's newest request, and resume the staged Team workflow only if the user explicitly asks to continue it.
 
 </session-restore>
 
@@ -785,7 +937,7 @@ Resume from this stage and continue the staged Team workflow.
   const agentsMdPath = join(directory, 'AGENTS.md');
   if (existsSync(agentsMdPath)) {
     try {
-      let agentsContent = readFileSync(agentsMdPath, 'utf-8').trim();
+      let agentsContent = compactOmcStartupGuidance(readFileSync(agentsMdPath, 'utf-8')).trim();
       if (agentsContent) {
         // Truncate to ~5000 tokens (20000 chars) to avoid context bloat
         const MAX_AGENTS_CHARS = 20000;
@@ -828,6 +980,27 @@ Please continue working on these tasks.
 ---
 
 `);
+  }
+
+  // Bedrock/Vertex/proxy override: tell the LLM not to pass model on Task calls.
+  // This prevents the LLM from following the static CLAUDE.md instruction
+  // "Pass model on Task calls: haiku, sonnet, opus" which produces invalid
+  // model IDs on non-standard providers. (issues #1135, #1201)
+  try {
+    const sessionConfig = loadConfig();
+    if (sessionConfig.routing?.forceInherit) {
+      messages.push(`<system-reminder>
+
+[MODEL ROUTING OVERRIDE — NON-STANDARD PROVIDER DETECTED]
+
+This environment uses a non-standard model provider (AWS Bedrock, Google Vertex AI, or a proxy).
+Do NOT pass the \`model\` parameter on Task/Agent calls. Omit it entirely so agents inherit the parent session's model.
+The CLAUDE.md instruction "Pass model on Task calls: haiku, sonnet, opus" does NOT apply here.
+
+</system-reminder>`);
+    }
+  } catch {
+    // Non-blocking: config load failure must never break session start
   }
 
   if (messages.length > 0) {
@@ -942,16 +1115,71 @@ function processPreToolUse(input: HookInput): HookOutput {
     };
   }
 
-  // Force-inherit: strip `model` parameter from Task calls so agents inherit
-  // the user's Claude Code model setting instead of OMC per-agent routing (issue #1135)
-  let forceInheritInput: Record<string, unknown> | undefined;
+  const preToolMessages = enforcementResult.message ? [enforcementResult.message] : [];
+  let modifiedToolInput: Record<string, unknown> | undefined;
+
+  // Force-inherit: deny Task calls that carry a `model` parameter when
+  // forceInherit is enabled (Bedrock, Vertex, CC Switch, etc.).
+  // Claude Code's hook protocol does not support modifiedInput, so we cannot
+  // silently strip the model. Instead, deny the call so Claude retries without
+  // the model param, letting agents inherit the parent session's model.
+  // (issues #1135, #1201)
   if (input.toolName === "Task") {
-    const taskInput = input.toolInput as Record<string, unknown> | undefined;
-    if (taskInput?.model) {
+    const originalTaskInput = input.toolInput as Record<string, unknown> | undefined;
+    const taskModel = originalTaskInput?.model;
+
+    if (taskModel) {
       const config = loadConfig();
       if (config.routing?.forceInherit) {
-        const { model: _stripped, ...rest } = taskInput;
-        forceInheritInput = rest;
+        // Use permissionDecision:"deny" — the only PreToolUse mechanism
+        // Claude Code supports for blocking a specific tool call with
+        // feedback. modifiedInput is NOT supported by the hook protocol.
+        const denyReason = `[MODEL ROUTING] This environment uses a non-standard provider (Bedrock/Vertex/proxy). Do NOT pass the \`model\` parameter on Task calls — remove \`model\` and retry so agents inherit the parent session's model. The model "${taskModel}" is not valid for this provider.`;
+        return {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: denyReason,
+          },
+        } as HookOutput & { hookSpecificOutput: Record<string, unknown> };
+      }
+    }
+
+    if (originalTaskInput?.run_in_background === true) {
+      const subagentType = typeof originalTaskInput.subagent_type === "string"
+        ? originalTaskInput.subagent_type
+        : undefined;
+      const permissionFallback = getBackgroundTaskPermissionFallback(directory, subagentType);
+
+      if (permissionFallback.shouldFallback) {
+        const reason = `[BACKGROUND PERMISSIONS] ${subagentType || "This background agent"} may need ${permissionFallback.missingTools.join(", ")} permissions, but background agents cannot request interactive approval. Re-run without \`run_in_background=true\` or pre-approve ${permissionFallback.missingTools.join(", ")} in Claude Code settings.`;
+        return {
+          continue: false,
+          reason,
+          message: reason,
+        };
+      }
+    }
+  }
+
+  if (input.toolName === "Bash") {
+    const originalBashInput = input.toolInput as Record<string, unknown> | undefined;
+    const nextBashInput = originalBashInput ? { ...originalBashInput } : {};
+
+    if (nextBashInput.run_in_background === true) {
+      const command = typeof nextBashInput.command === "string"
+        ? nextBashInput.command
+        : undefined;
+      const permissionFallback = getBackgroundBashPermissionFallback(directory, command);
+
+      if (permissionFallback.shouldFallback) {
+        const reason = "[BACKGROUND PERMISSIONS] This Bash command is not auto-approved for background execution. Re-run without `run_in_background=true` or pre-approve the command in Claude Code settings.";
+        return {
+          continue: false,
+          reason,
+          message: reason,
+        };
       }
     }
   }
@@ -1013,7 +1241,8 @@ function processPreToolUse(input: HookInput): HookOutput {
   // Warn about pkill -f self-termination risk (issue #210)
   // Matches: pkill -f, pkill -9 -f, pkill --full, etc.
   if (input.toolName === "Bash") {
-    const command = (input.toolInput as { command?: string })?.command ?? "";
+    const effectiveBashInput = (modifiedToolInput ?? input.toolInput) as { command?: string } | undefined;
+    const command = effectiveBashInput?.command ?? "";
     if (
       PKILL_F_FLAG_PATTERN.test(command) ||
       PKILL_FULL_FLAG_PATTERN.test(command)
@@ -1027,6 +1256,7 @@ function processPreToolUse(input: HookInput): HookOutput {
           '  - `kill $(pgrep -f "pattern")` (pgrep does not kill itself)',
           "Proceeding anyway, but the command may kill this shell session.",
         ].join("\n"),
+        ...(modifiedToolInput ? { modifiedInput: modifiedToolInput } : {}),
       };
     }
   }
@@ -1034,7 +1264,7 @@ function processPreToolUse(input: HookInput): HookOutput {
   // Background process guard - prevent forkbomb (issue #302)
   // Block new background tasks if limit is exceeded
   if (input.toolName === "Task" || input.toolName === "Bash") {
-    const toolInput = input.toolInput as
+    const toolInput = (modifiedToolInput ?? input.toolInput) as
       | {
           description?: string;
           subagent_type?: string;
@@ -1062,7 +1292,7 @@ function processPreToolUse(input: HookInput): HookOutput {
 
   // Track Task tool invocations for HUD background tasks display
   if (input.toolName === "Task") {
-    const toolInput = input.toolInput as
+    const toolInput = (modifiedToolInput ?? input.toolInput) as
       | {
           description?: string;
           subagent_type?: string;
@@ -1100,30 +1330,30 @@ function processPreToolUse(input: HookInput): HookOutput {
   if (input.toolName === "Task") {
     const dashboard = getAgentDashboard(directory);
     if (dashboard) {
-      const combined = enforcementResult.message
-        ? `${enforcementResult.message}\n\n${dashboard}`
-        : dashboard;
+      const combined = [...preToolMessages, dashboard].filter(Boolean).join("\n\n");
       return {
         continue: true,
-        message: combined,
-        ...(forceInheritInput ? { modifiedInput: forceInheritInput } : {}),
+        ...(combined ? { message: combined } : {}),
+        ...(modifiedToolInput ? { modifiedInput: modifiedToolInput } : {}),
       };
     }
   }
 
-  // Wake OpenClaw gateway for pre-tool-use (non-blocking, fires only for allowed tools)
-  if (input.sessionId) {
+  // Wake OpenClaw gateway for pre-tool-use (non-blocking, fires only for allowed tools).
+  // AskUserQuestion already has a dedicated high-signal OpenClaw event.
+  if (input.sessionId && input.toolName !== "AskUserQuestion") {
     _openclaw.wake("pre-tool-use", {
       sessionId: input.sessionId,
       projectPath: directory,
       toolName: input.toolName,
+      toolInput: input.toolInput,
     });
   }
 
   return {
     continue: true,
-    ...(enforcementResult.message ? { message: enforcementResult.message } : {}),
-    ...(forceInheritInput ? { modifiedInput: forceInheritInput } : {}),
+    ...(preToolMessages.length > 0 ? { message: preToolMessages.join("\n\n") } : {}),
+    ...(modifiedToolInput ? { modifiedInput: modifiedToolInput } : {}),
   };
 }
 
@@ -1165,7 +1395,7 @@ async function processPostToolUse(input: HookInput): Promise<HookOutput> {
   if (toolName === "skill") {
     const skillName = getInvokedSkillName(input.toolInput);
     if (skillName === "ralph") {
-      const { createRalphLoopHook, findPrdPath: findPrd, initPrd: initPrdFn, initProgress: initProgressFn, detectNoPrdFlag: detectNoPrd, stripNoPrdFlag: stripNoPrd } = await import("./ralph/index.js");
+      const { createRalphLoopHook, findPrdPath: findPrd, initPrd: initPrdFn, initProgress: initProgressFn, detectNoPrdFlag: detectNoPrd, stripNoPrdFlag: stripNoPrd, detectCriticModeFlag, stripCriticModeFlag } = await import("./ralph/index.js");
       const rawPrompt =
         typeof input.prompt === "string" && input.prompt.trim().length > 0
           ? input.prompt
@@ -1173,7 +1403,9 @@ async function processPostToolUse(input: HookInput): Promise<HookOutput> {
 
       // Handle --no-prd flag
       const noPrd = detectNoPrd(rawPrompt);
-      const cleanPrompt = noPrd ? stripNoPrd(rawPrompt) : rawPrompt;
+      const criticMode = detectCriticModeFlag(rawPrompt) ?? undefined;
+      const promptWithoutCriticFlag = stripCriticModeFlag(rawPrompt);
+      const cleanPrompt = noPrd ? stripNoPrd(promptWithoutCriticFlag) : promptWithoutCriticFlag;
 
       // Auto-generate scaffold PRD if none exists and --no-prd not set
       const existingPrd = findPrd(directory);
@@ -1192,8 +1424,13 @@ async function processPostToolUse(input: HookInput): Promise<HookOutput> {
       }
 
       const hook = createRalphLoopHook(directory);
-      hook.startLoop(input.sessionId, cleanPrompt);
+      hook.startLoop(input.sessionId, cleanPrompt, criticMode ? { criticMode } : undefined);
     }
+
+    // Clear skill-active state on skill completion to prevent false-blocking.
+    // Without this, every non-'none' skill falsely blocks stops until TTL expires.
+    const { clearSkillActiveState } = await import("./skill-state/index.js");
+    clearSkillActiveState(directory, input.sessionId);
   }
 
   // Run orchestrator post-tool processing (remember tags, verification reminders, etc.)
@@ -1219,12 +1456,15 @@ async function processPostToolUse(input: HookInput): Promise<HookOutput> {
     }
   }
 
-  // Wake OpenClaw gateway for post-tool-use (non-blocking, fires for all tools)
-  if (input.sessionId) {
+  // Wake OpenClaw gateway for post-tool-use (non-blocking, fires for all tools).
+  // AskUserQuestion already emitted a dedicated question.requested signal.
+  if (input.sessionId && input.toolName !== "AskUserQuestion") {
     _openclaw.wake("post-tool-use", {
       sessionId: input.sessionId,
       projectPath: directory,
       toolName: input.toolName,
+      toolInput: input.toolInput,
+      toolOutput: input.toolOutput,
     });
   }
 
@@ -1359,7 +1599,13 @@ export async function processHook(
           hook_event_name: "SessionEnd",
           reason: (rawSE.reason as SessionEndInput["reason"]) ?? "other",
         };
-        return await handleSessionEnd(sessionEndInput);
+        const result = await handleSessionEnd(sessionEndInput);
+        _openclaw.wake("session-end", {
+          sessionId: sessionEndInput.session_id,
+          projectPath: sessionEndInput.cwd,
+          reason: sessionEndInput.reason,
+        });
+        return result;
       }
 
       case "subagent-start": {
