@@ -45,14 +45,16 @@ any state tool, you MUST first load all of them via `ToolSearch`:
 ToolSearch(query="select:mcp__plugin_oh-my-claudecode_t__state_clear,mcp__plugin_oh-my-claudecode_t__state_read,mcp__plugin_oh-my-claudecode_t__state_write,mcp__plugin_oh-my-claudecode_t__state_list_active,mcp__plugin_oh-my-claudecode_t__state_get_status")
 ```
 
-If `state_clear` is unavailable or fails, use this **bash fallback** to directly remove
-state files for the target mode. Replace `MODE` with the specific mode being cancelled
-(e.g. `ralplan`, `ralph`, `ultrawork`, `ultraqa`, `omc-teams`, `deep-interview`).
+If `state_clear` is unavailable or fails, use this **bash fallback** as an **emergency
+escape from the stop hook loop**. This is NOT a full replacement for the cancel flow —
+it only removes state files to unblock the session. Linked modes (e.g. ralph→ultrawork,
+autopilot→ralph/ultraqa) must be cleared separately by running the fallback once per mode.
 
-**WARNING:** Do NOT use this fallback for `autopilot`. Autopilot requires
-`state_write(active=false)` to preserve resume data. If both `state_clear` and
-`state_write` are unavailable for autopilot, set `active` to `false` in the JSON
-file directly instead of deleting it.
+Replace `MODE` with the specific mode (e.g. `ralplan`, `ralph`, `ultrawork`, `ultraqa`).
+
+**WARNING:** Do NOT use this fallback for `autopilot` or `omc-teams`. Autopilot requires
+`state_write(active=false)` to preserve resume data. omc-teams requires tmux session
+cleanup that cannot be done via file deletion alone.
 
 ```bash
 # Fallback: direct file removal when state_clear MCP tool is unavailable
