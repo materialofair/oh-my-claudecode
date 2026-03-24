@@ -515,7 +515,11 @@ export async function teamStatusByTeamName(teamName: string, cwd = process.cwd()
       running: true,
       sessionName: config?.tmux_session,
       leaderPaneId: config?.leader_pane_id,
-      workerPaneIds: (config?.workers ?? []).map((worker) => worker.pane_id).filter((paneId): paneId is string => typeof paneId === 'string'),
+      workerPaneIds: Array.from(new Set(
+        (config?.workers ?? [])
+          .map((worker) => worker.pane_id)
+          .filter((paneId): paneId is string => typeof paneId === 'string' && paneId.trim().length > 0),
+      )),
       snapshot,
     };
   }

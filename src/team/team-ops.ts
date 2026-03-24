@@ -51,6 +51,7 @@ import {
   releaseTaskClaim as releaseTaskClaimImpl,
   listTasks as listTasksImpl,
 } from './state/tasks.js';
+import { canonicalizeTeamConfigWorkers } from './worker-canonicalization.js';
 
 // Re-export types for consumers
 export type {
@@ -194,7 +195,7 @@ export async function teamReadConfig(teamName: string, cwd: string): Promise<Tea
   // Try manifest first, fall back to config.json
   const manifest = await teamReadManifest(teamName, cwd);
   if (manifest) {
-    return {
+    return canonicalizeTeamConfigWorkers({
       name: manifest.name,
       task: manifest.task,
       agent_type: 'claude',
@@ -215,11 +216,12 @@ export async function teamReadConfig(teamName: string, cwd: string): Promise<Tea
       resize_hook_name: manifest.resize_hook_name,
       resize_hook_target: manifest.resize_hook_target,
       next_worker_index: manifest.next_worker_index,
-    };
+    });
   }
 
   const configPath = absPath(cwd, TeamPaths.config(teamName));
-  return readJsonSafe<TeamConfig>(configPath);
+  const config = await readJsonSafe<TeamConfig>(configPath);
+  return config ? canonicalizeTeamConfigWorkers(config) : null;
 }
 
 export async function teamReadManifest(teamName: string, cwd: string): Promise<TeamManifestV2 | null> {

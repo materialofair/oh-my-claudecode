@@ -5,7 +5,7 @@
  * Statusline command that visualizes oh-my-claudecode state.
  * Receives stdin JSON from Claude Code and outputs formatted statusline.
  */
-import { readStdin, writeStdinCache, readStdinCache, getContextPercent, getModelName } from "./stdin.js";
+import { readStdin, writeStdinCache, readStdinCache, getContextPercent, getModelName, stabilizeContextPercent, } from "./stdin.js";
 import { parseTranscript } from "./transcript.js";
 import { readHudState, readHudConfig, getRunningTasks, writeHudState, initializeHUDState, } from "./state.js";
 import { readRalphStateForHud, readUltraworkStateForHud, readPrdStateForHud, readAutopilotStateForHud, } from "./omc-state.js";
@@ -101,14 +101,16 @@ async function main(watchMode = false, skipInit = false) {
             await initializeHUDState();
         }
         // Read stdin from Claude Code
+        const previousStdinCache = readStdinCache();
         let stdin = await readStdin();
         if (stdin) {
+            stdin = stabilizeContextPercent(stdin, previousStdinCache);
             // Persist for --watch mode so it can read data when stdin is a TTY
             writeStdinCache(stdin);
         }
         else if (watchMode) {
             // In watch mode stdin is always a TTY; fall back to last cached value
-            stdin = readStdinCache();
+            stdin = previousStdinCache;
             if (!stdin) {
                 // Cache not yet populated (first poll before statusline fires)
                 console.log("[OMC] Starting...");
@@ -129,11 +131,12 @@ async function main(watchMode = false, skipInit = false) {
         const transcriptData = await parseTranscript(resolvedTranscriptPath, {
             staleTaskThresholdMinutes: config.staleTaskThresholdMinutes,
         });
+        const currentSessionId = extractSessionIdFromPath(resolvedTranscriptPath ?? stdin.transcript_path);
         // Read OMC state files
-        const ralph = readRalphStateForHud(cwd);
-        const ultrawork = readUltraworkStateForHud(cwd);
+        const ralph = readRalphStateForHud(cwd, currentSessionId ?? undefined);
+        const ultrawork = readUltraworkStateForHud(cwd, currentSessionId ?? undefined);
         const prd = readPrdStateForHud(cwd);
-        const autopilot = readAutopilotStateForHud(cwd);
+        const autopilot = readAutopilotStateForHud(cwd, currentSessionId ?? undefined);
         // Read HUD state for background tasks
         const hudState = readHudState(cwd);
         const _backgroundTasks = hudState?.backgroundTasks || [];
@@ -143,7 +146,6 @@ async function main(watchMode = false, skipInit = false) {
         // We persist the real start time in HUD state on first observation.
         // Scoped per session ID so a new session in the same cwd resets the timestamp.
         let sessionStart = transcriptData.sessionStart;
-        const currentSessionId = extractSessionIdFromPath(resolvedTranscriptPath ?? stdin.transcript_path);
         const sameSession = hudState?.sessionId === currentSessionId;
         if (sameSession && hudState?.sessionStartTimestamp) {
             // Use persisted value (the real session start) - but validate first
@@ -216,9 +218,11 @@ async function main(watchMode = false, skipInit = false) {
         const missionBoard = missionBoardEnabled
             ? await refreshMissionBoardState(cwd, config.missionBoard)
             : null;
+        const contextPercent = getContextPercent(stdin);
         // Build render context
         const context = {
-            contextPercent: getContextPercent(stdin),
+            contextPercent,
+            contextDisplayScope: currentSessionId ?? cwd,
             modelName: getModelName(stdin),
             ralph,
             ultrawork,
@@ -234,7 +238,7 @@ async function main(watchMode = false, skipInit = false) {
             customBuckets,
             pendingPermission: transcriptData.pendingPermission || null,
             thinkingState: transcriptData.thinkingState || null,
-            sessionHealth: await calculateSessionHealth(sessionStart, getContextPercent(stdin)),
+            sessionHealth: await calculateSessionHealth(sessionStart, contextPercent),
             lastRequestTokenUsage: transcriptData.lastRequestTokenUsage || null,
             sessionTotalTokens: transcriptData.sessionTotalTokens ?? null,
             omcVersion,

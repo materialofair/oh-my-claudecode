@@ -372,6 +372,29 @@ function getSkillProtectionLevel(skillName, rawSkillName) {
   return SKILL_PROTECTION_MAP[normalized] || 'none';
 }
 
+// Load OMC config to check forceInherit setting (issues #1135, #1201)
+function loadOmcConfig() {
+  const configPaths = [
+    join(homedir(), '.claude', '.omc-config.json'),
+    join(process.cwd(), '.omc', 'config.json'),
+  ];
+  for (const configPath of configPaths) {
+    try {
+      if (existsSync(configPath)) {
+        return JSON.parse(readFileSync(configPath, 'utf-8'));
+      }
+    } catch { /* continue */ }
+  }
+  return {};
+}
+
+// Check if forceInherit is enabled via config or env var
+function isForceInheritEnabled() {
+  if (process.env.OMC_ROUTING_FORCE_INHERIT === 'true') return true;
+  const config = loadOmcConfig();
+  return config.routing?.forceInherit === true;
+}
+
 function extractSkillName(toolInput) {
   if (!toolInput || typeof toolInput !== 'object') return null;
   const rawSkill = toolInput.skill || toolInput.skill_name || toolInput.skillName || toolInput.command || null;
@@ -415,6 +438,50 @@ function writeSkillActiveState(directory, skillName, sessionId, rawSkillName) {
     renameSync(tmpPath, targetPath);
   } catch {
     // Best-effort; don't fail the hook
+  }
+}
+
+
+function clearAwaitingConfirmationFlag(directory, stateName, sessionId) {
+  const stateDir = join(directory, '.omc', 'state');
+  const safeSessionId = sessionId && SESSION_ID_PATTERN.test(sessionId) ? sessionId : '';
+  const paths = [
+    safeSessionId ? join(stateDir, 'sessions', safeSessionId, `${stateName}-state.json`) : null,
+    join(stateDir, `${stateName}-state.json`),
+  ].filter(Boolean);
+
+  for (const statePath of paths) {
+    try {
+      if (!existsSync(statePath)) continue;
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      if (!state || typeof state !== 'object' || !state.awaiting_confirmation) continue;
+      delete state.awaiting_confirmation;
+      const tmpPath = statePath + '.tmp';
+      writeFileSync(tmpPath, JSON.stringify(state, null, 2), { mode: 0o600 });
+      renameSync(tmpPath, statePath);
+    } catch {
+      // Best-effort; don't fail the hook
+    }
+  }
+}
+
+function confirmSkillModeStates(directory, skillName, sessionId) {
+  switch (skillName) {
+    case 'ralph':
+      clearAwaitingConfirmationFlag(directory, 'ralph', sessionId);
+      clearAwaitingConfirmationFlag(directory, 'ultrawork', sessionId);
+      break;
+    case 'ultrawork':
+      clearAwaitingConfirmationFlag(directory, 'ultrawork', sessionId);
+      break;
+    case 'autopilot':
+      clearAwaitingConfirmationFlag(directory, 'autopilot', sessionId);
+      break;
+    case 'ralplan':
+      clearAwaitingConfirmationFlag(directory, 'ralplan', sessionId);
+      break;
+    default:
+      break;
   }
 }
 
@@ -467,6 +534,7 @@ async function main() {
         const rawSkill = toolInput.skill || toolInput.skill_name || toolInput.skillName || toolInput.command || '';
         const rawSkillName = typeof rawSkill === 'string' && rawSkill.trim() ? rawSkill.trim() : undefined;
         writeSkillActiveState(directory, skillName, sid, rawSkillName);
+        confirmSkillModeStates(directory, skillName, sid);
       }
     }
 
@@ -477,6 +545,24 @@ async function main() {
           ? data.sessionId
           : '';
     const modeActive = hasActiveMode(directory, sessionId);
+
+    // Force-inherit check: deny Task/Agent calls with model param when forceInherit is enabled
+    // (Bedrock, Vertex, CC Switch, etc.) - issues #1135, #1201
+    if (toolName === 'Task' || toolName === 'Agent') {
+      const toolInput = data.toolInput || data.tool_input || {};
+      const toolModel = toolInput.model;
+      if (toolModel && isForceInheritEnabled()) {
+        console.log(JSON.stringify({
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'deny',
+            permissionDecisionReason: `[MODEL ROUTING] This environment uses a non-standard provider (Bedrock/Vertex/proxy). Do NOT pass the \`model\` parameter on ${toolName} calls — remove \`model\` and retry so agents inherit the parent session's model. The model "${toolModel}" is not valid for this provider.`
+          }
+        }));
+        return;
+      }
+    }
 
     // Send notification when AskUserQuestion is about to execute (user input needed)
     // Fires in PreToolUse so users get notified BEFORE the tool blocks for input (#597)

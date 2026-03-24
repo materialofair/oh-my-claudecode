@@ -28,8 +28,14 @@ function isInformationalKeywordContext(text, position, keywordLength) {
     const context = text.slice(start, end);
     return INFORMATIONAL_INTENT_PATTERNS.some(pattern => pattern.test(context));
 }
+/**
+ * Escape regex metacharacters so a string matches literally inside new RegExp().
+ */
+function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 function hasActionableTrigger(text, trigger) {
-    const pattern = new RegExp(`\\b${trigger}\\b`, 'gi');
+    const pattern = new RegExp(`\\b${escapeRegExp(trigger)}\\b`, 'gi');
     for (const match of text.matchAll(pattern)) {
         if (match.index === undefined) {
             continue;
@@ -334,7 +340,7 @@ Use maximum cognitive effort before responding.`;
 function removeTriggerWords(prompt, triggers) {
     let result = prompt;
     for (const trigger of triggers) {
-        const regex = new RegExp(`\\b${trigger}\\b`, 'gi');
+        const regex = new RegExp(`\\b${escapeRegExp(trigger)}\\b`, 'gi');
         result = result.replace(regex, '');
     }
     return result.trim();

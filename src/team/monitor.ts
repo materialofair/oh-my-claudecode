@@ -28,6 +28,7 @@ import type {
 } from './types.js';
 import type { TeamPhase } from './phase-controller.js';
 import { normalizeTeamManifest } from './governance.js';
+import { canonicalizeTeamConfigWorkers } from './worker-canonicalization.js';
 
 // ---------------------------------------------------------------------------
 // State I/O helpers (self-contained, no external deps beyond fs)
@@ -57,7 +58,8 @@ async function writeAtomic(filePath: string, data: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function readTeamConfig(teamName: string, cwd: string): Promise<TeamConfig | null> {
-  return readJsonSafe<TeamConfig>(absPath(cwd, TeamPaths.config(teamName)));
+  const config = await readJsonSafe<TeamConfig>(absPath(cwd, TeamPaths.config(teamName)));
+  return config ? canonicalizeTeamConfigWorkers(config) : null;
 }
 
 export async function readTeamManifest(teamName: string, cwd: string): Promise<TeamManifestV2 | null> {

@@ -32,6 +32,7 @@ import { createTeamSession, spawnWorkerInPane, sendToWorker, waitForPaneReady, p
 import { composeInitialInbox, ensureWorkerStateDir, writeWorkerOverlay, generateTriggerMessage, } from './worker-bootstrap.js';
 import { queueInboxInstruction } from './mcp-comm.js';
 import { cleanupTeamWorktrees } from './git-worktree.js';
+import { formatOmcCliInvocation } from '../utils/omc-cli-rendering.js';
 // ---------------------------------------------------------------------------
 // Feature flag
 // ---------------------------------------------------------------------------
@@ -103,18 +104,21 @@ function findOutstandingWorkerTask(worker, taskById, inProgressByOwner) {
  * Workers use `omc team api` CLI commands for all lifecycle transitions.
  */
 function buildV2TaskInstruction(teamName, workerName, task, taskId) {
+    const claimTaskCommand = formatOmcCliInvocation(`team api claim-task --input '${JSON.stringify({ team_name: teamName, task_id: taskId, worker: workerName })}' --json`, {});
+    const completeTaskCommand = formatOmcCliInvocation(`team api transition-task-status --input '${JSON.stringify({ team_name: teamName, task_id: taskId, from: 'in_progress', to: 'completed', claim_token: '<claim_token>' })}' --json`);
+    const failTaskCommand = formatOmcCliInvocation(`team api transition-task-status --input '${JSON.stringify({ team_name: teamName, task_id: taskId, from: 'in_progress', to: 'failed', claim_token: '<claim_token>' })}' --json`);
     return [
         `## REQUIRED: Task Lifecycle Commands`,
         `You MUST run these commands. Do NOT skip any step.`,
         ``,
         `1. Claim your task:`,
-        `   omc team api claim-task --input '{"team_name":"${teamName}","task_id":"${taskId}","worker":"${workerName}"}' --json`,
+        `   ${claimTaskCommand}`,
         `   Save the claim_token from the response.`,
         `2. Do the work described below.`,
         `3. On completion (use claim_token from step 1):`,
-        `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"completed","claim_token":"<claim_token>"}' --json`,
+        `   ${completeTaskCommand}`,
         `4. On failure (use claim_token from step 1):`,
-        `   omc team api transition-task-status --input '{"team_name":"${teamName}","task_id":"${taskId}","from":"in_progress","to":"failed","claim_token":"<claim_token>"}' --json`,
+        `   ${failTaskCommand}`,
         `5. ACK/progress replies are not a stop signal. Keep executing your assigned or next feasible work until the task is actually complete or failed, then transition and exit.`,
         ``,
         `## Task Assignment`,
@@ -940,11 +944,14 @@ export async function shutdownTeamV2(teamName, cwd, options = {}) {
     }
     // 4. Force kill remaining tmux panes
     try {
-        const { killWorkerPanes, killTeamSession } = await import('./tmux-session.js');
-        const workerPaneIds = config.workers
+        const { killWorkerPanes, killTeamSession, resolveSplitPaneWorkerPaneIds } = await import('./tmux-session.js');
+        const recordedWorkerPaneIds = config.workers
             .map((w) => w.pane_id)
             .filter((p) => typeof p === 'string' && p.trim().length > 0);
         const ownsWindow = config.tmux_window_owned === true;
+        const workerPaneIds = ownsWindow
+            ? recordedWorkerPaneIds
+            : await resolveSplitPaneWorkerPaneIds(config.tmux_session, recordedWorkerPaneIds, config.leader_pane_id ?? undefined);
         await killWorkerPanes({
             paneIds: workerPaneIds,
             leaderPaneId: config.leader_pane_id ?? undefined,
