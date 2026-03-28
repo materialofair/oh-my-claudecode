@@ -15,9 +15,13 @@ const TEST_PROJECT_DIR = join(homedir(), '.claude-test-doctor-project');
 const TEST_PROJECT_CLAUDE_DIR = join(TEST_PROJECT_DIR, '.claude');
 
 // Mock getClaudeConfigDir before importing the module under test
-vi.mock('../utils/paths.js', () => ({
-  getClaudeConfigDir: () => TEST_CLAUDE_DIR,
-}));
+vi.mock('../utils/paths.js', async () => {
+  const actual = await vi.importActual<typeof import('../utils/paths.js')>('../utils/paths.js');
+  return {
+    ...actual,
+    getClaudeConfigDir: () => TEST_CLAUDE_DIR,
+  };
+});
 
 // Mock builtin skills to return a known list for testing
 vi.mock('../features/builtin-skills/skills.js', () => ({

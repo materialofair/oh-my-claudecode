@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { getGlobalOmcConfigCandidates } from '../../../utils/paths.js';
 import {
   getIdleNotificationCooldownSeconds,
   shouldSendIdleNotification,
@@ -47,8 +48,9 @@ const SESSION_COOLDOWN_PATH = join(
   TEST_SESSION_ID,
   'idle-notif-cooldown.json'
 );
-const CONFIG_PATH = '/home/testuser/.config/omc/config.json';
-const LEGACY_CONFIG_PATH = '/home/testuser/.omc/config.json';
+function getConfigPaths(): [string, string] {
+  return getGlobalOmcConfigCandidates('config.json') as [string, string];
+}
 
 describe('getIdleNotificationCooldownSeconds', () => {
   const originalHome = process.env.HOME;
@@ -56,13 +58,38 @@ describe('getIdleNotificationCooldownSeconds', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.HOME = '/home/testuser';
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_STATE_HOME;
+    delete process.env.OMC_HOME;
   });
+
+  const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  const originalXdgStateHome = process.env.XDG_STATE_HOME;
+  const originalOmcHome = process.env.OMC_HOME;
 
   afterEach(() => {
     if (originalHome === undefined) {
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
+    }
+
+    if (originalXdgConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    }
+
+    if (originalXdgStateHome === undefined) {
+      delete process.env.XDG_STATE_HOME;
+    } else {
+      process.env.XDG_STATE_HOME = originalXdgStateHome;
+    }
+
+    if (originalOmcHome === undefined) {
+      delete process.env.OMC_HOME;
+    } else {
+      process.env.OMC_HOME = originalOmcHome;
     }
   });
 
@@ -78,21 +105,24 @@ describe('getIdleNotificationCooldownSeconds', () => {
       JSON.stringify({ notificationCooldown: { sessionIdleSeconds: 120 } })
     );
 
+    const [configPath] = getConfigPaths();
+
     expect(getIdleNotificationCooldownSeconds()).toBe(120);
-    expect(readFileSync).toHaveBeenCalledWith(CONFIG_PATH, 'utf-8');
+    expect(readFileSync).toHaveBeenCalledWith(configPath, 'utf-8');
   });
 
   it('falls back to legacy ~/.omc config when XDG config is absent', () => {
-    (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => p === LEGACY_CONFIG_PATH);
+    const [, legacyConfigPath] = getConfigPaths();
+    (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => p === legacyConfigPath);
     (readFileSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === LEGACY_CONFIG_PATH) {
+      if (p === legacyConfigPath) {
         return JSON.stringify({ notificationCooldown: { sessionIdleSeconds: 45 } });
       }
       throw new Error('not found');
     });
 
     expect(getIdleNotificationCooldownSeconds()).toBe(45);
-    expect(readFileSync).toHaveBeenCalledWith(LEGACY_CONFIG_PATH, 'utf-8');
+    expect(readFileSync).toHaveBeenCalledWith(legacyConfigPath, 'utf-8');
   });
 
   it('returns 0 when cooldown is disabled in config', () => {
@@ -178,7 +208,8 @@ describe('shouldSendIdleNotification', () => {
   it('returns true when no cooldown file exists', () => {
     // config exists but no cooldown file
     (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH) return false; // use default 60s
+      const [configPath] = getConfigPaths();
+      if (p === configPath) return false; // use default 60s
       if (p === COOLDOWN_PATH) return false;
       return false;
     });
@@ -217,12 +248,14 @@ describe('shouldSendIdleNotification', () => {
   it('returns true when cooldown is disabled (0 seconds)', () => {
     const recentTimestamp = new Date(Date.now() - 5_000).toISOString(); // 5s ago
     (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH) return true;
+      const [configPath] = getConfigPaths();
+      if (p === configPath) return true;
       if (p === COOLDOWN_PATH) return true;
       return false;
     });
     (readFileSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH)
+      const [configPath] = getConfigPaths();
+      if (p === configPath)
         return JSON.stringify({ notificationCooldown: { sessionIdleSeconds: 0 } });
       if (p === COOLDOWN_PATH) return JSON.stringify({ lastSentAt: recentTimestamp });
       throw new Error('not found');
@@ -260,12 +293,14 @@ describe('shouldSendIdleNotification', () => {
   it('respects a custom cooldown from config', () => {
     const recentTimestamp = new Date(Date.now() - 10_000).toISOString(); // 10s ago
     (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH) return true;
+      const [configPath] = getConfigPaths();
+      if (p === configPath) return true;
       if (p === COOLDOWN_PATH) return true;
       return false;
     });
     (readFileSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH)
+      const [configPath] = getConfigPaths();
+      if (p === configPath)
         return JSON.stringify({ notificationCooldown: { sessionIdleSeconds: 5 } });
       if (p === COOLDOWN_PATH) return JSON.stringify({ lastSentAt: recentTimestamp });
       throw new Error('not found');
@@ -278,12 +313,14 @@ describe('shouldSendIdleNotification', () => {
   it('uses session-scoped cooldown file when sessionId is provided', () => {
     const recentTimestamp = new Date(Date.now() - 10_000).toISOString(); // 10s ago
     (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH) return true;
+      const [configPath] = getConfigPaths();
+      if (p === configPath) return true;
       if (p === SESSION_COOLDOWN_PATH) return true;
       return false;
     });
     (readFileSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH) {
+      const [configPath] = getConfigPaths();
+      if (p === configPath) {
         return JSON.stringify({ notificationCooldown: { sessionIdleSeconds: 30 } });
       }
       if (p === SESSION_COOLDOWN_PATH) return JSON.stringify({ lastSentAt: recentTimestamp });
@@ -296,12 +333,14 @@ describe('shouldSendIdleNotification', () => {
   it('blocks notification when within custom shorter cooldown', () => {
     const recentTimestamp = new Date(Date.now() - 10_000).toISOString(); // 10s ago
     (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH) return true;
+      const [configPath] = getConfigPaths();
+      if (p === configPath) return true;
       if (p === COOLDOWN_PATH) return true;
       return false;
     });
     (readFileSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH)
+      const [configPath] = getConfigPaths();
+      if (p === configPath)
         return JSON.stringify({ notificationCooldown: { sessionIdleSeconds: 30 } });
       if (p === COOLDOWN_PATH) return JSON.stringify({ lastSentAt: recentTimestamp });
       throw new Error('not found');
@@ -314,12 +353,14 @@ describe('shouldSendIdleNotification', () => {
   it('treats negative sessionIdleSeconds as 0 (disabled), always sends', () => {
     const recentTimestamp = new Date(Date.now() - 5_000).toISOString(); // 5s ago
     (existsSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH) return true;
+      const [configPath] = getConfigPaths();
+      if (p === configPath) return true;
       if (p === COOLDOWN_PATH) return true;
       return false;
     });
     (readFileSync as ReturnType<typeof vi.fn>).mockImplementation((p: string) => {
-      if (p === CONFIG_PATH)
+      const [configPath] = getConfigPaths();
+      if (p === configPath)
         return JSON.stringify({ notificationCooldown: { sessionIdleSeconds: -30 } });
       if (p === COOLDOWN_PATH) return JSON.stringify({ lastSentAt: recentTimestamp });
       throw new Error('not found');
