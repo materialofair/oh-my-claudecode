@@ -1,11 +1,11 @@
 English | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Tiếng Việt](README.vi.md) | [Português](README.pt.md)
 
-> **Note:** This is a fork of [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) by [@Yeachan-Heo](https://github.com/Yeachan-Heo). This fork includes custom modifications and enhancements.
+> **Fork Notice:** This repository is a maintained fork of [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode), focused on practical multi-agent orchestration for daily Claude Code workflows. Upstream credits remain intact, while this fork ships its own release cadence and custom integrations.
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
-[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm version](https://img.shields.io/npm/v/claudecode-omc?color=cb3837)](https://www.npmjs.com/package/claudecode-omc)
+[![npm downloads](https://img.shields.io/npm/dm/claudecode-omc?color=blue)](https://www.npmjs.com/package/claudecode-omc)
 [![GitHub stars](https://img.shields.io/github/stars/materialofair/oh-my-claudecode?style=flat&color=yellow)](https://github.com/materialofair/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/materialofair)
@@ -17,7 +17,7 @@ English | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](READM
 
 _Don't learn Claude Code. Just use OMC._
 
-[Get Started](#quick-start) • [Documentation](https://yeachan-heo.github.io/oh-my-claudecode-website) • [CLI Reference](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference) • [Workflows](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows) • [Migration Guide](docs/MIGRATION.md) • [Discord](https://discord.gg/PUwSMR9XNk)
+[Get Started](#quick-start) • [Documentation](docs/REFERENCE.md) • [CLI Reference](docs/REFERENCE.md) • [Workflows](docs/FEATURES.md) • [Migration Guide](docs/MIGRATION.md) • [Discord](https://discord.gg/PUwSMR9XNk)
 
 ---
 
@@ -35,7 +35,7 @@ Marketplace/plugin install (recommended for most Claude Code users):
 If you prefer the npm CLI/runtime path instead of the marketplace flow:
 
 ```bash
-npm i -g oh-my-claude-sisyphus@latest
+npm i -g claudecode-omc@latest
 ```
 
 **Step 2: Setup**
@@ -116,17 +116,17 @@ For mixed Codex + Gemini work in one command, use the **`/ccg`** skill (routes v
 
 Workers spawn on-demand and die when their task completes — no idle resource usage. Requires `codex` / `gemini` CLIs installed and an active tmux session.
 
-> **Note: Package naming** — The project is branded as **oh-my-claudecode** (repo, plugin, commands), but the npm package is published as [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus). If you install or upgrade the CLI tools via npm/bun, use `npm i -g oh-my-claude-sisyphus@latest`.
+> **Note: Package naming** — The project is branded as **oh-my-claudecode** (repo, plugin, commands), and this fork publishes npm releases as [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc). Use `npm i -g claudecode-omc@latest` for install/upgrade.
 
 ### Updating
 
 If you installed OMC via npm, upgrade with the published package name:
 
 ```bash
-npm i -g oh-my-claude-sisyphus@latest
+npm i -g claudecode-omc@latest
 ```
 
-> **Package naming note:** the repo, plugin, and commands are branded **oh-my-claudecode**, but the published npm package name remains `oh-my-claude-sisyphus`.
+> **Package naming note:** the repo, plugin, and commands are branded **oh-my-claudecode**, while this fork's npm package name is `claudecode-omc`.
 
 If you installed OMC via the Claude Code marketplace/plugin flow, update with:
 
@@ -173,7 +173,7 @@ If you experience issues after updating, clear the old plugin cache:
 
 ### Orchestration Modes
 
-Multiple strategies for different use cases — from Team-backed orchestration to token-efficient refactoring. [Learn more →](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#execution-modes)
+Multiple strategies for different use cases — from Team-backed orchestration to token-efficient refactoring. [Learn more →](docs/FEATURES.md)
 
 | Mode                    | What it is                                                                              | Use For                                                |
 | ----------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------ |
@@ -381,11 +381,11 @@ See `scripts/openclaw-gateway-demo.mjs` for a reference gateway that relays Open
 ## Documentation
 
 - **[Full Reference](docs/REFERENCE.md)** - Complete feature documentation
-- **[CLI Reference](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference)** - All `omc` commands, flags, and tools
-- **[Notifications Guide](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#notifications)** - Discord, Telegram, Slack, and webhook setup
-- **[Recommended Workflows](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows)** - Battle-tested skill chains for common tasks
-- **[Release Notes](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#release-notes)** - What's new in each version
-- **[Website](https://yeachan-heo.github.io/oh-my-claudecode-website)** - Interactive guides and examples
+- **[CLI Reference](docs/REFERENCE.md)** - All `omc` commands, flags, and tools
+- **[Notifications Guide](docs/REFERENCE.md)** - Discord, Telegram, Slack, and webhook setup
+- **[Recommended Workflows](docs/FEATURES.md)** - Battle-tested skill chains for common tasks
+- **[Release Notes](CHANGELOG.md)** - What's new in each version
+- **[Repository](https://github.com/materialofair/oh-my-claudecode)** - Source, issues, and releases
 - **[Migration Guide](docs/MIGRATION.md)** - Upgrade from v2.x
 - **[Architecture](docs/ARCHITECTURE.md)** - How it works under the hood
 - **[Performance Monitoring](docs/PERFORMANCE-MONITORING.md)** - Agent tracking, debugging, and optimization
