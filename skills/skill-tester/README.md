@@ -1,6 +1,12 @@
 # Skill Tester
 
-TDD tool for testing Claude Code skills functionality.
+Prompt-level testing skill for Claude Code skill packages.
+
+This README reflects the current OMC workflow:
+- `skill-creator` writes or updates the skill
+- `skill-quality-analyzer` checks static quality
+- `skill-debugger` diagnoses routing/configuration problems
+- `skill-tester` verifies prompt-level behavior
 
 ## Quick Install
 
@@ -10,37 +16,39 @@ cp -r skill-tester ~/.claude/skills/
 
 ## Usage
 
-```
-"Test financial-analyzer skill"
-"Run full test suite on code-review"
-"Write tests for my new skill before implementing it"
+```text
+Test if skill-debugger triggers for under-triggering requests
+Run a full prompt suite on skill-creator
+Check whether this upstream-derived skill still behaves correctly after local OMC adaptations
 ```
 
 ## What It Does
 
-- ✅ Functional testing (correct outputs)
-- ✅ Trigger testing (skill activates when it should)
-- ✅ Edge case testing (handles unusual inputs)
-- ✅ Performance testing (execution time)
-- ✅ TDD workflow (write tests first)
+- discovery testing
+- negative testing
+- execution testing
+- integration testing
+- metadata edge-case testing
+- upstream-conformance testing for upstream-derived skills
 
-## Quick Example
+## Recommended Prompt Matrix
 
-```
-User: "Test if financial-analyzer calculates P/E correctly"
+Use:
+- obvious positive prompts
+- borderline prompts
+- obvious negative prompts
 
-Claude:
-Test: P/E Calculation
-Input: price=100, eps=6.45
-Expected: 15.5
-Result: ✅ 15.504 (PASS)
-```
+For upstream-derived skills, also test:
+- baseline-conformance cases
+- local-adaptation cases
 
 ## Files
 
-- `SKILL.md` - Testing methodology and patterns
-- `README.md` - This file
+- `SKILL.md` - main testing workflow
+- `README.md` - quick overview
 
-## TDD Integration
+## Related Skills
 
-Works with TDD Guard to enforce test-first development for skills.
+- `skill-creator` - create or revise the skill
+- `skill-quality-analyzer` - score static quality
+- `skill-debugger` - diagnose why routing or configuration is wrong

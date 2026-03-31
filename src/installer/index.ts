@@ -678,6 +678,18 @@ function installPlugin(version: string, log: (msg: string) => void): void {
   cpSync(skillsSrc, pluginSkillsDir, { recursive: true, force: true });
   log('  Copied skills/ to plugin directory');
 
+  // Copy dist/ into plugin dir so the HUD wrapper can resolve the HUD module
+  // from the direct plugin install path (essential for fork/custom npm packages)
+  const distSrc = join(pkgDir, 'dist');
+  if (existsSync(distSrc)) {
+    const pluginDistDir = join(PLUGIN_DIR, 'dist');
+    if (!existsSync(pluginDistDir)) {
+      mkdirSync(pluginDistDir, { recursive: true });
+    }
+    cpSync(distSrc, pluginDistDir, { recursive: true, force: true });
+    log('  Copied dist/ to plugin directory');
+  }
+
   // Copy .claude-plugin/ directory to plugin root so Claude Code can discover the plugin manifest
   const claudePluginSrc = join(pkgDir, '.claude-plugin');
   const claudePluginDest = join(PLUGIN_DIR, '.claude-plugin');
@@ -1118,13 +1130,22 @@ export function install(options: InstallOptions = {}): InstallResult {
         '    } catch { /* continue */ }',
         '  }',
         '  ',
-        '  // 4. npm package (global or local install)',
+        '  // 4. Direct plugin install (for fork/custom npm packages installed via omc setup)',
+        '  const directPluginHudPath = join(configDir, "plugins", "oh-my-claudecode", "dist/hud/index.js");',
+        '  if (existsSync(directPluginHudPath)) {',
+        '    try {',
+        '      await import(pathToFileURL(directPluginHudPath).href);',
+        '      return;',
+        '    } catch { /* continue */ }',
+        '  }',
+        '  ',
+        '  // 5. npm package (global or local install)',
         '  try {',
         '    await import("oh-my-claudecode/dist/hud/index.js");',
         '    return;',
         '  } catch { /* continue */ }',
         '  ',
-        '  // 5. Fallback: provide detailed error message with fix instructions',
+        '  // 6. Fallback: provide detailed error message with fix instructions',
         '  if (pluginCacheDir && existsSync(pluginCacheDir)) {',
         '    // Plugin exists but HUD could not be loaded',
         '    const distDir = join(pluginCacheDir, "dist");',

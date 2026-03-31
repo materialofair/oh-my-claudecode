@@ -4,56 +4,49 @@
 
 ### Single Skill Analysis
 
-```
-"Analyze the quality of my aws-solution-architect skill"
-"Check the quality score for ~/.codex/skills/code-review/"
-"Generate a quality report for the prompt-factory skill"
-```
-
-**What Codex will do**:
-1. Read the skill's SKILL.md file
-2. Evaluate across 6 dimensions
-3. Calculate overall score (0-100)
-4. List issues and recommendations
-
-### Detailed Report
-
-```
-"Give me a detailed quality analysis of skill-debugger with specific recommendations"
-"Analyze ~/.codex/skills/content-researcher/ and tell me what needs improvement"
+```text
+Analyze the quality of my skill-creator skill
+Check the quality score for skills/skill-debugger/
+Generate a quality report for skills/skill-tester/
 ```
 
-**Output includes**:
-- Overall score and quality level
-- Dimension-by-dimension scores
-- Critical issues (severity-ranked)
-- Prioritized improvement recommendations
-- Comparison with Codex best practices
+What Claude will do:
+1. Read the skill package
+2. Inspect discovery surface, structure, and examples
+3. Check execution-safety metadata
+4. Report issues and recommendations
 
-## Advanced Usage
+### Upstream-Derived Skill Analysis
 
-### Batch Analysis
-
-```
-"Analyze all skills in ~/.codex/skills/ and rank them by quality"
-"Compare quality scores across all my custom skills"
-"Which of my skills need the most improvement?"
+```text
+Compare my local skill-creator against its vendored upstream baseline
+Check whether this upstream-derived skill still isolates local OMC adaptations correctly
 ```
 
-### Comparative Analysis
+What Claude will check:
+- whether the local file still tracks the baseline where it should
+- whether local adaptations are clearly marked
+- whether project-specific metadata leaked into general guidance
 
-```
-"Compare my code-review skill against Codex's official examples"
-"How does my skill-tester compare to best practices?"
-"Show me the quality difference between my top 3 and bottom 3 skills"
+## Detailed Report
+
+```text
+Generate a detailed quality report for skill-debugger
+Analyze skill-creator and tell me what to tighten before the next upstream sync
 ```
 
-### Before Distribution
+Output includes:
+- overall score
+- dimension scores
+- severity-ranked issues
+- prioritized fixes
 
-```
-"I want to share my financial-analyzer skill. Is it ready?"
-"Run quality checks before I package this skill"
-"What should I fix before publishing to the skill marketplace?"
+## Batch Usage
+
+```text
+Analyze all skills in skills/ and rank them by quality
+Which skill packages have the weakest discovery surfaces?
+Which upstream-derived skills have drifted the most?
 ```
 
 ## Understanding the Output
@@ -62,182 +55,96 @@
 
 | Score | Quality Level | Meaning |
 |-------|---------------|---------|
-| 90-100 | Excellent | Ready for production, can be shared as example |
-| 80-89 | Good | Minor improvements, safe to deploy |
-| 70-79 | Acceptable | Address key issues before wide distribution |
-| 60-69 | Needs Work | Significant improvements required |
+| 90-100 | Excellent | Ready as an example or stable local standard |
+| 80-89 | Good | Minor improvements needed |
+| 70-79 | Acceptable | Fix important issues before relying on it widely |
+| 60-69 | Needs Work | Significant revisions needed |
 | <60 | Poor | Major refactoring needed |
 
-### Six Dimensions Explained
+### Six Dimensions
 
-**1. Clarity (20%)**
-- Is the skill's purpose clear?
-- Are capabilities well-defined?
-- Is usage unambiguous?
+#### 1. Discovery Surface
 
-**Example Issue**: "Description uses vague words like 'helps' and 'various'"
-**Recommendation**: "Replace vague words with specific capabilities"
+- Is the `name` distinct?
+- Does the `description` say when to use the skill and what it does?
+- Is the scope differentiated from neighboring skills?
 
-**2. Structure (20%)**
-- Valid YAML frontmatter?
-- Required sections present?
-- Proper formatting?
+#### 2. Structure
 
-**Example Issue**: "Skill name not in kebab-case format"
-**Recommendation**: "Change name to kebab-case (e.g., skill-quality-analyzer)"
+- Is frontmatter valid?
+- Is the file organized coherently?
+- Are major sections present and readable?
 
-**3. Examples (15%)**
-- Good usage examples?
-- Sample input data?
-- Expected output shown?
+#### 3. Examples / Evals
 
-**Example Issue**: "Missing sample_input.json file"
-**Recommendation**: "Add sample_input.json showing example input data"
+- Are there positive examples?
+- Are there negative or redirect examples?
+- Are examples realistic?
 
-**4. Trigger Detection (15%)**
-- Clear when to invoke?
-- Specific keywords?
-- No overlap with other skills?
+#### 4. Execution Safety
 
-**Example Issue**: "Description doesn't clearly state use case"
-**Recommendation**: "Add use case to description (e.g., 'for analyzing...' or 'when you need...')"
+- Are `disable-model-invocation`, `user-invocable`, and `allowed-tools` intentional?
+- Are model or agent choices justified?
 
-**5. Best Practices (15%)**
-- Follows Codex guidelines?
-- README and HOW_TO_USE present?
-- No backup files or __pycache__?
+#### 5. Best Practices
 
-**Example Issue**: "Found 3 backup files (should be removed)"
-**Recommendation**: "Remove all backup files (.backup, .bak, .old)"
+- Does the package follow Claude Code conventions?
+- Is misleading platform branding avoided?
+- If upstream-derived, is baseline vs local adaptation clearly separated?
 
-**6. Maintainability (15%)**
-- Clean file structure?
-- Version information?
-- Well-commented code?
+#### 6. Maintainability
 
-**Example Issue**: "No version information found"
-**Recommendation**: "Add version number to README.md or SKILL.md"
+- Is the package easy to evolve?
+- Is the structure low-clutter?
+- Have large details been split before the main file became noisy?
 
-## Real-World Examples
+## Example Outcomes
 
-### Example 1: Quick Health Check
+### Example 1: Healthy Local Skill
 
-**User**: "Is my code-review skill good enough to share?"
+```text
+Overall Score: 88 (Good)
 
-**Codex**:
-```
-Analyzing ~/.codex/skills/code-review/...
+Strengths:
+- Clear discovery surface
+- Good structure
+- Strong adaptation boundaries
 
-Overall Score: 87 (Good)
-
-✅ Strengths:
-- Excellent clarity (95) - Very clear purpose
-- Strong structure (90) - All sections present
-- Good examples (85) - Rich usage examples
-
-⚠️ Areas for Improvement:
-- Missing sample_input.json (affects Examples score)
-- No version information (affects Maintainability)
-
-Recommendation: Safe to share, but add sample_input.json and version info for best quality.
+Improvements:
+- Add more borderline prompt examples
+- Tighten one overlapping use case with a neighboring skill
 ```
 
-### Example 2: Identify Weaknesses
+### Example 2: Upstream Drift
 
-**User**: "Why is my skill-tester score only 65?"
+```text
+Issue:
+Local skill still points to an upstream baseline, but several sections replaced baseline guidance instead of isolating OMC-specific behavior.
 
-**Codex**:
-```
-Quality Analysis: skill-tester (65 - Needs Work)
-
-Critical Issues:
-1. [CLARITY] Description too brief (< 20 chars) - Score: 55
-2. [STRUCTURE] Missing required sections: Input Requirements, Output Formats - Score: 60
-3. [EXAMPLES] No usage examples found - Score: 40
-
-High Priority Recommendations:
-1. Expand description to 50-100 characters with clear use case
-2. Add Input Requirements and Output Formats sections
-3. Add 3-5 concrete usage examples
-
-Fix these 3 issues to reach 80+ (Good quality).
+Recommendation:
+- restore baseline-oriented guidance
+- move local runtime-specific behavior into explicit OMC adaptation sections
 ```
 
-### Example 3: Batch Comparison
+## Recommended Workflow
 
-**User**: "Compare quality of all my skills"
+1. Author or revise with `skill-creator`
+2. Run `skill-quality-analyzer`
+3. If routing is unclear, run `skill-debugger`
+4. Run `skill-tester` for prompt-level verification
+5. Revise and re-run
 
-**Codex**:
-```
-Quality Analysis (5 skills):
+## Tips
 
-Excellent (90+):
-  - prompt-factory: 94
-  - aws-solution-architect: 92
-
-Good (80-89):
-  - code-review: 87
-  - content-researcher: 82
-
-Needs Work (60-69):
-  - skill-tester: 65
-
-Recommendation: Focus improvement effort on skill-tester.
-Common issues across all skills: Missing version information (4/5 skills).
-```
-
-## Integration with Your Workflow
-
-### Before Commit
-
-```bash
-# In your skill development workflow
-1. Create/modify skill
-2. Ask Codex: "Analyze quality of this skill"
-3. Fix critical issues (score < 80)
-4. Commit when score ≥ 80
-```
-
-### CI/CD Integration
-
-You can integrate quality checks into your workflow:
-
-```
-# Pre-commit hook idea
-"Check if any modified skills dropped below 80 quality score"
-```
-
-### Continuous Improvement
-
-```
-# Monthly quality review
-"Analyze all my skills and identify trends"
-"Which quality dimensions need attention across my skills?"
-```
-
-## Tips for High Quality Scores
-
-1. **Start with Templates**: Use Skill Factory templates (already high quality)
-2. **Be Specific**: Avoid vague words (helps, various, many)
-3. **Show Examples**: Include 3-5 concrete usage examples
-4. **Add Sample Data**: Include sample_input.json and expected_output.json
-5. **Clean Up**: Remove backup files and __pycache__ before analysis
-6. **Document Everything**: README, HOW_TO_USE, clear sections
-7. **Version Your Skills**: Add version info for maintainability
-8. **Follow Conventions**: Use kebab-case names, proper YAML
-9. **Target 80+**: Good quality threshold
-10. **Iterate**: Analyze → Fix → Re-analyze
+1. Use this skill before sharing or standardizing a skill
+2. For upstream-derived skills, always compare against the vendored baseline
+3. Treat scores below 80 as a sign to inspect the report, not just the number
+4. Fix discovery-surface problems before polishing wording elsewhere
 
 ## Troubleshooting
 
-**Q: "Codex isn't using this skill when I ask about quality"**
-A: Try being more explicit: "Use the skill-quality-analyzer skill to analyze..."
+Q: The score seems harsh.
+A: It is intentionally strict on discovery clarity and adaptation boundaries because those are easy places for skills to rot.
 
-**Q: "The score seems too harsh"**
-A: Quality analyzer uses strict Codex standards. Score of 70+ is acceptable.
-
-**Q: "Can I customize the scoring weights?"**
-A: Not currently. Weights are based on Codex best practices (Clarity and Structure are most important at 20% each).
-
-**Q: "How do I improve my Trigger Detection score?"**
-A: Add clear "When to Use" section and mention specific use cases in the description.
+Q: Should this skill replace `skill-debugger`?
+A: No. Use this for static quality. Use `skill-debugger` for root-cause diagnosis of routing or configuration failures.

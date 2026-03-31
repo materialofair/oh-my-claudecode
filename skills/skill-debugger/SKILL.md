@@ -1,333 +1,209 @@
 ---
 name: skill-debugger
-description: Debugs why Claude Code skills aren't triggering when expected, analyzing descriptions, trigger conditions, and skill discovery issues
+description: Diagnose why a Claude Code skill is under-triggering, over-triggering, undiscoverable, or misconfigured.
 ---
 
 # Skill Debugger
 
-Systematic debugging tool for Claude Code skills that aren't triggering as expected. Identifies root causes like poor descriptions, missing trigger words, naming issues, or skill discovery problems.
+Systematic debugging tool for Claude Code skills that are not being selected correctly or are behaving incorrectly once invoked. Focus on the current Claude Code skill model: `name` and `description` drive discovery, while optional metadata controls invocation and execution behavior.
 
-## Agent Workflow
+## Workflow
 
-To debug effectively, follow this **Hybrid Workflow**:
-
-1.  **Fact Check (Hard Metrics)**: Use `Glob` and `Read` tools to verify the **target skill's** implementation.
-    *   Does the folder exist?
-    *   Does `SKILL.md` exist?
-    *   Is the YAML frontmatter valid?
-2.  **Context Analysis (Soft Metrics)**: Compare the **target skill's** description with the **user's recent prompts**.
-    *   *Agent Cognition*: "The user asked for 'finance help', but the skill description only says 'data analysis'. That's why it didn't trigger."
-3.  **Synthesize**: Report the factual findings (e.g., "File exists") + your semantic diagnosis (e.g., "Description is too vague").
+1. Verify the package exists and the frontmatter parses.
+2. Inspect the discovery surface.
+   - Is the `name` distinct?
+   - Does the `description` clearly say when to use the skill?
+3. Inspect behavioral flags.
+   - `disable-model-invocation`
+   - `user-invocable`
+   - `allowed-tools`
+   - `model`, `context`, `agent`, `hooks`
+4. Compare the skill against neighboring skills.
+5. Run a prompt matrix: obvious positive, borderline positive, obvious negative.
+6. Recommend the smallest change that explains the behavior.
 
 ## Capabilities
 
-- **Trigger Analysis**: Examines why a skill isn't being invoked when it should be
-- **Description Evaluation**: Checks if skill description clearly communicates when to use it
-- **Keyword Detection**: Identifies missing or weak trigger keywords in descriptions
-- **Discovery Debugging**: Verifies Claude Code can find and load the skill
-- **Conflict Detection**: Identifies skills with overlapping triggers or descriptions
-- **YAML Validation**: Checks frontmatter format and required fields
-- **Interactive Diagnosis**: Guides through systematic debugging steps
-- **Fix Suggestions**: Provides specific improvements to enhance skill triggering
+- Under-trigger analysis
+- Over-trigger analysis
+- Discovery debugging
+- Configuration debugging
+- Conflict detection
+- YAML/frontmatter validation
+- Prompt-matrix diagnosis
+- Fix suggestions with smallest-change bias
 
-## Common Skill Triggering Problems
+## Common Failure Modes
 
-### Problem 1: Vague Description
-**Symptom**: Skill exists but Claude Code never uses it
-**Root Cause**: Description doesn't mention specific use cases or keywords
-**Example**:
+### 1. Vague description
+
+Symptom: skill exists but Claude almost never uses it.
+
 ```yaml
-description: Helps with various tasks  ❌ Too vague
-description: Analyzes financial ratios from statement data for investment decisions  ✅ Specific
+Bad: description: Helps with various tasks
+Good: description: Review code for bugs, regressions, and missing tests.
 ```
 
-### Problem 2: No Clear Trigger Words
-**Symptom**: Need to explicitly mention skill name to invoke it
-**Root Cause**: Description lacks keywords that match user queries
-**Fix**: Add trigger keywords like "financial analysis", "investment", "ratios"
+### 2. Description too broad
 
-### Problem 3: Skill Not Discovered
-**Symptom**: Claude Code says skill doesn't exist
-**Root Cause**: Wrong installation location or invalid SKILL.md
-**Check**: `~/.claude/skills/[name]/SKILL.md` or project-local `.claude/skills/[name]/SKILL.md`
+Symptom: wrong skill triggers instead.
 
-### Problem 4: Name Mismatch
-**Symptom**: Skill found but not loaded
-**Root Cause**: YAML `name` doesn't match folder name
-**Fix**: Ensure `name: skill-name` matches folder `skill-name/`
+Fix: narrow the promise and make the boundary explicit.
 
-### Problem 5: Overlapping Skills
-**Symptom**: Wrong skill triggers instead
-**Root Cause**: Multiple skills with similar descriptions
-**Fix**: Make each description unique and specific
+### 3. Skill not discovered
 
-## Input Requirements
+Symptom: Claude Code says the skill does not exist.
 
-**Basic Debugging**:
-- Skill name or path
-- Expected trigger scenario (what you asked that should have triggered it)
+Check:
+- `~/.claude/skills/<name>/SKILL.md`
+- project-local `.claude/skills/<name>/SKILL.md`
 
-**Deep Analysis**:
-- All installed skills paths (for conflict detection)
-- Recent conversation history (to see what Claude Code chose instead)
+### 4. Name mismatch
+
+Symptom: package exists but does not load correctly.
+
+Fix: folder name and `name:` must match.
+
+### 5. Metadata mismatch
+
+Symptom: behavior is wrong after the skill loads.
+
+Audit:
+- `disable-model-invocation`
+- `user-invocable`
+- `allowed-tools`
 
 ## Output Formats
 
-**Quick Diagnosis**:
-```
+### Quick Diagnosis
+
+```text
 Skill: code-review
-Status: ❌ Not triggering
-Root Cause: Description too generic
-Fix: Add specific keywords like "review", "code quality", "pull request"
+Status: not triggering
+Root cause: description overlaps with broader review skill
+Fix: tighten the description around review findings and regressions
 ```
 
-**Detailed Report**:
-```
+### Detailed Report
+
+```text
 === Skill Debugging Report ===
 
 Skill: financial-analyzer
 Path: ~/.claude/skills/financial-analyzer/
-Status: ⚠️ Rarely triggers
+Status: rarely triggers
 
 Issues Found:
-1. [CRITICAL] Description missing use case keywords
-   - Current: "Analyzes financial data"
-   - Should mention: financial ratios, investment analysis, DCF, valuation
-
-2. [HIGH] No "When to Use" section in SKILL.md
-   - Claude Code can't determine clear triggering conditions
-
-3. [MEDIUM] Overlaps with "data-analyzer" skill
-   - Both mention "analyzes data"
-   - Make this one specific to finance
+1. [CRITICAL] Description is too broad
+2. [HIGH] disable-model-invocation is blocking auto-selection
+3. [MEDIUM] No negative boundary for generic analytics requests
 
 Recommendations:
-1. Update description to: "Calculates financial ratios and performs DCF valuation analysis for investment decisions"
-2. Add "When to Use" section with examples: "when analyzing company financials", "for investment analysis"
-3. Differentiate from data-analyzer by focusing on financial metrics
-
-Expected Improvement: 90% better triggering with these fixes
+1. Rewrite description around investing workflows
+2. Set disable-model-invocation: false if auto-selection is intended
+3. Add a When NOT to Use section
 ```
 
-**Conflict Matrix**:
-```
-Skills with Overlapping Triggers:
+## Prompt Matrix
 
-code-review  ←→  quality-analyzer  (both mention "code quality")
-  Fix: code-review for PRs, quality-analyzer for metrics
+Test three classes of prompts:
 
-data-analyzer  ←→  financial-analyzer  (both mention "analysis")
-  Fix: Make financial-analyzer specific to finance keywords
-```
+1. Obvious positive
+   - "Why is my review skill not being picked for PR reviews?"
+2. Borderline positive
+   - "Check whether this skill package is ready to ship"
+3. Obvious negative
+   - "Implement the caching layer in src/api.ts"
 
-## Debugging Workflow
+## Systematic Questions
 
-### Step 1: Verify Skill Exists
+1. Installation
+   - Does the skill package exist at the expected path?
+   - Does `SKILL.md` parse correctly?
+2. Discovery surface
+   - Is the `name` distinct?
+   - Does the `description` say when to use the skill?
+   - Is the description specific enough to avoid overlap?
+3. Behavior flags
+   - Is `disable-model-invocation` suppressing auto-selection?
+   - Is `user-invocable` blocking direct use?
+   - Are `allowed-tools` too restrictive or too loose?
+4. Content
+   - Is there a `When to Use` or equivalent section?
+   - Is there a `When NOT to Use` boundary?
+   - Are positive and negative examples present?
+5. Conflict
+   - Which neighboring skills promise similar work?
+   - Which skill actually won the routing decision?
+6. Upstream drift
+   - If the skill is based on a vendored upstream file, did local edits accidentally replace baseline guidance instead of adding explicit local adaptations?
 
-```
-"Check if my code-review skill is installed correctly"
-"Is the financial-analyzer skill discoverable?"
-```
+## Common Fixes
 
-Claude Code will:
-- Check file exists at expected location
-- Validate SKILL.md format
-- Verify YAML frontmatter
+### Fix 1: Rewrite the description
 
-### Step 2: Analyze Description Quality
-
-```
-"Why isn't my code-review skill triggering?"
-"Debug the financial-analyzer skill - I asked about ratios but it didn't trigger"
-```
-
-Claude Code will:
-- Examine description for specificity
-- Check for relevant keywords
-- Compare against your query
-
-### Step 3: Test Trigger Scenarios
-
-```
-"What should I ask to trigger the code-review skill?"
-"Give me 5 phrases that should invoke financial-analyzer"
-```
-
-Claude Code will:
-- Generate test queries based on description
-- Identify gaps between description and intended use
-- Suggest description improvements
-
-### Step 4: Check for Conflicts
-
-```
-"Do any of my skills conflict with code-review?"
-"Why does data-analyzer trigger instead of financial-analyzer?"
+```yaml
+Before: description: Helps with code analysis
+After:  description: Review code for bugs, regressions, maintainability issues, and missing tests.
 ```
 
-Claude Code will:
-- Compare all skill descriptions
-- Identify overlapping keywords
-- Suggest differentiation strategies
+### Fix 2: Narrow the promise
 
-## Systematic Debugging Questions
+Do not stuff many adjacent use cases into one description.
 
-When a skill isn't triggering, Claude Code will check:
+### Fix 3: Add a boundary
 
-1. **Installation Check**
-   - "Is the skill at `~/.claude/skills/[name]/SKILL.md` or `.claude/skills/[name]/SKILL.md`?"
-   - "Does the skill folder exist?"
-
-2. **YAML Validation**
-   - "Is the YAML frontmatter properly formatted with `---` delimiters?"
-   - "Does the `name:` field match the folder name?"
-   - "Is there a `description:` field?"
-
-3. **Description Quality**
-   - "Does the description mention specific use cases?"
-   - "Does it include keywords you'd naturally use?"
-   - "Is it specific enough to avoid confusion with other skills?"
-
-4. **Content Analysis**
-   - "Is there a 'When to Use' or 'Use Cases' section?"
-   - "Are there clear usage examples?"
-   - "Does the first paragraph explain the purpose?"
-
-5. **Conflict Check**
-   - "Do other skills have similar descriptions?"
-   - "Which skill actually triggered instead?"
-   - "How can we differentiate this skill?"
-
-## How to Use
-
-**Quick Fix**:
-```
-"My code-review skill isn't working"
-"Why doesn't Claude Code use my financial-analyzer?"
-"Debug skill triggering for aws-solution-architect"
-```
-
-**Detailed Analysis**:
-```
-"I asked 'analyze this company's financials' but financial-analyzer didn't trigger. Debug it."
-"Compare my code-review and quality-analyzer skills - which should trigger when?"
-```
-
-**Preventive Check**:
-```
-"Before I install this skill, check if it will trigger correctly"
-"Will my new skill conflict with existing ones?"
-```
-
-## Common Fixes (By Root Cause)
-
-### Fix 1: Improve Description Specificity
-**Before**: `description: Helps with code analysis`
-**After**: `description: Performs static code quality analysis with metrics calculation and refactoring suggestions`
-
-### Fix 2: Add Trigger Keywords
-Add words users would naturally say:
-- Financial skill: "ratios", "valuation", "DCF", "investment"
-- Code skill: "review", "quality", "refactor", "analyze code"
-- Data skill: "visualization", "trends", "insights", "dashboard"
-
-### Fix 3: Add "When to Use" Section
 ```markdown
-## When to Use
+## When NOT to Use
 
-Use this skill when you need to:
-- Analyze company financial statements
-- Calculate financial ratios (P/E, ROE, ROA, etc.)
-- Perform DCF valuation
-- Make investment decisions based on financial data
+- For generic implementation work, use `executor`
+- For scorecard-style audits, use `skill-quality-analyzer`
 ```
 
-### Fix 4: Differentiate from Similar Skills
-If you have `data-analyzer` and `financial-analyzer`:
-- data-analyzer: "for general data analysis and visualization"
-- financial-analyzer: "specifically for financial statement analysis and investment metrics"
+### Fix 4: Correct metadata
 
-### Fix 5: Fix Name Mismatch
-Ensure folder name matches YAML name:
-```
+If the skill should auto-trigger, do not leave `disable-model-invocation: true`.
+
+If the skill should be callable directly, do not leave `user-invocable: false`.
+
+### Fix 5: Fix name mismatch
+
+```text
 Folder: ~/.claude/skills/code-review/
-YAML: name: code-review  ✅
-
-Folder: ~/.claude/skills/code-review/
-YAML: name: code_review  ❌ Mismatch!
+YAML:   name: code-review
 ```
+
+### Fix 6: Re-isolate local adaptations
+
+If the skill is derived from a vendored upstream baseline, keep baseline guidance intact and move project-specific behavior into clearly labeled local sections.
 
 ## Diagnostic Checklist
 
-When debugging, Claude Code will check:
+- [ ] skill file exists at the correct location
+- [ ] `SKILL.md` has valid frontmatter
+- [ ] folder name matches `name`
+- [ ] `description` clearly states when to use the skill
+- [ ] description distinguishes this skill from adjacent ones
+- [ ] invocation flags match intended behavior
+- [ ] positive and negative prompt checks behave as expected
 
-- [ ] Skill file exists at correct location
-- [ ] SKILL.md has valid YAML frontmatter
-- [ ] `name` in YAML matches folder name
-- [ ] `description` is 50-150 characters
-- [ ] Description includes specific use case keywords
-- [ ] Description mentions when/what/who/why
-- [ ] No vague words (helps, assists, various, many)
-- [ ] "When to Use" or similar section exists
-- [ ] At least 3 usage examples present
-- [ ] No conflicts with other skill descriptions
-- [ ] Trigger keywords match natural language queries
+## Integration
 
-## Integration with Other Skills
-
-**Works with skill-quality-analyzer**:
-```
-"Run quality analysis on financial-analyzer then debug why it's not triggering"
-```
-
-**Works with skill-tester**:
-```
-"Test if code-review skill triggers for 'review this PR'"
-```
-
-**Workflow**:
-1. skill-debugger: Identify why not triggering
-2. skill-quality-analyzer: Check overall quality
-3. Fix issues
-4. skill-tester: Verify fix works
+Recommended order:
+1. `skill-creator` for authoring or structural revisions
+2. `skill-quality-analyzer` for static issues
+3. `skill-debugger` for routing/configuration issues
+4. `skill-tester` for prompt-level verification
 
 ## Limitations
 
-- **Cannot Read Claude Code's Internal Decision Process**: Can only infer based on descriptions
-- **No Real-Time Monitoring**: Can't watch skill selection in action
-- **Heuristic-Based**: Uses patterns, not guaranteed 100% accurate
-- **No Auto-Fix**: Provides recommendations but you must apply them
-- **Context-Dependent**: Triggering also depends on conversation context
+- Cannot inspect Claude's private internal routing logic
+- Uses evidence and prompt-based inference
+- Cannot auto-fix every issue
 
-## When NOT to Use This Skill
+## Success Criteria
 
-- **Skill Works Fine**: No debugging needed
-- **Skill Execution Errors**: Use skill-tester for runtime issues
-- **Documentation Issues**: Use documentation tools
-- **Quality Problems**: Use skill-quality-analyzer
-
-## Success Metrics
-
-After applying fixes, skill should trigger when:
-- User query contains description keywords
-- Use case matches "When to Use" section
-- No more specific skill exists for the query
-
-**Expected Trigger Rate**: 80-90% when query clearly matches intended use case
-
-## Pro Tips
-
-1. **Test Your Descriptions**: Ask "Would I say this naturally?"
-2. **Be Specific**: "financial ratio calculation" > "data analysis"
-3. **Avoid Overlaps**: Each skill should have unique keywords
-4. **Use Examples**: Add 5+ usage examples in SKILL.md
-5. **Think Like Users**: What would you actually ask?
-6. **Regular Audits**: Run debugger on all skills monthly
-7. **Version Descriptions**: Track what works over time
-
-## Claude Code Specific Notes
-
-- Skills are discovered from `~/.claude/skills/` and `.claude/skills/` in project root
-- Use `Glob` tool to search for skills: `Glob(pattern="**/SKILL.md")`
-- Use `Read` tool to examine skill content
-- Skill invocation uses the `Skill` tool with skill name parameter
+After fixes, the skill should:
+- trigger for clear in-scope prompts
+- stay quiet for clear out-of-scope prompts
+- avoid being blocked by incorrect metadata

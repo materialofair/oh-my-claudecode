@@ -2,7 +2,7 @@
 
 **Date:** 2026-02-26
 **Scope:** oh-my-claudecode — full skill quality overhaul (description + structure + quality pipeline)
-**Inspiration:** oh-my-codex skill-development, skill-debugger, skill-quality-analyzer, skill-create patterns
+**Inspiration:** oh-my-codex skill-creator, skill-debugger, skill-quality-analyzer, skill-create patterns
 
 ---
 
@@ -16,7 +16,7 @@ The oh-my-claudecode skill ecosystem has three interconnected issues:
 
 3. **Codex-branded ported skills** — `skill-quality-analyzer` and `skill-tester` still reference "Codex CLI" and "Codex skill quality", which is confusing and slightly broken in the Claude Code context.
 
-4. **No writing standard for new skills** — No equivalent of oh-my-codex's `skill-development` guide exists for OMC. New skills get written ad hoc with inconsistent quality.
+4. **No writing standard for new skills** — No equivalent of oh-my-codex's `skill-creator` guide exists for OMC. New skills get written ad hoc with inconsistent quality.
 
 ---
 
@@ -86,7 +86,7 @@ skills/skill/
 
 ### Layer 3: `writing-skills` Skill (New)
 
-**OMC's equivalent of oh-my-codex's `skill-development`.**
+**OMC's equivalent of oh-my-codex's `skill-creator`.**
 
 ```
 skills/writing-skills/

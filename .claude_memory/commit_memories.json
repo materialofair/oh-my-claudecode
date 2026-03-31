@@ -2473,5 +2473,170 @@
       "language": "javascript",
       "total_files": 0
     }
+  },
+  {
+    "timestamp": "2026-03-08T00:43:01.313915",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        ".claude-plugin/plugin.json",
+        ".claude_memory/commit_memories.json",
+        ".claude_memory/project_memory.db/cache/1a9c1a5461cbd4f60f80e6519b483ef6.pkl",
+        ".claude_memory/project_memory.db/project_memory.db",
+        "bridge/cli.cjs",
+        "dist/cli/index.js",
+        "dist/cli/index.js.map",
+        "dist/hud/usage-api.d.ts.map",
+        "dist/hud/usage-api.js",
+        "dist/hud/usage-api.js.map",
+        "dist/testing/cli/commands.d.ts",
+        "dist/testing/cli/commands.d.ts.map",
+        "dist/testing/cli/commands.js",
+        "dist/testing/cli/commands.js.map",
+        "dist/testing/integrations/promptfoo/config-generator.d.ts",
+        "dist/testing/integrations/promptfoo/config-generator.d.ts.map",
+        "dist/testing/integrations/promptfoo/config-generator.js",
+        "dist/testing/integrations/promptfoo/config-generator.js.map",
+        "dist/testing/integrations/promptfoo/types.d.ts",
+        "dist/testing/integrations/promptfoo/types.d.ts.map",
+        "dist/testing/integrations/promptfoo/types.js",
+        "dist/testing/integrations/promptfoo/types.js.map",
+        "docs/testing/IMPLEMENTATION.md",
+        "package-lock.json",
+        "package.json",
+        "src/cli/index.ts",
+        "src/hud/usage-api.ts",
+        "src/testing/cli/commands.ts",
+        "src/testing/integrations/promptfoo/config-generator.ts",
+        "src/testing/integrations/promptfoo/types.ts",
+        "tests/testing/integrations/promptfoo/config-generator.test.ts"
+      ],
+      "change_types": {
+        "feature": 13,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 17,
+        "config": 1
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.7,
+        "risk_level": "medium",
+        "risk_factors": [
+          "large_changeset",
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 7
+    }
+  },
+  {
+    "timestamp": "2026-03-08T15:44:15.045996",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        ".claude-plugin/plugin.json",
+        "bridge/cli.cjs",
+        "dist/hud/usage-api.d.ts",
+        "dist/hud/usage-api.d.ts.map",
+        "dist/hud/usage-api.js",
+        "dist/hud/usage-api.js.map",
+        "package-lock.json",
+        "package.json",
+        "src/hud/usage-api.ts"
+      ],
+      "change_types": {
+        "feature": 8,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 0,
+        "test": 0,
+        "config": 1
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.4,
+        "risk_level": "medium",
+        "risk_factors": [
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 3
+    }
+  },
+  {
+    "timestamp": "2026-03-12T17:23:36.242966",
+    "type": "claude_commit",
+    "commit_message": "Claude git commit",
+    "analysis": {
+      "changed_files": [
+        "dist/__tests__/consolidation-contracts.test.js",
+        "dist/__tests__/consolidation-contracts.test.js.map",
+        "dist/__tests__/skills.test.js",
+        "dist/__tests__/skills.test.js.map",
+        "package-lock.json",
+        "package.json",
+        "skills/analyze/SKILL.md",
+        "skills/bdd-generator/SKILL.md",
+        "skills/e2e/SKILL.md",
+        "skills/electron-driver/SKILL.md",
+        "skills/electron-driver/scripts/driver-template.js",
+        "skills/multi-model-research/SKILL.md",
+        "skills/planning-with-files/SKILL.md",
+        "skills/planning-with-files/examples.md",
+        "skills/planning-with-files/reference.md",
+        "skills/planning-with-files/scripts/check-complete.ps1",
+        "skills/planning-with-files/scripts/check-complete.sh",
+        "skills/planning-with-files/scripts/init-session.ps1",
+        "skills/planning-with-files/scripts/init-session.sh",
+        "skills/planning-with-files/scripts/session-catchup.py",
+        "skills/planning-with-files/templates/findings.md",
+        "skills/planning-with-files/templates/progress.md",
+        "skills/planning-with-files/templates/task_plan.md",
+        "skills/start-dev/SKILL.md",
+        "skills/tdd-generator/SKILL.md",
+        "skills/test-coverage/SKILL.md",
+        "skills/test-gen/SKILL.md",
+        "skills/test-gen/skill.md",
+        "src/__tests__/consolidation-contracts.test.ts",
+        "src/__tests__/skills.test.ts"
+      ],
+      "change_types": {
+        "feature": 7,
+        "bugfix": 0,
+        "refactor": 0,
+        "docs": 13,
+        "test": 9,
+        "config": 1
+      },
+      "commit_intent": "general",
+      "potential_impact": "high",
+      "risk_assessment": {
+        "risk_score": 0.7,
+        "risk_level": "medium",
+        "risk_factors": [
+          "large_changeset",
+          "critical_files"
+        ]
+      }
+    },
+    "project_state": {
+      "framework": "node",
+      "language": "javascript",
+      "total_files": 6
+    }
   }
 ]

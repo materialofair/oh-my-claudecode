@@ -111,7 +111,16 @@ async function main() {
     } catch { /* continue */ }
   }
 
-  // 4. Fallback: provide targeted repair guidance
+  // 4. Direct plugin install (for fork/custom npm packages installed via omc setup)
+  const directPluginHudPath = join(configDir, "plugins", "oh-my-claudecode", "dist/hud/index.js");
+  if (existsSync(directPluginHudPath)) {
+    try {
+      await import(pathToFileURL(directPluginHudPath).href);
+      return;
+    } catch { /* continue */ }
+  }
+
+  // 5. Fallback: provide targeted repair guidance
   if (pluginCacheDir && existsSync(pluginCacheDir)) {
     const distDir = join(pluginCacheDir, "dist");
     if (!existsSync(distDir)) {

@@ -1,345 +1,195 @@
 ---
 name: skill-tester
-description: Tests Codex skill functionality with TDD approach, verifying skills work correctly through automated test scenarios and validation
+description: Test a Claude Code skill with prompt scenarios, invocation checks, negative cases, and execution validation.
 ---
 
 # Skill Tester
 
-Test-driven development tool for Codex skills. Verifies skill functionality, validates outputs, and ensures skills work correctly before distribution.
+Prompt-level testing tool for Claude Code skills. Verifies that a skill is selected when it should be, ignored when it should not be, and behaves correctly once invoked.
 
 ## Capabilities
 
-- **Functional Testing**: Tests if skills produce expected outputs for given inputs
-- **Trigger Testing**: Verifies skills trigger when they should
-- **Regression Testing**: Ensures changes don't break existing functionality
-- **Integration Testing**: Tests skills work together correctly
-- **Performance Testing**: Measures skill execution time and resource usage
-- **TDD Workflow**: Write tests first, then validate skill meets requirements
-- **Test Coverage Analysis**: Identifies untested skill capabilities
-- **Automated Test Generation**: Creates test cases from skill examples
+- discovery testing
+- negative testing
+- execution testing
+- regression testing
+- integration testing
+- configuration testing
+- prompt-matrix coverage analysis
 
-## TDD for Skills
+## Eval Workflow
 
-### Red-Green-Refactor for Skills
+Use a prompt matrix instead of only abstract capability claims.
 
-**Red Phase**: Write test showing skill doesn't work yet
-```
-Test: "Skill should calculate P/E ratio from price and EPS"
-Result: ❌ Skill doesn't have this capability
-```
+### Positive case
 
-**Green Phase**: Implement skill to pass test
-```
-Test: "Skill should calculate P/E ratio from price and EPS"
-Result: ✅ Skill correctly calculates 15.5 from price=$100, EPS=$6.45
+```text
+Prompt: "Why is my review skill not being picked for PR reviews?"
+Expected: skill-debugger is selected
 ```
 
-**Refactor Phase**: Improve skill quality
+### Borderline case
+
+```text
+Prompt: "Check whether this skill package is ready to ship"
+Expected: skill-quality-analyzer or another clearly stronger fit
 ```
-Test: "Skill should handle edge cases (zero EPS, negative values)"
-Result: ✅ All edge cases handled correctly
+
+### Negative case
+
+```text
+Prompt: "Implement the caching layer in src/api.ts"
+Expected: skill-debugger is not selected
 ```
 
 ## Input Requirements
 
-**Basic Test**:
-- Skill name or path
-- Test scenario (what should happen)
-- Expected outcome
+Basic:
+- skill name or path
+- prompt scenario
+- expected behavior
 
-**Comprehensive Test Suite**:
-- Skill path
-- Test cases (inputs + expected outputs)
-- Success criteria
-- Edge cases to verify
+Comprehensive:
+- skill path
+- positive prompts
+- borderline prompts
+- negative prompts
+- expected outputs or checks after invocation
 
-**Example Test Case**:
+## Example Test Case
+
 ```json
 {
-  "skill": "financial-analyzer",
-  "test": "Calculate P/E ratio",
-  "input": {"price": 100, "eps": 6.45},
-  "expected_output": {"pe_ratio": 15.5},
-  "tolerance": 0.1
+  "skill": "skill-debugger",
+  "test": "Under-trigger diagnosis",
+  "prompt": "Why is my code-review skill not being picked?",
+  "expected_behavior": "skill-debugger is selected and audits name, description, and flags",
+  "priority": "HIGH"
 }
 ```
 
 ## Output Formats
 
-**Quick Test Result**:
-```
-Testing: financial-analyzer
-Test: "Calculate P/E ratio"
-Result: ✅ PASS (output: 15.5, expected: 15.5)
+### Quick Result
+
+```text
+Testing: skill-debugger
+Test: Under-trigger diagnosis
+Result: PASS
 ```
 
-**Detailed Test Report**:
-```
+### Detailed Report
+
+```text
 === Skill Test Report ===
 
-Skill: financial-analyzer
+Skill: skill-debugger
 Tests Run: 12
-Passed: 10 ✅
-Failed: 2 ❌
+Passed: 10
+Failed: 2
 Coverage: 83%
 
 Failures:
-1. ❌ Edge case: Zero EPS
-   Input: {price: 100, eps: 0}
-   Expected: Error or infinity
-   Got: Division error
-
-2. ❌ Negative values
-   Input: {price: -50, eps: 5}
-   Expected: Error message
-   Got: Calculated -10
+1. Negative case failed because description is too broad
+2. Auto-selection failed because disable-model-invocation is true
 
 Recommendations:
-- Add error handling for zero/negative values
-- Validate inputs before calculation
-- Add edge case tests to skill documentation
-```
-
-**Test Coverage Map**:
-```
-Capability Coverage:
-
-✅ Calculate P/E ratio - 100% (4/4 tests pass)
-✅ Calculate ROE - 100% (3/3 tests pass)
-⚠️  Calculate debt ratio - 67% (2/3 tests pass, missing edge case)
-❌ DCF valuation - 0% (Not implemented)
-
-Overall: 75% coverage
+- tighten description
+- add a negative example
+- fix invocation flag
 ```
 
 ## Test Types
 
-### 1. Trigger Tests
-**Purpose**: Verify skill triggers when it should
+### 1. Discovery Tests
 
-**Test**: "Financial-analyzer should trigger for 'calculate P/E ratio'"
-```
-Query: "Calculate P/E ratio for this stock"
-Expected: financial-analyzer skill activates
-Result: ✅ Triggered correctly
-```
+Purpose: verify the skill triggers when it should.
 
-### 2. Functional Tests
-**Purpose**: Verify correct outputs
+### 2. Negative Tests
 
-**Test**: "Should calculate correct P/E ratio"
-```
-Input: price=100, eps=6.45
-Expected: 15.5
-Result: ✅ Output: 15.504 (within tolerance)
-```
+Purpose: verify the skill does not trigger outside its lane.
 
-### 3. Edge Case Tests
-**Purpose**: Handle unusual inputs
+### 3. Execution Tests
 
-**Test**: "Should handle zero EPS gracefully"
-```
-Input: price=100, eps=0
-Expected: Error message or infinity with warning
-Result: ❌ Division error (needs fix)
-```
+Purpose: verify correct behavior after the skill is selected.
 
-### 4. Integration Tests
-**Purpose**: Skills work together
+### 4. Edge Case Tests
 
-**Test**: "Quality-analyzer should use skill-tester"
-```
-Scenario: Analyze skill quality
-Expected: Skill-tester used to verify examples
-Result: ✅ Integration works
-```
+Purpose: validate flag and routing edge cases.
 
-### 5. Performance Tests
-**Purpose**: Execution within acceptable time
+### 5. Integration Tests
 
-**Test**: "Should complete analysis within 5 seconds"
-```
-Input: Large dataset
-Expected: < 5 seconds
-Result: ✅ 2.3 seconds
-```
+Purpose: verify the skill works correctly with adjacent skills.
+
+### 6. Upstream-Conformance Tests
+
+Purpose: for upstream-derived skills, verify that the local file still matches the vendored baseline where expected and that local adaptations are explicitly isolated.
 
 ## How to Use
 
-**Quick Test**:
-```
-"Test if financial-analyzer calculates P/E ratio correctly"
-"Verify code-review skill works for pull requests"
-"Test skill-quality-analyzer on itself"
+### Quick
+
+```text
+Test if skill-debugger triggers for under-triggering requests
+Verify code-review skill works for pull requests
+Test skill-quality-analyzer on itself
 ```
 
-**Comprehensive Test Suite**:
-```
-"Run full test suite on financial-analyzer with all edge cases"
-"Test all capabilities of aws-solution-architect skill"
-```
+### Comprehensive
 
-**TDD Workflow**:
-```
-"Write tests for a new skill that should calculate financial ratios"
-"Create test cases for photo-enhancer before implementing it"
+```text
+Run a full prompt suite on skill-debugger with positive and negative cases
+Test all capabilities of a custom skill package
 ```
 
-**Regression Testing**:
-```
-"Test if my skill changes broke anything"
-"Run regression tests on code-review after updates"
-```
+### Before Finalizing a New Skill
 
-## Test Case Structure
-
-```yaml
-test_cases:
-  - name: "Basic P/E calculation"
-    input:
-      price: 100
-      eps: 6.45
-    expected_output:
-      pe_ratio: 15.5
-    tolerance: 0.1
-    priority: HIGH
-
-  - name: "Zero EPS edge case"
-    input:
-      price: 100
-      eps: 0
-    expected_error: "EPS cannot be zero"
-    priority: CRITICAL
-
-  - name: "Negative price edge case"
-    input:
-      price: -50
-      eps: 5
-    expected_error: "Price must be positive"
-    priority: HIGH
+```text
+Write a prompt matrix for this new skill before we finalize the description
+Create positive, borderline, and negative cases for the package
 ```
 
-## Test Coverage Goals
+## Coverage Goals
 
 | Skill Type | Target Coverage |
 |-------------|----------------|
-| Critical (financial, security) | 95%+ |
-| Production (widely used) | 80%+ |
-| Experimental (new features) | 60%+ |
-| Utility (simple tools) | 50%+ |
+| Core routing or safety skill | 95%+ |
+| Production skill | 80%+ |
+| Experimental skill | 60%+ |
+| Utility skill | 50%+ |
 
-## Integration with Development Workflow
+## Development Workflow
 
-### Phase 1: TDD (Before Implementation)
-```
-1. Write test cases based on requirements
-2. Document expected outputs
-3. Run tests (all should fail - RED phase)
-4. Implement skill
-5. Run tests (should pass - GREEN phase)
-6. Refactor and optimize
-```
+### Phase 1: Draft Test Matrix
+
+1. Write positive, borderline, and negative prompts
+2. Document expected selection and behavior
+3. Finalize description and flags
 
 ### Phase 2: Continuous Testing
-```
-1. Run tests after every skill change
-2. Add tests for new capabilities
-3. Update tests when requirements change
-4. Track coverage over time
-```
+
+1. Re-run after every meaningful skill edit
+2. Add new prompt classes when scope expands
+3. Track regressions over time
 
 ### Phase 3: Pre-Release
-```
-1. Full test suite (100% of capabilities)
-2. Edge case validation
-3. Performance benchmarks
-4. Integration tests
-5. User acceptance testing
-```
+
+1. full prompt suite
+2. negative and edge case validation
+3. integration tests
+4. user acceptance testing
 
 ## Best Practices
 
-1. **Write Tests First**: TDD approach prevents bugs
-2. **Test Edge Cases**: Zero, negative, null, empty, very large values
-3. **Use Realistic Data**: Test with actual use case data
-4. **Automate Testing**: Run tests automatically on changes
-5. **Track Coverage**: Aim for 80%+ for production skills
-6. **Document Test Results**: Keep test reports for regression checking
-7. **Test Integrations**: Verify skills work together
-8. **Performance Benchmarks**: Set and monitor time limits
-
-## Common Test Patterns
-
-### Pattern 1: Golden Master Testing
-```
-Input: Known input
-Expected: Known correct output (golden master)
-Verify: Output matches golden master exactly
-```
-
-### Pattern 2: Property-Based Testing
-```
-Property: "P/E ratio should always be price / EPS"
-Test: Generate random valid inputs
-Verify: Formula holds for all inputs
-```
-
-### Pattern 3: Snapshot Testing
-```
-Input: Complex data structure
-Expected: Snapshot of previous correct output
-Verify: Current output matches snapshot
-```
-
-## Limitations
-
-- **Manual Test Creation**: Tests need to be written (not fully automatic)
-- **No Runtime Monitoring**: Can't test skills during actual use
-- **Static Testing**: Tests predefined scenarios, not all possible inputs
-- **No User Testing**: Can't test user satisfaction or UX
-- **Coverage Gaps**: Can't guarantee 100% coverage of all code paths
+1. Test real prompts, not only idealized summaries
+2. Include negative cases so the skill stays in its lane
+3. Test metadata such as `disable-model-invocation`, `user-invocable`, and `allowed-tools`
+4. Document results for regression checking
+5. For upstream-derived skills, test both baseline conformance and local adaptation behavior
+6. Re-test after changing `name` or `description`
 
 ## When NOT to Use This Skill
 
-- **Quick Experiments**: Testing adds overhead for throwaway skills
-- **Debugging**: Use skill-debugger for trigger/discovery issues
-- **Documentation**: Use skill-doc-generator for doc generation
-- **Quality Analysis**: Use skill-quality-analyzer for static analysis
-
-## Success Criteria
-
-A well-tested skill should:
-- ✅ Pass 100% of critical test cases
-- ✅ Handle all documented edge cases
-- ✅ Work within performance limits
-- ✅ Integrate correctly with other skills
-- ✅ Have 80%+ test coverage for production skills
-
-## Example Test Session
-
-```
-User: "Test the financial-analyzer skill"
-
-Claude: "Running test suite for financial-analyzer...
-
-Test Results:
-✅ Basic calculations (4/4 passed)
-✅ Error handling (3/3 passed)
-⚠️  Edge cases (2/3 passed)
-   - Failed: Handling of extremely large numbers
-
-✅ Integration tests (2/2 passed)
-✅ Performance (under 3 seconds)
-
-Overall: 11/12 tests passed (92%)
-
-Recommendation: Fix large number handling before production release.
-Would you like detailed failure analysis?"
-```
-
-## Related Skills
-
-- Works with **skill-quality-analyzer**: Test quality after static analysis
-- Works with **skill-debugger**: Test after fixing trigger issues
-- Works with **skill-doc-generator**: Test examples in generated docs
-- Complements **TDD Guard**: Enforces test-first development
+- For diagnosis and root cause, use `skill-debugger`
+- For static quality scoring, use `skill-quality-analyzer`
+- For first-draft authoring or upgrades, use `skill-creator`

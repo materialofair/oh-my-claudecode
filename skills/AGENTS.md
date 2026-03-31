@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-28 | Updated: 2026-03-02 -->
+<!-- Generated: 2026-01-28 | Updated: 2026-03-12 -->
 
 # skills
 
@@ -7,10 +7,10 @@
 
 ## Purpose
 
-Skills are reusable workflow templates that can be invoked via `/oh-my-claudecode:skill-name`. Each skill provides:
-- Structured prompts for specific workflows
-- Activation triggers (manual or automatic)
-- Integration with execution modes
+Skills are reusable workflow templates authored as Claude Code skill packages. In OMC they are commonly invoked via `/oh-my-claudecode:skill-name`, but they should still be written as standard `SKILL.md` packages first. Each skill provides:
+- structured prompts for specific workflows
+- activation triggers (manual or automatic)
+- integration with execution modes
 
 ## Key Files
 
@@ -62,6 +62,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | `omc-setup/SKILL.md` | omc-setup | One-time setup wizard |
 | `omc-help/SKILL.md` | omc-help | Usage guide |
 | `mcp-setup/SKILL.md` | mcp-setup | Configure MCP servers |
+| `skill-creator/SKILL.md` | skill-creator | Create or upgrade Claude Code skill packages |
 | `skill/SKILL.md` | skill | Manage local skills |
 
 ### Domain Skills
@@ -76,39 +77,76 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 
 ### Working In This Directory
 
+Upstream baseline for skill authorship:
+- `skills/skill-creator/references/upstream-anthropic-skill-creator.md`
+
+Local policy:
+- follow the upstream Anthropic structure first
+- add OMC-specific extensions second
+- default to the vendored upstream file when in doubt
+- treat `skills/skill-creator/SKILL.md` as the local adaptation layer, not the upstream source
+
+Mandatory rule for skill authorship work:
+- do not invent a new skill template from scratch if the vendored upstream baseline already covers the shape
+- deviations from upstream must be explicit, minimal, and justified by OMC runtime behavior
+- if a local rule is not clearly OMC-specific, it should be aligned back toward the vendored upstream wording
+
 #### Skill Template Format
+
+Write new skills in two layers:
+- official-style skeleton first
+- OMC extension block second, only if needed
+- use `skills/skill-creator/references/upstream-anthropic-skill-creator.md` as the default skeleton source
 
 ```markdown
 ---
 name: skill-name
-description: Brief description
-triggers:
-  - "keyword1"
-  - "keyword2"
-agent: executor  # Optional: which agent to use
-model: sonnet    # Optional: model override
-pipeline: [skill-name, follow-up-skill]  # Optional: standardized multi-skill flow
-next-skill: follow-up-skill              # Optional: explicit handoff target
-next-skill-args: --direct                # Optional: arguments for the next skill
-handoff: .omc/plans/example.md           # Optional: artifact/context handed to next skill
+description: Short, explicit statement of when to use the skill and what it does
+argument-hint: "<args>"          # Optional Claude Code field
+disable-model-invocation: false  # Optional Claude Code field
+user-invocable: true             # Optional Claude Code field
+allowed-tools:                   # Optional Claude Code field
+  - Read
+model: sonnet                    # Optional Claude Code field
 ---
 
 # Skill Name
 
-## Purpose
-What this skill accomplishes.
+## About Skills / Purpose
+What the skill enables and why it exists.
 
-## Workflow
-1. Step one
-2. Step two
-3. Step three
+## Core Principles
+Concise guidance, correct level of specificity, and minimal package shape.
 
-## Usage
-How to invoke this skill.
+## Anatomy of a Skill
+Explain when `scripts/`, `references/`, and `assets/` are justified.
 
-## Configuration
-Any configurable options.
+## Progressive Disclosure
+Keep `SKILL.md` compact and move heavy detail into `references/`.
+
+## Skill Creation Process
+1. Understand the skill with concrete examples
+2. Plan reusable contents
+3. Initialize the skill package
+4. Write `SKILL.md`
+5. Validate the skill
+6. Iterate from real usage
 ```
+
+#### OMC Extension Block
+
+If the skill needs OMC-specific orchestration metadata, append it after the official skeleton as a clearly project-specific extension:
+
+```yaml
+pipeline: [skill-name, follow-up-skill]  # Optional OMC extension
+next-skill: follow-up-skill              # Optional OMC extension
+next-skill-args: --direct                # Optional OMC extension
+handoff: .omc/plans/example.md           # Optional OMC extension
+```
+
+Keep the distinction clear:
+- official Claude Code defaults: `name`, `description`, and optional behavior fields
+- OMC extensions: `pipeline`, `next-skill`, `next-skill-args`, `handoff`
 
 #### Skill Invocation
 
@@ -120,57 +158,64 @@ Any configurable options.
 /oh-my-claudecode:skill-name arg1 arg2
 
 # Auto-detected from keywords
-"autopilot build me a REST API"  # Triggers autopilot skill
+"autopilot build me a REST API"
 ```
 
-#### Creating a New Skill
+#### Creating or Replacing a Skill
 
-1. Create `new-skill/SKILL.md` directory and file with YAML frontmatter
-2. Define purpose, workflow, and usage
-3. Add to skill registry (auto-detected from frontmatter)
-4. Optionally add activation triggers
-5. Create corresponding `commands/new-skill.md` file (mirror)
-6. Update `docs/REFERENCE.md` (Skills section, count)
-7. If execution mode skill, also create `src/hooks/new-skill/` hook
+1. Create `new-skill/SKILL.md` with YAML frontmatter
+2. Read `skills/skill-creator/references/upstream-anthropic-skill-creator.md`
+3. Use the upstream Anthropic skeleton first: about, principles, anatomy, progressive disclosure, creation process
+4. Check `skills/skill-creator/SKILL.md` for the local OMC adaptation rules
+5. Add only the bundled resources that are justified
+6. Add OMC-specific metadata only if this repo will consume it
+7. Create `commands/new-skill.md` only if you need legacy command compatibility
+8. Update `docs/REFERENCE.md` if the user-facing catalog changed
+9. If it is an execution-mode skill, also create the related `src/hooks/` logic
+10. Route authorship work through `skill-creator`, then hand off to `skill-quality-analyzer`, `skill-debugger`, and `skill-tester`
 
 ### Common Patterns
 
-**Skill chaining:**
+Skill chaining:
+
 ```markdown
 ## Workflow
-1. Invoke `explore` agent for context
+1. Invoke `explore` for context
 2. Invoke `architect` for analysis
 3. Invoke `executor` for implementation
 4. Invoke `qa-tester` for verification
 ```
 
-If `pipeline` / `next-skill` metadata is present, OMC appends a standardized **Skill Pipeline** handoff block to the rendered skill prompt so downstream steps are explicit.
+If `pipeline` or `next-skill` metadata is present, OMC appends a standardized handoff block to the rendered prompt so downstream steps are explicit.
 
-**Conditional behavior:**
-```markdown
-## Workflow
-1. Check if tests exist
-   - If yes: Run tests first
-   - If no: Create test plan
-2. Proceed with implementation
-```
+Official skeleton first, OMC extension second:
+- first write the skill as a normal Claude Code package based on the upstream Anthropic structure
+- then add OMC orchestration metadata only if the project needs it
+
+Default reference order:
+1. `skills/skill-creator/references/upstream-anthropic-skill-creator.md`
+2. `skills/skill-creator/SKILL.md`
+3. local neighboring skills for examples
 
 ### Testing Requirements
 
-- Skills are verified via integration tests
-- Test skill invocation with `/oh-my-claudecode:skill-name`
-- Verify trigger keywords activate correct skill
-- For git-related skills, follow `templates/rules/git-workflow.md`
+- skills are verified via integration tests
+- test invocation with `/oh-my-claudecode:skill-name`
+- verify positive and negative prompt cases
+- verify any invocation flags or tool restrictions
+- for git-related skills, follow `templates/rules/git-workflow.md`
 
 ## Dependencies
 
 ### Internal
-- Loaded by skill bridge (`scripts/build-skill-bridge.mjs`)
-- References agents from `agents/`
-- Uses hooks from `src/hooks/`
+
+- loaded by the skill bridge
+- references agents from `agents/`
+- may use hooks from `src/hooks/`
 
 ### External
-None - pure markdown files.
+
+None - pure markdown files by default.
 
 ## Skill Categories
 
@@ -178,24 +223,7 @@ None - pure markdown files.
 |----------|--------|------------------|
 | Execution | autopilot, ultrawork, ralph, team, ultraqa | "autopilot", "ulw", "ralph", "team" |
 | Cleanup | ai-slop-cleaner | "deslop", "anti-slop", cleanup/refactor + slop smells |
-| Planning | omc-plan, ralplan, deep-interview, ralph-init | "plan this", "interview me", "ouroboros" |
+| Planning | omc-plan, ralplan, deep-interview, ralph-init | "plan", "interview", "ouroboros" |
 | Exploration | deepinit, sciomc, external-context | "deepinit", "research" |
-| Utility | learner, note, cancel, hud, setup, omc-doctor, omc-setup, omc-help, mcp-setup | "stop", "cancel" |
-| Domain | psm, writer-memory, release | psm context |
-
-## Auto-Activation
-
-Some skills activate automatically based on context:
-
-| Skill | Auto-Trigger Condition |
-|-------|----------------------|
-| autopilot | "autopilot", "build me", "I want a" |
-| ultrawork | "ulw", "ultrawork" |
-| ralph | "ralph", "don't stop until" |
-| deep-interview | "deep interview", "interview me", "ouroboros", "don't assume" |
-| cancel | "stop", "cancel", "abort" |
-
-<!-- MANUAL:
-- Team runtime wait semantics: `omc_run_team_wait.timeout_ms` only limits the wait call and does not stop workers.
-- `timeoutSeconds` is removed from `omc_run_team_start`; use explicit `omc_run_team_cleanup` for intentional worker pane termination.
--->
+| Utility | learner, note, cancel, hud, setup, omc-doctor, omc-setup, omc-help, mcp-setup, skill-creator | "stop", "cancel", "create skill" |
+| Domain | psm, writer-memory, release | context-specific |
