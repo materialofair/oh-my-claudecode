@@ -1,3 +1,5 @@
+export type TeamMultiplexerContext = 'tmux' | 'cmux' | 'none';
+export declare function detectTeamMultiplexerContext(env?: NodeJS.ProcessEnv): TeamMultiplexerContext;
 /**
  * True when running on Windows under MSYS2/Git Bash.
  * Tmux panes run bash in this environment, not cmd.exe.
@@ -24,6 +26,26 @@ export interface WorkerPaneConfig {
     cwd: string;
 }
 export declare function getDefaultShell(): string;
+/** Shell + rc file pair used for worker pane launch */
+export interface WorkerLaunchSpec {
+    shell: string;
+    rcFile: string | null;
+}
+/** Try a list of shell paths; return first that exists with its rcFile, or null */
+export declare function resolveShellFromCandidates(paths: string[], rcFile: string): WorkerLaunchSpec | null;
+/** Check if shellPath is a supported shell (zsh/bash) that exists on disk */
+export declare function resolveSupportedShellAffinity(shellPath?: string): WorkerLaunchSpec | null;
+/**
+ * Resolve the shell and rc file to use for worker pane launch.
+ *
+ * Priority:
+ *   1. MSYS2/Windows → /bin/sh (no rcFile)
+ *   2. shellPath (from $SHELL) if zsh or bash and binary exists
+ *   3. ZSH candidates
+ *   4. BASH candidates
+ *   5. Fallback: /bin/sh
+ */
+export declare function buildWorkerLaunchSpec(shellPath?: string): WorkerLaunchSpec;
 export declare function buildWorkerStartCommand(config: WorkerPaneConfig): string;
 /** Validate tmux is available. Throws with install instructions if not. */
 export declare function validateTmux(): void;
@@ -53,11 +75,15 @@ export declare function spawnBridgeInSession(tmuxSession: string, bridgeScriptPa
 /**
  * Create a tmux team topology for a team leader/worker layout.
  *
- * Must be run inside an existing tmux session ($TMUX must be set).
- * By default, creates splits in the CURRENT window so panes appear immediately
- * in the user's view. When options.newWindow is true, creates a detached
- * dedicated tmux window first and then splits worker panes there.
- * Returns sessionName in "session:window" form.
+ * When running inside a classic tmux session, creates splits in the CURRENT
+ * window so panes appear immediately in the user's view. When options.newWindow
+ * is true, creates a detached dedicated tmux window first and then splits worker
+ * panes there.
+ *
+ * When running inside cmux (CMUX_SURFACE_ID without TMUX) or a plain terminal,
+ * falls back to a detached tmux session because the current surface cannot be
+ * targeted as a normal tmux pane/window. Returns sessionName in "session:window"
+ * form.
  *
  * Layout: leader pane on the left, worker panes stacked vertically on the right.
  * IMPORTANT: Uses pane IDs (%N format) not pane indices for stable targeting.
@@ -115,6 +141,7 @@ export declare function killWorkerPanes(opts: {
     cwd: string;
     graceMs?: number;
 }): Promise<void>;
+export declare function resolveSplitPaneWorkerPaneIds(sessionName: string, recordedPaneIds?: string[], leaderPaneId?: string): Promise<string[]>;
 /**
  * Kill the team tmux session or just the worker panes, depending on how the
  * team was created.

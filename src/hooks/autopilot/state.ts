@@ -17,6 +17,7 @@ import {
 import {
   resolveStatePath,
   resolveSessionStatePath,
+  getOmcRoot,
 } from "../../lib/worktree-paths.js";
 import type {
   AutopilotState,
@@ -24,8 +25,11 @@ import type {
   AutopilotConfig,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
+import { loadConfig } from "../../config/loader.js";
+import { resolvePlanOutputAbsolutePath } from "../../config/plan-output.js";
 import {
   readRalphState,
+  writeRalphState,
   clearRalphState,
   clearLinkedUltraworkState,
 } from "../ralph/index.js";
@@ -35,7 +39,6 @@ import {
   readUltraQAState,
 } from "../ultraqa/index.js";
 import { canStartMode } from "../mode-registry/index.js";
-import { getOmcRoot } from "../../lib/worktree-paths.js";
 
 const SPEC_DIR = "autopilot";
 
@@ -353,7 +356,11 @@ export function getSpecPath(directory: string): string {
  * Get the plan file path
  */
 export function getPlanPath(directory: string): string {
-  return join(getOmcRoot(directory), "plans", "autopilot-impl.md");
+  return resolvePlanOutputAbsolutePath(
+    directory,
+    "autopilot-impl",
+    loadConfig(),
+  );
 }
 
 // ============================================================================
@@ -409,35 +416,38 @@ export function transitionRalphToUltraQA(
     };
   }
 
-  // Step 2: Cleanly terminate Ralph (and linked Ultrawork)
+  // Step 2: Deactivate Ralph (set active=false) so UltraQA's mutual exclusion
+  // check passes, but keep state file on disk for rollback if UltraQA fails.
+  if (ralphState) {
+    writeRalphState(directory, { ...ralphState, active: false }, sessionId);
+  }
   if (ralphState?.linked_ultrawork) {
     clearLinkedUltraworkState(directory, sessionId);
-  }
-  const ralphCleared = clearRalphState(directory, sessionId);
-
-  if (!ralphCleared) {
-    return {
-      success: false,
-      error: "Failed to clear Ralph state",
-    };
   }
 
   // Step 3: Transition to QA phase
   const newState = transitionPhase(directory, "qa", sessionId);
   if (!newState) {
+    // Rollback: re-activate Ralph
+    if (ralphState) {
+      writeRalphState(directory, ralphState, sessionId);
+    }
     return {
       success: false,
       error: "Failed to transition to QA phase",
     };
   }
 
-  // Step 4: Start UltraQA
+  // Step 4: Start UltraQA (Ralph is deactivated, mutual exclusion passes)
   const qaResult = startUltraQA(directory, "tests", sessionId, {
     maxCycles: 5,
   });
 
   if (!qaResult.success) {
-    // Rollback on failure - restore execution phase
+    // Rollback: restore Ralph state and execution phase
+    if (ralphState) {
+      writeRalphState(directory, ralphState, sessionId);
+    }
     transitionPhase(directory, "execution", sessionId);
     updateExecution(directory, { ralph_completed_at: undefined }, sessionId);
 
@@ -446,6 +456,9 @@ export function transitionRalphToUltraQA(
       error: qaResult.error || "Failed to start UltraQA",
     };
   }
+
+  // Step 5: UltraQA started — clear Ralph state fully (best-effort)
+  clearRalphState(directory, sessionId);
 
   return {
     success: true,

@@ -302,6 +302,11 @@ describe('Keyword Detector', () => {
                 expect(hasAnalyze).toBe(false);
             }
         });
+        it('should NOT trigger autopilot for "오토파일럿 설명" (bare 설명 is informational)', () => {
+            const detected = detectKeywordsWithType('오토파일럿 설명');
+            const hasAutopilot = detected.some(d => d.type === 'autopilot');
+            expect(hasAutopilot).toBe(false);
+        });
     });
     describe('hasKeyword', () => {
         it('should return true when keyword exists', () => {
@@ -475,7 +480,7 @@ describe('Team staged workflow integration', () => {
         expect(result.message || '').toContain('team-exec');
     });
     it('compacts OMC-style root AGENTS guidance on session-start without dropping key sections', async () => {
-        const agentsContent = `# oh-my-codex - Intelligent Multi-Agent Orchestration
+        const agentsContent = `# oh-my-claudecode - Intelligent Multi-Agent Orchestration
 
 <guidance_schema_contract>
 schema
@@ -1390,19 +1395,18 @@ describe('Skill-active state lifecycle', () => {
     afterEach(() => {
         rmSync(testDir, { recursive: true, force: true });
     });
-    it('clearSkillActiveState removes active skill state', async () => {
+    it('clearSkillActiveState is a no-op for legacy/external skills without protection', async () => {
         const { writeSkillActiveState, readSkillActiveState, clearSkillActiveState } = await import('../hooks/skill-state/index.js');
         const sessionId = 'test-skill-clear-session';
-        writeSkillActiveState(testDir, 'code-review', sessionId);
-        // Verify state exists
+        const written = writeSkillActiveState(testDir, 'code-review', sessionId);
+        expect(written).toBeNull();
+        // Verify legacy/external skill state is not created
         const stateBefore = readSkillActiveState(testDir, sessionId);
-        expect(stateBefore).not.toBeNull();
-        expect(stateBefore?.active).toBe(true);
-        expect(stateBefore?.skill_name).toBe('code-review');
-        // Clear the state (as bridge.ts processPostToolUse does on Skill completion)
+        expect(stateBefore).toBeNull();
+        // Clear remains safe when no state exists
         const cleared = clearSkillActiveState(testDir, sessionId);
         expect(cleared).toBe(true);
-        // Verify state is cleared
+        // Verify state remains absent
         const stateAfter = readSkillActiveState(testDir, sessionId);
         expect(stateAfter).toBeNull();
     });

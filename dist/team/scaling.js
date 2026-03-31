@@ -58,7 +58,6 @@ export async function scaleUp(teamName, count, agentType, tasks, cwd, env = proc
             };
         }
         const teamStateRoot = config.team_state_root ?? `${leaderCwd}/.omc/state`;
-        const sessionName = config.tmux_session ?? `omc-team-${sanitized}`;
         // Resolve the monotonic worker index counter
         let nextIndex = config.next_worker_index ?? (currentCount + 1);
         const initialNextIndex = nextIndex;
@@ -91,6 +90,17 @@ export async function scaleUp(teamName, count, agentType, tasks, cwd, env = proc
             const workerIndex = nextIndex;
             nextIndex++;
             const workerName = `worker-${workerIndex}`;
+            if (config.workers.some((worker) => worker.name === workerName)) {
+                await teamAppendEvent(sanitized, {
+                    type: 'team_leader_nudge',
+                    worker: 'leader-fixed',
+                    reason: `scale_up_duplicate_worker_blocked:${workerName}`,
+                }, leaderCwd);
+                return {
+                    ok: false,
+                    error: `Worker ${workerName} already exists in team ${sanitized}; refusing to spawn duplicate worker identity.`,
+                };
+            }
             // Create worker directory
             const workerDirPath = absPath(leaderCwd, TeamPaths.workerDir(sanitized, workerName));
             await mkdir(workerDirPath, { recursive: true });
@@ -262,8 +272,7 @@ export async function scaleDown(teamName, cwd, options = {}, env = process.env) 
                 const allDrained = await Promise.all(targetWorkers.map(async (w) => {
                     const status = await teamReadWorkerStatus(sanitized, w.name, leaderCwd);
                     const alive = w.pane_id ? await isWorkerAlive(w.pane_id) : false;
-                    return status.state === 'idle' || status.state === 'done' ||
-                        status.state === 'draining' || !alive;
+                    return status.state === 'idle' || status.state === 'done' || !alive;
                 }));
                 if (allDrained.every(Boolean))
                     break;

@@ -79,48 +79,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Allowlist of environment variables safe to pass to child processes.
- * This prevents leaking sensitive variables like ANTHROPIC_API_KEY, GITHUB_TOKEN, etc.
- */
-const ENV_ALLOWLIST = [
-  // Core system paths
-  'PATH', 'HOME', 'USERPROFILE',
-  // User identification
-  'USER', 'USERNAME', 'LOGNAME',
-  // Locale settings
-  'LANG', 'LC_ALL', 'LC_CTYPE',
-  // Terminal/tmux
-  'TERM', 'TMUX', 'TMUX_PANE',
-  // Temp directories
-  'TMPDIR', 'TMP', 'TEMP',
-  // XDG directories (Linux)
-  'XDG_RUNTIME_DIR', 'XDG_DATA_HOME', 'XDG_CONFIG_HOME',
-  // Shell
-  'SHELL',
-  // Node.js
-  'NODE_ENV',
-  // Proxy settings
-  'HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy',
-  // Windows system
-  'SystemRoot', 'SYSTEMROOT', 'windir', 'COMSPEC',
-] as const;
-
-/**
- * Create a minimal environment for child processes.
- * Only includes allowlisted variables to prevent credential leakage.
- */
-function createMinimalEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of ENV_ALLOWLIST) {
-    if (process.env[key] !== undefined) {
-      env[key] = process.env[key];
-    }
-  }
-  return env;
-}
-
-
-/**
  * Capture a snapshot of tracked/modified/untracked files in the working directory.
  * Uses `git status --porcelain` + `git ls-files --others --exclude-standard`.
  * Returns a Set of relative file paths that currently exist or are modified.
@@ -600,7 +558,7 @@ function spawnCliProcess(
 /** Handle graceful shutdown */
 async function handleShutdown(
   config: BridgeConfig,
-  signal: { requestId: string; reason: string },
+  signal: { requestId: string; reason: string; _ackAlreadyWritten?: boolean },
   activeChild: ChildProcess | null,
 ): Promise<void> {
   const { teamName, workerName, workingDirectory } = config;
@@ -623,12 +581,14 @@ async function handleShutdown(
     }
   }
 
-  // 2. Write shutdown ack to outbox
-  appendOutbox(teamName, workerName, {
-    type: "shutdown_ack",
-    requestId: signal.requestId,
-    timestamp: new Date().toISOString(),
-  });
+  // 2. Write shutdown ack to outbox (skip if already written by drain path)
+  if (!signal._ackAlreadyWritten) {
+    appendOutbox(teamName, workerName, {
+      type: "shutdown_ack",
+      requestId: signal.requestId,
+      timestamp: new Date().toISOString(),
+    });
+  }
 
   // 3. Unregister from config.json / shadow registry
   try {
@@ -708,7 +668,7 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
           type: "drain",
         });
 
-        // Write drain ack to outbox
+        // Write drain ack to outbox (only once — handleShutdown below skips its own ack)
         appendOutbox(teamName, workerName, {
           type: "shutdown_ack",
           requestId: drain.requestId,
@@ -718,10 +678,10 @@ export async function runBridge(config: BridgeConfig): Promise<void> {
         // Clean up drain signal
         deleteDrainSignal(teamName, workerName);
 
-        // Use the same handleShutdown for cleanup
+        // Run full shutdown cleanup (unregister, heartbeat, etc.) but skip duplicate ack
         await handleShutdown(
           config,
-          { requestId: drain.requestId, reason: `drain: ${drain.reason}` },
+          { requestId: drain.requestId, reason: `drain: ${drain.reason}`, _ackAlreadyWritten: true },
           null,
         );
         break;

@@ -5,8 +5,8 @@
  * Project skills override user skills with same ID.
  */
 import { existsSync, readdirSync, realpathSync, mkdirSync } from 'fs';
-import { join, normalize, sep, resolve, dirname, basename } from 'path';
-import { USER_SKILLS_DIR, PROJECT_SKILLS_SUBDIR, SKILL_EXTENSION, DEBUG_ENABLED, GLOBAL_SKILLS_DIR, MAX_RECURSION_DEPTH } from './constants.js';
+import { join, normalize, sep } from 'path';
+import { USER_SKILLS_DIR, PROJECT_SKILLS_SUBDIR, PROJECT_AGENT_SKILLS_SUBDIR, SKILL_EXTENSION, DEBUG_ENABLED, GLOBAL_SKILLS_DIR, MAX_RECURSION_DEPTH } from './constants.js';
 /**
  * Recursively find all skill files in a directory.
  */
@@ -41,22 +41,7 @@ function safeRealpathSync(filePath) {
         return realpathSync(filePath);
     }
     catch {
-        const absInput = resolve(filePath);
-        const tail = [];
-        let probe = absInput;
-        while (true) {
-            try {
-                const realBase = realpathSync(probe);
-                return tail.reduce((acc, seg) => resolve(acc, seg), realBase);
-            }
-            catch {
-                const parent = dirname(probe);
-                if (parent === probe)
-                    return absInput;
-                tail.unshift(basename(probe));
-                probe = parent;
-            }
-        }
+        return filePath;
     }
 }
 /**
@@ -64,8 +49,8 @@ function safeRealpathSync(filePath) {
  * Used to prevent symlink escapes.
  */
 function isWithinBoundary(realPath, boundary) {
-    const normalizedReal = normalize(safeRealpathSync(realPath));
-    const normalizedBoundary = normalize(safeRealpathSync(boundary));
+    const normalizedReal = normalize(realPath);
+    const normalizedBoundary = normalize(boundary);
     return normalizedReal === normalizedBoundary ||
         normalizedReal.startsWith(normalizedBoundary + sep);
 }
@@ -79,27 +64,32 @@ export function findSkillFiles(projectRoot, options) {
     const scope = options?.scope ?? 'all';
     // 1. Search project-level skills (if scope allows)
     if (projectRoot && (scope === 'project' || scope === 'all')) {
-        const projectSkillsDir = join(projectRoot, PROJECT_SKILLS_SUBDIR);
-        const projectFiles = [];
-        findSkillFilesRecursive(projectSkillsDir, projectFiles);
-        for (const filePath of projectFiles) {
-            const realPath = safeRealpathSync(filePath);
-            if (seenRealPaths.has(realPath))
-                continue;
-            // Symlink boundary check
-            if (!isWithinBoundary(realPath, projectSkillsDir)) {
-                if (DEBUG_ENABLED) {
-                    console.warn('[learner] Symlink escape blocked:', filePath);
+        const projectSkillDirs = [
+            join(projectRoot, PROJECT_SKILLS_SUBDIR),
+            join(projectRoot, PROJECT_AGENT_SKILLS_SUBDIR),
+        ];
+        for (const projectSkillsDir of projectSkillDirs) {
+            const projectFiles = [];
+            findSkillFilesRecursive(projectSkillsDir, projectFiles);
+            for (const filePath of projectFiles) {
+                const realPath = safeRealpathSync(filePath);
+                if (seenRealPaths.has(realPath))
+                    continue;
+                // Symlink boundary check
+                if (!isWithinBoundary(realPath, projectSkillsDir)) {
+                    if (DEBUG_ENABLED) {
+                        console.warn('[learner] Symlink escape blocked:', filePath);
+                    }
+                    continue;
                 }
-                continue;
+                seenRealPaths.add(realPath);
+                candidates.push({
+                    path: filePath,
+                    realPath,
+                    scope: 'project',
+                    sourceDir: projectSkillsDir,
+                });
             }
-            seenRealPaths.add(realPath);
-            candidates.push({
-                path: filePath,
-                realPath,
-                scope: 'project',
-                sourceDir: projectSkillsDir,
-            });
         }
     }
     // 2. Search user-level skills from both directories (if scope allows)

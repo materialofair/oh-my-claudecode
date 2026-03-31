@@ -3224,8 +3224,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path) {
-      let input = path;
+    function removeDotSegments(path4) {
+      let input = path4;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3424,8 +3424,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path && path !== "/" ? path : void 0;
+        const [path4, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -3577,24 +3577,24 @@ var require_fast_uri = __commonJS({
     function normalize(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
-        serialize(parse3(uri, options), options);
+        serialize(parse4(uri, options), options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
-        parse3(serialize(uri, options), options);
+        parse4(serialize(uri, options), options);
       }
       return uri;
     }
     function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
+      const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
     function resolveComponent(base, relative2, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
-        base = parse3(serialize(base, options), options);
-        relative2 = parse3(serialize(relative2, options), options);
+        base = parse4(serialize(base, options), options);
+        relative2 = parse4(serialize(relative2, options), options);
       }
       options = options || {};
       if (!options.tolerant && relative2.scheme) {
@@ -3646,13 +3646,13 @@ var require_fast_uri = __commonJS({
     function equal(uriA, uriB, options) {
       if (typeof uriA === "string") {
         uriA = unescape(uriA);
-        uriA = serialize(normalizeComponentEncoding(parse3(uriA, options), true), { ...options, skipEscape: true });
+        uriA = serialize(normalizeComponentEncoding(parse4(uriA, options), true), { ...options, skipEscape: true });
       } else if (typeof uriA === "object") {
         uriA = serialize(normalizeComponentEncoding(uriA, true), { ...options, skipEscape: true });
       }
       if (typeof uriB === "string") {
         uriB = unescape(uriB);
-        uriB = serialize(normalizeComponentEncoding(parse3(uriB, options), true), { ...options, skipEscape: true });
+        uriB = serialize(normalizeComponentEncoding(parse4(uriB, options), true), { ...options, skipEscape: true });
       } else if (typeof uriB === "object") {
         uriB = serialize(normalizeComponentEncoding(uriB, true), { ...options, skipEscape: true });
       }
@@ -3721,7 +3721,7 @@ var require_fast_uri = __commonJS({
       return uriTokens.join("");
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
-    function parse3(uri, opts) {
+    function parse4(uri, opts) {
       const options = Object.assign({}, opts);
       const parsed = {
         scheme: void 0,
@@ -3815,7 +3815,7 @@ var require_fast_uri = __commonJS({
       resolveComponent,
       equal,
       serialize,
-      parse: parse3
+      parse: parse4
     };
     module2.exports = fastUri;
     module2.exports.default = fastUri;
@@ -4727,6 +4727,7 @@ var require_pattern = __commonJS({
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     var code_1 = require_code2();
+    var util_1 = require_util();
     var codegen_1 = require_codegen();
     var error2 = {
       message: ({ schemaCode }) => (0, codegen_1.str)`must match pattern "${schemaCode}"`,
@@ -4739,10 +4740,18 @@ var require_pattern = __commonJS({
       $data: true,
       error: error2,
       code(cxt) {
-        const { data, $data, schema, schemaCode, it } = cxt;
+        const { gen, data, $data, schema, schemaCode, it } = cxt;
         const u = it.opts.unicodeRegExp ? "u" : "";
-        const regExp = $data ? (0, codegen_1._)`(new RegExp(${schemaCode}, ${u}))` : (0, code_1.usePattern)(cxt, schema);
-        cxt.fail$data((0, codegen_1._)`!${regExp}.test(${data})`);
+        if ($data) {
+          const { regExp } = it.opts.code;
+          const regExpCode = regExp.code === "new RegExp" ? (0, codegen_1._)`new RegExp` : (0, util_1.useFunc)(gen, regExp);
+          const valid = gen.let("valid");
+          gen.try(() => gen.assign(valid, (0, codegen_1._)`${regExpCode}(${schemaCode}, ${u}).test(${data})`), () => gen.assign(valid, false));
+          cxt.fail$data((0, codegen_1._)`!${valid}`);
+        } else {
+          const regExp = (0, code_1.usePattern)(cxt, schema);
+          cxt.fail$data((0, codegen_1._)`!${regExp}.test(${data})`);
+        }
       }
     };
     exports2.default = def;
@@ -6778,12 +6787,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs2, exportName) {
+    function addFormats(ajv, list, fs3, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs2[f]);
+        ajv.addFormat(f, fs3[f]);
     }
     module2.exports = exports2 = formatsPlugin;
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -7280,8 +7289,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path, errorMaps, issueData } = params;
-  const fullPath = [...path, ...issueData.path || []];
+  const { data, path: path4, errorMaps, issueData } = params;
+  const fullPath = [...path4, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7397,11 +7406,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path, key) {
+  constructor(parent, value, path4, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path;
+    this._path = path4;
     this._key = key;
   }
   get path() {
@@ -11038,10 +11047,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path) {
-  if (!path)
+function getElementAtPath(obj, path4) {
+  if (!path4)
     return obj;
-  return path.reduce((acc, key) => acc?.[key], obj);
+  return path4.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11361,11 +11370,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path, issues) {
+function prefixIssues(path4, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path);
+    iss.path.unshift(path4);
     return iss;
   });
 }
@@ -17766,14 +17775,15 @@ var StdioServerTransport = class {
 };
 
 // src/mcp/team-server.ts
-var import_child_process3 = require("child_process");
-var import_path4 = require("path");
-var import_fs3 = require("fs");
+var import_child_process4 = require("child_process");
+var import_path5 = require("path");
+var import_url = require("url");
+var import_fs7 = require("fs");
 var import_promises2 = require("fs/promises");
-var import_os = require("os");
 
 // src/team/tmux-session.ts
 var import_child_process = require("child_process");
+var import_fs = require("fs");
 var import_path = require("path");
 var import_util5 = require("util");
 var import_promises = __toESM(require("fs/promises"), 1);
@@ -17795,7 +17805,7 @@ var promisifiedExec = (0, import_util5.promisify)(import_child_process.exec);
 var promisifiedExecFile = (0, import_util5.promisify)(import_child_process.execFile);
 async function tmuxAsync(args) {
   if (args.some((a) => a.includes("#{"))) {
-    const escaped = args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ");
+    const escaped = args.map((a) => "'" + a.replace(/'/g, "'\\''") + "'").join(" ");
     return promisifiedExec(`tmux ${escaped}`);
   }
   return promisifiedExecFile("tmux", args);
@@ -17813,9 +17823,9 @@ function sanitizeName(name) {
 function normalizeTmuxCapture(value) {
   return value.replace(/\r/g, "").replace(/\s+/g, " ").trim();
 }
-async function capturePaneAsync(paneId, execFileAsync) {
+async function capturePaneAsync(paneId, execFileAsync2) {
   try {
-    const result = await execFileAsync("tmux", ["capture-pane", "-t", paneId, "-p", "-S", "-80"]);
+    const result = await execFileAsync2("tmux", ["capture-pane", "-t", paneId, "-p", "-S", "-80"]);
     return result.stdout;
   } catch {
     return "";
@@ -17828,28 +17838,37 @@ function paneHasTrustPrompt(captured) {
   const hasChoices = tail.some((l) => /Yes,\s*continue|No,\s*quit|Press enter to continue/i.test(l));
   return hasQuestion && hasChoices;
 }
+function paneIsBootstrapping(captured) {
+  const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0);
+  return lines.some(
+    (line) => /\b(loading|initializing|starting up)\b/i.test(line) || /\bmodel:\s*loading\b/i.test(line) || /\bconnecting\s+to\b/i.test(line)
+  );
+}
 function paneHasActiveTask(captured) {
   const lines = captured.split("\n").map((l) => l.replace(/\r/g, "").trim()).filter((l) => l.length > 0);
   const tail = lines.slice(-40);
+  if (tail.some((l) => /\b\d+\s+background terminal running\b/i.test(l))) return true;
   if (tail.some((l) => /esc to interrupt/i.test(l))) return true;
   if (tail.some((l) => /\bbackground terminal running\b/i.test(l))) return true;
+  if (tail.some((l) => /^[·✻]\s+[A-Za-z][A-Za-z0-9''-]*(?:\s+[A-Za-z][A-Za-z0-9''-]*){0,3}(?:…|\.{3})$/u.test(l))) return true;
   return false;
 }
 function paneLooksReady(captured) {
-  const lines = captured.split("\n").map((line) => line.replace(/\r/g, "").trim()).filter((line) => line.length > 0);
+  const content = captured.trimEnd();
+  if (content === "") return false;
+  const lines = content.split("\n").map((line) => line.replace(/\r/g, "").trimEnd()).filter((line) => line.trim() !== "");
   if (lines.length === 0) return false;
-  const tail = lines.slice(-20);
-  const hasPrompt = tail.some((line) => /^\s*[›>❯]\s*/u.test(line));
-  if (hasPrompt) return true;
-  const hasCodexHint = tail.some(
-    (line) => /\bgpt-[\w.-]+\b/i.test(line) || /\b\d+% left\b/i.test(line)
-  );
-  return hasCodexHint;
+  if (paneIsBootstrapping(content)) return false;
+  const lastLine = lines[lines.length - 1];
+  if (/^\s*[›>❯]\s*/u.test(lastLine)) return true;
+  const hasCodexPromptLine = lines.some((line) => /^\s*›\s*/u.test(line));
+  const hasClaudePromptLine = lines.some((line) => /^\s*❯\s*/u.test(line));
+  return hasCodexPromptLine || hasClaudePromptLine;
 }
 function paneTailContainsLiteralLine(captured, text) {
   return normalizeTmuxCapture(captured).includes(normalizeTmuxCapture(text));
 }
-async function paneInCopyMode(paneId, execFileAsync) {
+async function paneInCopyMode(paneId) {
   try {
     const result = await tmuxAsync(["display-message", "-t", paneId, "-p", "#{pane_in_mode}"]);
     return result.stdout.trim() === "1";
@@ -17870,21 +17889,21 @@ function shouldAttemptAdaptiveRetry(args) {
 }
 async function sendToWorker(_sessionName, paneId, message) {
   if (message.length > 200) {
-    console.warn(`[tmux-session] sendToWorker: message truncated to 200 chars`);
-    message = message.slice(0, 200);
+    console.warn(`[tmux-session] sendToWorker: message rejected (${message.length} chars exceeds 200 char limit)`);
+    return false;
   }
   try {
-    const { execFile: execFile3 } = await import("child_process");
-    const { promisify: promisify2 } = await import("util");
-    const execFileAsync = promisify2(execFile3);
+    const { execFile: execFile4 } = await import("child_process");
+    const { promisify: promisify3 } = await import("util");
+    const execFileAsync2 = promisify3(execFile4);
     const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
     const sendKey = async (key) => {
-      await execFileAsync("tmux", ["send-keys", "-t", paneId, key]);
+      await execFileAsync2("tmux", ["send-keys", "-t", paneId, key]);
     };
-    if (await paneInCopyMode(paneId, execFileAsync)) {
+    if (await paneInCopyMode(paneId)) {
       return false;
     }
-    const initialCapture = await capturePaneAsync(paneId, execFileAsync);
+    const initialCapture = await capturePaneAsync(paneId, execFileAsync2);
     const paneBusy = paneHasActiveTask(initialCapture);
     if (paneHasTrustPrompt(initialCapture)) {
       await sendKey("C-m");
@@ -17892,7 +17911,7 @@ async function sendToWorker(_sessionName, paneId, message) {
       await sendKey("C-m");
       await sleep2(200);
     }
-    await execFileAsync("tmux", ["send-keys", "-t", paneId, "-l", "--", message]);
+    await execFileAsync2("tmux", ["send-keys", "-t", paneId, "-l", "--", message]);
     await sleep2(150);
     const submitRounds = 6;
     for (let round = 0; round < submitRounds; round++) {
@@ -17907,15 +17926,15 @@ async function sendToWorker(_sessionName, paneId, message) {
         await sendKey("C-m");
       }
       await sleep2(140);
-      const checkCapture = await capturePaneAsync(paneId, execFileAsync);
+      const checkCapture = await capturePaneAsync(paneId, execFileAsync2);
       if (!paneTailContainsLiteralLine(checkCapture, message)) return true;
       await sleep2(140);
     }
-    if (await paneInCopyMode(paneId, execFileAsync)) {
+    if (await paneInCopyMode(paneId)) {
       return false;
     }
-    const finalCapture = await capturePaneAsync(paneId, execFileAsync);
-    const paneModeBeforeAdaptiveRetry = await paneInCopyMode(paneId, execFileAsync);
+    const finalCapture = await capturePaneAsync(paneId, execFileAsync2);
+    const paneModeBeforeAdaptiveRetry = await paneInCopyMode(paneId);
     if (shouldAttemptAdaptiveRetry({
       paneBusy,
       latestCapture: finalCapture,
@@ -17923,26 +17942,26 @@ async function sendToWorker(_sessionName, paneId, message) {
       paneInCopyMode: paneModeBeforeAdaptiveRetry,
       retriesAttempted: 0
     })) {
-      if (await paneInCopyMode(paneId, execFileAsync)) {
+      if (await paneInCopyMode(paneId)) {
         return false;
       }
       await sendKey("C-u");
       await sleep2(80);
-      if (await paneInCopyMode(paneId, execFileAsync)) {
+      if (await paneInCopyMode(paneId)) {
         return false;
       }
-      await execFileAsync("tmux", ["send-keys", "-t", paneId, "-l", "--", message]);
+      await execFileAsync2("tmux", ["send-keys", "-t", paneId, "-l", "--", message]);
       await sleep2(120);
       for (let round = 0; round < 4; round++) {
         await sendKey("C-m");
         await sleep2(180);
         await sendKey("C-m");
         await sleep2(140);
-        const retryCapture = await capturePaneAsync(paneId, execFileAsync);
+        const retryCapture = await capturePaneAsync(paneId, execFileAsync2);
         if (!paneTailContainsLiteralLine(retryCapture, message)) return true;
       }
     }
-    if (await paneInCopyMode(paneId, execFileAsync)) {
+    if (await paneInCopyMode(paneId)) {
       return false;
     }
     await sendKey("C-m");
@@ -17953,37 +17972,54 @@ async function sendToWorker(_sessionName, paneId, message) {
     return false;
   }
 }
+async function isWorkerAlive(paneId) {
+  try {
+    const result = await tmuxAsync([
+      "display-message",
+      "-t",
+      paneId,
+      "-p",
+      "#{pane_dead}"
+    ]);
+    return result.stdout.trim() === "0";
+  } catch {
+    return false;
+  }
+}
 async function killWorkerPanes(opts) {
   const { paneIds, leaderPaneId, teamName, cwd, graceMs = 1e4 } = opts;
   if (!paneIds.length) return;
   const shutdownPath = (0, import_path.join)(cwd, ".omc", "state", "team", teamName, "shutdown.json");
   try {
     await import_promises.default.writeFile(shutdownPath, JSON.stringify({ requestedAt: Date.now() }));
-    await sleep(graceMs);
+    const aliveChecks = await Promise.all(paneIds.map((id) => isWorkerAlive(id)));
+    if (aliveChecks.some((alive) => alive)) {
+      await sleep(graceMs);
+    }
   } catch {
   }
-  const { execFile: execFile3 } = await import("child_process");
-  const { promisify: promisify2 } = await import("util");
-  const execFileAsync = promisify2(execFile3);
+  const { execFile: execFile4 } = await import("child_process");
+  const { promisify: promisify3 } = await import("util");
+  const execFileAsync2 = promisify3(execFile4);
   for (const paneId of paneIds) {
     if (paneId === leaderPaneId) continue;
     try {
-      await execFileAsync("tmux", ["kill-pane", "-t", paneId]);
+      await execFileAsync2("tmux", ["kill-pane", "-t", paneId]);
     } catch {
     }
   }
 }
 async function killTeamSession(sessionName, workerPaneIds, leaderPaneId, options = {}) {
-  const { execFile: execFile3 } = await import("child_process");
-  const { promisify: promisify2 } = await import("util");
-  const execFileAsync = promisify2(execFile3);
+  const { execFile: execFile4 } = await import("child_process");
+  const { promisify: promisify3 } = await import("util");
+  const execFileAsync2 = promisify3(execFile4);
   const sessionMode = options.sessionMode ?? (sessionName.includes(":") ? "split-pane" : "detached-session");
   if (sessionMode === "split-pane") {
     if (!workerPaneIds?.length) return;
     for (const id of workerPaneIds) {
       if (id === leaderPaneId) continue;
       try {
-        await execFileAsync("tmux", ["kill-pane", "-t", id]);
+        await execFileAsync2("tmux", ["kill-pane", "-t", id]);
       } catch {
       }
     }
@@ -17991,7 +18027,7 @@ async function killTeamSession(sessionName, workerPaneIds, leaderPaneId, options
   }
   if (sessionMode === "dedicated-window") {
     try {
-      await execFileAsync("tmux", ["kill-window", "-t", sessionName]);
+      await execFileAsync2("tmux", ["kill-window", "-t", sessionName]);
     } catch {
     }
     return;
@@ -18008,7 +18044,7 @@ async function killTeamSession(sessionName, workerPaneIds, leaderPaneId, options
     }
   }
   try {
-    await execFileAsync("tmux", ["kill-session", "-t", sessionTarget]);
+    await execFileAsync2("tmux", ["kill-session", "-t", sessionTarget]);
   } catch {
   }
 }
@@ -18103,7 +18139,7 @@ var NudgeTracker = class {
 };
 
 // src/mcp/team-job-convergence.ts
-var import_fs2 = require("fs");
+var import_fs5 = require("fs");
 var import_path3 = require("path");
 
 // src/team/git-worktree.ts
@@ -18112,42 +18148,74 @@ var import_node_path = require("node:path");
 var import_node_child_process = require("node:child_process");
 
 // src/team/fs-utils.ts
-var import_fs = require("fs");
+var import_fs2 = require("fs");
 var import_path2 = require("path");
 function atomicWriteJson(filePath, data, mode = 384) {
   const dir = (0, import_path2.dirname)(filePath);
-  if (!(0, import_fs.existsSync)(dir)) (0, import_fs.mkdirSync)(dir, { recursive: true, mode: 448 });
+  if (!(0, import_fs2.existsSync)(dir)) (0, import_fs2.mkdirSync)(dir, { recursive: true, mode: 448 });
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
-  (0, import_fs.writeFileSync)(tmpPath, JSON.stringify(data, null, 2) + "\n", { encoding: "utf-8", mode });
-  (0, import_fs.renameSync)(tmpPath, filePath);
+  (0, import_fs2.writeFileSync)(tmpPath, JSON.stringify(data, null, 2) + "\n", { encoding: "utf-8", mode });
+  (0, import_fs2.renameSync)(tmpPath, filePath);
 }
 function ensureDirWithMode(dirPath, mode = 448) {
-  if (!(0, import_fs.existsSync)(dirPath)) (0, import_fs.mkdirSync)(dirPath, { recursive: true, mode });
+  if (!(0, import_fs2.existsSync)(dirPath)) (0, import_fs2.mkdirSync)(dirPath, { recursive: true, mode });
 }
-function canonicalizePath(p) {
-  const absInput = (0, import_path2.resolve)(p);
-  const tail = [];
-  let probe = absInput;
-  while (true) {
+function safeRealpath(p) {
+  try {
+    return (0, import_fs2.realpathSync)(p);
+  } catch {
+    const parent = (0, import_path2.dirname)(p);
+    const name = (0, import_path2.basename)(p);
     try {
-      const realBase = (0, import_fs.realpathSync)(probe);
-      return tail.reduce((acc, seg) => (0, import_path2.resolve)(acc, seg), realBase);
+      return (0, import_path2.resolve)((0, import_fs2.realpathSync)(parent), name);
     } catch {
-      const parent = (0, import_path2.dirname)(probe);
-      if (parent === probe) return absInput;
-      tail.unshift((0, import_path2.basename)(probe));
-      probe = parent;
+      return (0, import_path2.resolve)(p);
     }
   }
 }
 function validateResolvedPath(resolvedPath, expectedBase) {
-  const absResolved = canonicalizePath(resolvedPath);
-  const absBase = canonicalizePath(expectedBase);
+  const absResolved = safeRealpath(resolvedPath);
+  const absBase = safeRealpath(expectedBase);
   const rel = (0, import_path2.relative)(absBase, absResolved);
-  if (rel !== "" && (rel.startsWith("..") || (0, import_path2.isAbsolute)(rel) || (0, import_path2.resolve)(absBase, rel) !== absResolved)) {
+  if (rel.startsWith("..") || (0, import_path2.resolve)(absBase, rel) !== absResolved) {
     throw new Error(`Path traversal detected: "${resolvedPath}" escapes base "${expectedBase}"`);
   }
 }
+
+// src/lib/file-lock.ts
+var import_fs4 = require("fs");
+var path3 = __toESM(require("path"), 1);
+
+// src/lib/atomic-write.ts
+var fs2 = __toESM(require("fs/promises"), 1);
+var fsSync = __toESM(require("fs"), 1);
+var path = __toESM(require("path"), 1);
+var crypto = __toESM(require("crypto"), 1);
+
+// src/platform/index.ts
+var path2 = __toESM(require("path"), 1);
+var import_fs3 = require("fs");
+
+// src/platform/process-utils.ts
+var import_child_process3 = require("child_process");
+var import_util6 = require("util");
+var fsPromises = __toESM(require("fs/promises"), 1);
+var execFileAsync = (0, import_util6.promisify)(import_child_process3.execFile);
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && e.code === "EPERM") {
+      return true;
+    }
+    return false;
+  }
+}
+
+// src/platform/index.ts
+var PLATFORM = process.platform;
 
 // src/team/git-worktree.ts
 function getWorktreePath(repoRoot, teamName, workerName) {
@@ -18164,7 +18232,10 @@ function readMetadata(repoRoot, teamName) {
   if (!(0, import_node_fs.existsSync)(metaPath)) return [];
   try {
     return JSON.parse((0, import_node_fs.readFileSync)(metaPath, "utf-8"));
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[omc] warning: worktrees.json parse error: ${msg}
+`);
     return [];
   }
 }
@@ -18207,10 +18278,10 @@ function cleanupTeamWorktrees(teamName, repoRoot) {
 // src/mcp/team-job-convergence.ts
 function readResultArtifact(omcJobsDir, jobId) {
   const artifactPath = (0, import_path3.join)(omcJobsDir, `${jobId}-result.json`);
-  if (!(0, import_fs2.existsSync)(artifactPath)) return { kind: "none" };
+  if (!(0, import_fs5.existsSync)(artifactPath)) return { kind: "none" };
   let raw;
   try {
-    raw = (0, import_fs2.readFileSync)(artifactPath, "utf-8");
+    raw = (0, import_fs5.readFileSync)(artifactPath, "utf-8");
   } catch {
     return { kind: "none" };
   }
@@ -18263,14 +18334,6 @@ function convergeJobWithResultArtifact(job, jobId, omcJobsDir) {
 function isJobTerminal(job) {
   return job.status === "completed" || job.status === "failed" || job.status === "timeout";
 }
-function isPidAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
 function clearScopedTeamState(job) {
   if (!job.cwd || !job.teamName) {
     return "team state cleanup skipped (missing job cwd/teamName).";
@@ -18289,19 +18352,58 @@ function clearScopedTeamState(job) {
     worktreeMessage = `worktree cleanup skipped: ${error2 instanceof Error ? error2.message : String(error2)}`;
   }
   try {
-    if (!(0, import_fs2.existsSync)(stateDir)) {
+    if (!(0, import_fs5.existsSync)(stateDir)) {
       return `${worktreeMessage} team state dir not found at ${stateDir}.`;
     }
-    (0, import_fs2.rmSync)(stateDir, { recursive: true, force: true });
+    (0, import_fs5.rmSync)(stateDir, { recursive: true, force: true });
     return `${worktreeMessage} team state dir removed at ${stateDir}.`;
   } catch (error2) {
     return `${worktreeMessage} team state cleanup failed at ${stateDir}: ${error2 instanceof Error ? error2.message : String(error2)}`;
   }
 }
 
+// src/utils/paths.ts
+var import_path4 = require("path");
+var import_fs6 = require("fs");
+var import_os = require("os");
+function getStateDir() {
+  if (process.platform === "win32") {
+    return process.env.LOCALAPPDATA || (0, import_path4.join)((0, import_os.homedir)(), "AppData", "Local");
+  }
+  return process.env.XDG_STATE_HOME || (0, import_path4.join)((0, import_os.homedir)(), ".local", "state");
+}
+function prefersXdgOmcDirs() {
+  return process.platform !== "win32" && process.platform !== "darwin";
+}
+function getUserHomeDir() {
+  if (process.platform === "win32") {
+    return process.env.USERPROFILE || process.env.HOME || (0, import_os.homedir)();
+  }
+  return process.env.HOME || (0, import_os.homedir)();
+}
+function getLegacyOmcDir() {
+  return (0, import_path4.join)(getUserHomeDir(), ".omc");
+}
+function getGlobalOmcStateRoot() {
+  const explicitRoot = process.env.OMC_HOME?.trim();
+  if (explicitRoot) {
+    return (0, import_path4.join)(explicitRoot, "state");
+  }
+  if (prefersXdgOmcDirs()) {
+    return (0, import_path4.join)(getStateDir(), "omc");
+  }
+  return (0, import_path4.join)(getLegacyOmcDir(), "state");
+}
+function getGlobalOmcStatePath(...segments) {
+  return (0, import_path4.join)(getGlobalOmcStateRoot(), ...segments);
+}
+var STALE_THRESHOLD_MS = 24 * 60 * 60 * 1e3;
+
 // src/mcp/team-server.ts
+var import_meta = {};
+var __dirname = (0, import_url.fileURLToPath)(new URL(".", import_meta.url));
 var omcTeamJobs = /* @__PURE__ */ new Map();
-var OMC_JOBS_DIR = process.env.OMC_JOBS_DIR || (0, import_path4.join)((0, import_os.homedir)(), ".omc", "team-jobs");
+var OMC_JOBS_DIR = process.env.OMC_JOBS_DIR || getGlobalOmcStatePath("team-jobs");
 var DEPRECATION_CODE = "deprecated_cli_only";
 var TEAM_CLI_REPLACEMENT_HINTS = {
   omc_run_team_start: "omc team start",
@@ -18386,20 +18488,20 @@ function createDeprecatedCliOnlyEnvelopeWithArgs(toolName, args) {
 }
 function persistJob(jobId, job) {
   try {
-    if (!(0, import_fs3.existsSync)(OMC_JOBS_DIR)) (0, import_fs3.mkdirSync)(OMC_JOBS_DIR, { recursive: true });
-    (0, import_fs3.writeFileSync)((0, import_path4.join)(OMC_JOBS_DIR, `${jobId}.json`), JSON.stringify(job), "utf-8");
+    if (!(0, import_fs7.existsSync)(OMC_JOBS_DIR)) (0, import_fs7.mkdirSync)(OMC_JOBS_DIR, { recursive: true });
+    (0, import_fs7.writeFileSync)((0, import_path5.join)(OMC_JOBS_DIR, `${jobId}.json`), JSON.stringify(job), "utf-8");
   } catch {
   }
 }
 function loadJobFromDisk(jobId) {
   try {
-    return JSON.parse((0, import_fs3.readFileSync)((0, import_path4.join)(OMC_JOBS_DIR, `${jobId}.json`), "utf-8"));
+    return JSON.parse((0, import_fs7.readFileSync)((0, import_path5.join)(OMC_JOBS_DIR, `${jobId}.json`), "utf-8"));
   } catch {
     return void 0;
   }
 }
 async function loadPaneIds(jobId) {
-  const p = (0, import_path4.join)(OMC_JOBS_DIR, `${jobId}-panes.json`);
+  const p = (0, import_path5.join)(OMC_JOBS_DIR, `${jobId}-panes.json`);
   try {
     return JSON.parse(await (0, import_promises2.readFile)(p, "utf-8"));
   } catch {
@@ -18462,10 +18564,10 @@ async function handleStart(args) {
   const input = startSchema.parse(args);
   validateTeamName(input.teamName);
   const jobId = `omc-${Date.now().toString(36)}`;
-  const runtimeCliPath = (0, import_path4.join)(__dirname, "runtime-cli.cjs");
+  const runtimeCliPath = (0, import_path5.join)(__dirname, "runtime-cli.cjs");
   const job = { status: "running", startedAt: Date.now(), teamName: input.teamName, cwd: input.cwd };
   omcTeamJobs.set(jobId, job);
-  const child = (0, import_child_process3.spawn)("node", [runtimeCliPath], {
+  const child = (0, import_child_process4.spawn)("node", [runtimeCliPath], {
     env: { ...process.env, OMC_JOB_ID: jobId, OMC_JOBS_DIR },
     stdio: ["pipe", "pipe", "pipe"]
   });
@@ -18523,7 +18625,7 @@ async function handleStatus(args) {
   if (isJobTerminal(job)) {
     return makeJobResponse(job_id, job);
   }
-  if (job.pid != null && !isPidAlive(job.pid)) {
+  if (job.pid != null && !isProcessAlive(job.pid)) {
     job = saveJobState(job_id, {
       ...job,
       status: "failed",
@@ -18567,7 +18669,7 @@ async function handleWait(args) {
       }
       return out;
     }
-    if (job.pid != null && !isPidAlive(job.pid)) {
+    if (job.pid != null && !isProcessAlive(job.pid)) {
       job = saveJobState(job_id, {
         ...job,
         status: "failed",
@@ -18710,18 +18812,18 @@ var server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  if (isDeprecatedTeamToolName(name)) {
-    return createDeprecatedCliOnlyEnvelopeWithArgs(name, args);
-  }
   try {
     if (name === "omc_run_team_start") return await handleStart(args ?? {});
     if (name === "omc_run_team_status") return await handleStatus(args ?? {});
     if (name === "omc_run_team_wait") return await handleWait(args ?? {});
     if (name === "omc_run_team_cleanup") return await handleCleanup(args ?? {});
-    return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   } catch (error2) {
     return { content: [{ type: "text", text: `Error: ${error2 instanceof Error ? error2.message : String(error2)}` }], isError: true };
   }
+  if (isDeprecatedTeamToolName(name)) {
+    return createDeprecatedCliOnlyEnvelopeWithArgs(name, args);
+  }
+  return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
 });
 async function main() {
   const transport = new StdioServerTransport();

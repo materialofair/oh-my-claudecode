@@ -1,8 +1,10 @@
 /**
  * Tests for z.ai host validation, response parsing, and getUsage routing.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import * as fs from 'fs';
+import * as childProcess from 'child_process';
+import * as os from 'os';
 import { EventEmitter } from 'events';
 import { isZaiHost, parseZaiResponse, getUsage } from '../../hud/usage-api.js';
 // Mock file-lock so withFileLock always executes the callback (tests focus on routing, not locking)
@@ -31,6 +33,7 @@ vi.mock('fs', async (importOriginal) => {
 });
 vi.mock('child_process', () => ({
     execSync: vi.fn().mockImplementation(() => { throw new Error('mock: no keychain'); }),
+    execFileSync: vi.fn().mockImplementation(() => { throw new Error('mock: no keychain'); }),
 }));
 vi.mock('https', () => ({
     default: {
@@ -174,9 +177,20 @@ describe('parseZaiResponse', () => {
 });
 describe('getUsage routing', () => {
     const originalEnv = { ...process.env };
+    const originalPlatform = process.platform;
     let httpsModule;
+    beforeAll(() => {
+        Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    });
+    afterAll(() => {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    });
     beforeEach(async () => {
         vi.clearAllMocks();
+        vi.mocked(fs.existsSync).mockReturnValue(false);
+        vi.mocked(fs.readFileSync).mockReturnValue('{}');
+        vi.mocked(childProcess.execSync).mockImplementation(() => { throw new Error('mock: no keychain'); });
+        vi.mocked(childProcess.execFileSync).mockImplementation(() => { throw new Error('mock: no keychain'); });
         // Reset env
         delete process.env.ANTHROPIC_BASE_URL;
         delete process.env.ANTHROPIC_AUTH_TOKEN;
@@ -192,6 +206,119 @@ describe('getUsage routing', () => {
         expect(result.error).toBe('no_credentials');
         // No network call should be made without credentials
         expect(httpsModule.default.request).not.toHaveBeenCalled();
+    });
+    it('prefers the username-scoped keychain entry when the legacy service-only entry is expired', async () => {
+        const oneHourFromNow = Date.now() + 60 * 60 * 1000;
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        const execFileMock = vi.mocked(childProcess.execFileSync);
+        const username = os.userInfo().username;
+        execFileMock.mockImplementation((_file, args) => {
+            const argsArr = args;
+            if (argsArr && argsArr.includes('-a') && argsArr.includes(username)) {
+                return JSON.stringify({
+                    claudeAiOauth: {
+                        accessToken: 'fresh-token',
+                        refreshToken: 'fresh-refresh',
+                        expiresAt: oneHourFromNow,
+                    },
+                });
+            }
+            if (argsArr && argsArr.includes('find-generic-password') && !argsArr.includes('-a')) {
+                return JSON.stringify({
+                    claudeAiOauth: {
+                        accessToken: 'stale-token',
+                        refreshToken: 'stale-refresh',
+                        expiresAt: oneHourAgo,
+                    },
+                });
+            }
+            throw new Error(`unexpected keychain lookup: ${JSON.stringify(argsArr)}`);
+        });
+        httpsModule.default.request.mockImplementationOnce((_options, callback) => {
+            const req = new EventEmitter();
+            req.destroy = vi.fn();
+            req.end = () => {
+                const res = new EventEmitter();
+                res.statusCode = 200;
+                callback(res);
+                res.emit('data', JSON.stringify({
+                    five_hour: { utilization: 25 },
+                    seven_day: { utilization: 50 },
+                }));
+                res.emit('end');
+            };
+            return req;
+        });
+        const result = await getUsage();
+        expect(result).toEqual({
+            rateLimits: {
+                fiveHourPercent: 25,
+                weeklyPercent: 50,
+                fiveHourResetsAt: null,
+                weeklyResetsAt: null,
+            },
+        });
+        // Verify username-scoped call was made (first call includes -a <username>)
+        const calls = execFileMock.mock.calls;
+        const userScopedCall = calls.find(c => Array.isArray(c[1]) && c[1].includes('-a') && c[1].includes(username));
+        expect(userScopedCall).toBeTruthy();
+        expect(httpsModule.default.request).toHaveBeenCalledTimes(1);
+        expect(httpsModule.default.request.mock.calls[0][0].headers.Authorization).toBe('Bearer fresh-token');
+    });
+    it('falls back to the legacy service-only keychain entry when the username-scoped entry is expired', async () => {
+        const oneHourFromNow = Date.now() + 60 * 60 * 1000;
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        const execFileMock = vi.mocked(childProcess.execFileSync);
+        const username = os.userInfo().username;
+        execFileMock.mockImplementation((_file, args) => {
+            const argsArr = args;
+            if (argsArr && argsArr.includes('-a') && argsArr.includes(username)) {
+                return JSON.stringify({
+                    claudeAiOauth: {
+                        accessToken: 'expired-user-token',
+                        refreshToken: 'expired-user-refresh',
+                        expiresAt: oneHourAgo,
+                    },
+                });
+            }
+            if (argsArr && argsArr.includes('find-generic-password') && !argsArr.includes('-a')) {
+                return JSON.stringify({
+                    claudeAiOauth: {
+                        accessToken: 'fresh-legacy-token',
+                        refreshToken: 'fresh-legacy-refresh',
+                        expiresAt: oneHourFromNow,
+                    },
+                });
+            }
+            throw new Error(`unexpected keychain lookup: ${JSON.stringify(argsArr)}`);
+        });
+        httpsModule.default.request.mockImplementationOnce((_options, callback) => {
+            const req = new EventEmitter();
+            req.destroy = vi.fn();
+            req.end = () => {
+                const res = new EventEmitter();
+                res.statusCode = 200;
+                callback(res);
+                res.emit('data', JSON.stringify({
+                    five_hour: { utilization: 10 },
+                    seven_day: { utilization: 20 },
+                }));
+                res.emit('end');
+            };
+            return req;
+        });
+        const result = await getUsage();
+        expect(result).toEqual({
+            rateLimits: {
+                fiveHourPercent: 10,
+                weeklyPercent: 20,
+                fiveHourResetsAt: null,
+                weeklyResetsAt: null,
+            },
+        });
+        expect(execFileMock).toHaveBeenCalledTimes(2);
+        expect(httpsModule.default.request).toHaveBeenCalledTimes(1);
+        expect(httpsModule.default.request.mock.calls[0][0].headers.Authorization).toBe('Bearer fresh-legacy-token');
     });
     it('routes to z.ai when ANTHROPIC_BASE_URL is z.ai host', async () => {
         process.env.ANTHROPIC_BASE_URL = 'https://api.z.ai/v1';

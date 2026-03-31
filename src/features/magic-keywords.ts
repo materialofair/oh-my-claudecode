@@ -20,6 +20,46 @@ function removeCodeBlocks(text: string): string {
   return text.replace(CODE_BLOCK_PATTERN, '').replace(INLINE_CODE_PATTERN, '');
 }
 
+const INFORMATIONAL_INTENT_PATTERNS: RegExp[] = [
+  /\b(?:what(?:'s|\s+is)|what\s+are|how\s+(?:to|do\s+i)\s+use|explain|explanation|tell\s+me\s+about|describe)\b/i,
+  /(?:뭐야|무엇(?:이야|인가요)?|어떻게|설명|사용법)/u,
+  /(?:とは|って何|使い方|説明)/u,
+  /(?:什么是|什麼是|怎(?:么|樣)用|如何使用|解释|說明|说明)/u,
+];
+const INFORMATIONAL_CONTEXT_WINDOW = 80;
+
+function isInformationalKeywordContext(text: string, position: number, keywordLength: number): boolean {
+  const start = Math.max(0, position - INFORMATIONAL_CONTEXT_WINDOW);
+  const end = Math.min(text.length, position + keywordLength + INFORMATIONAL_CONTEXT_WINDOW);
+  const context = text.slice(start, end);
+  return INFORMATIONAL_INTENT_PATTERNS.some(pattern => pattern.test(context));
+}
+
+/**
+ * Escape regex metacharacters so a string matches literally inside new RegExp().
+ */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasActionableTrigger(text: string, trigger: string): boolean {
+  const pattern = new RegExp(`\\b${escapeRegExp(trigger)}\\b`, 'gi');
+
+  for (const match of text.matchAll(pattern)) {
+    if (match.index === undefined) {
+      continue;
+    }
+
+    if (isInformationalKeywordContext(text, match.index, match[0].length)) {
+      continue;
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Ultrawork Planner Section - for planner-type agents
  */
@@ -80,7 +120,7 @@ You ARE the planner. Your job: create bulletproof work plans.
 function isPlannerAgent(agentName?: string): boolean {
   if (!agentName) return false;
   const lowerName = agentName.toLowerCase();
-  return lowerName.includes('planner') || lowerName.includes('planner') || lowerName === 'plan';
+  return lowerName.includes('planner') || lowerName.includes('planning') || lowerName === 'plan';
 }
 
 /**
@@ -219,10 +259,10 @@ THE USER ASKED FOR X. DELIVER EXACTLY X. NOT A SUBSET. NOT A DEMO. NOT A STARTIN
 const ultraworkEnhancement: MagicKeyword = {
   triggers: ['ultrawork', 'ulw', 'uw'],
   description: 'Activates maximum performance mode with parallel agent orchestration',
-  action: (prompt: string) => {
+  action: (prompt: string, agentName?: string) => {
     // Remove the trigger word and add enhancement instructions
     const cleanPrompt = removeTriggerWords(prompt, ['ultrawork', 'ulw', 'uw']);
-    return getUltraworkMessage() + cleanPrompt;
+    return getUltraworkMessage(agentName) + cleanPrompt;
   }
 };
 
@@ -330,7 +370,7 @@ Use maximum cognitive effort before responding.`;
 function removeTriggerWords(prompt: string, triggers: string[]): string {
   let result = prompt;
   for (const trigger of triggers) {
-    const regex = new RegExp(`\\b${trigger}\\b`, 'gi');
+    const regex = new RegExp(`\\b${escapeRegExp(trigger)}\\b`, 'gi');
     result = result.replace(regex, '');
   }
   return result.trim();
@@ -349,8 +389,8 @@ export const builtInMagicKeywords: MagicKeyword[] = [
 /**
  * Create a magic keyword processor with custom triggers
  */
-export function createMagicKeywordProcessor(config?: PluginConfig['magicKeywords']): (prompt: string) => string {
-  const keywords = [...builtInMagicKeywords];
+export function createMagicKeywordProcessor(config?: PluginConfig['magicKeywords']): (prompt: string, agentName?: string) => string {
+  const keywords = builtInMagicKeywords.map(k => ({ ...k, triggers: [...k.triggers] }));
 
   // Override triggers from config
   if (config) {
@@ -380,17 +420,16 @@ export function createMagicKeywordProcessor(config?: PluginConfig['magicKeywords
     }
   }
 
-  return (prompt: string): string => {
+  return (prompt: string, agentName?: string): string => {
     let result = prompt;
 
     for (const keyword of keywords) {
       const hasKeyword = keyword.triggers.some(trigger => {
-        const regex = new RegExp(`\\b${trigger}\\b`, 'i');
-        return regex.test(removeCodeBlocks(result));
+        return hasActionableTrigger(removeCodeBlocks(result), trigger);
       });
 
       if (hasKeyword) {
-        result = keyword.action(result);
+        result = keyword.action(result, agentName);
       }
     }
 
@@ -403,7 +442,7 @@ export function createMagicKeywordProcessor(config?: PluginConfig['magicKeywords
  */
 export function detectMagicKeywords(prompt: string, config?: PluginConfig['magicKeywords']): string[] {
   const detected: string[] = [];
-  const keywords = [...builtInMagicKeywords];
+  const keywords = builtInMagicKeywords.map(k => ({ ...k, triggers: [...k.triggers] }));
   const cleanedPrompt = removeCodeBlocks(prompt);
 
   // Apply config overrides
@@ -428,8 +467,7 @@ export function detectMagicKeywords(prompt: string, config?: PluginConfig['magic
 
   for (const keyword of keywords) {
     for (const trigger of keyword.triggers) {
-      const regex = new RegExp(`\\b${trigger}\\b`, 'i');
-      if (regex.test(cleanedPrompt)) {
+      if (hasActionableTrigger(cleanedPrompt, trigger)) {
         detected.push(trigger);
         break;
       }

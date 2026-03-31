@@ -15,8 +15,9 @@
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'fs';
 import { getClaudeConfigDir } from '../utils/paths.js';
 import { join, dirname } from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
+import { userInfo } from 'os';
 import https from 'https';
 import { validateAnthropicBaseUrl } from '../utils/ssrf-guard.js';
 import {
@@ -225,7 +226,7 @@ function getRateLimitedBackoffMs(pollIntervalMs: number, count: number): number 
   const normalizedPollIntervalMs = sanitizePollIntervalMs(pollIntervalMs);
   return Math.min(
     normalizedPollIntervalMs * Math.pow(2, Math.max(0, count - 1)),
-    Math.max(MAX_RATE_LIMITED_BACKOFF_MS, normalizedPollIntervalMs),
+    MAX_RATE_LIMITED_BACKOFF_MS,
   );
 }
 
@@ -317,18 +318,20 @@ function getKeychainServiceName(): string {
   return 'Claude Code-credentials';
 }
 
-/**
- * Read OAuth credentials from macOS Keychain
- */
-function readKeychainCredentials(): OAuthCredentials | null {
-  if (process.platform !== 'darwin') return null;
+function isCredentialExpired(creds: OAuthCredentials): boolean {
+  return creds.expiresAt != null && creds.expiresAt <= Date.now();
+}
 
+function readKeychainCredential(serviceName: string, account?: string): OAuthCredentials | null {
   try {
-    const serviceName = getKeychainServiceName();
-    const result = execSync(
-      `/usr/bin/security find-generic-password -s "${serviceName}" -w 2>/dev/null`,
-      { encoding: 'utf-8', timeout: 2000 }
-    ).trim();
+    const args = account
+      ? ['find-generic-password', '-s', serviceName, '-a', account, '-w']
+      : ['find-generic-password', '-s', serviceName, '-w'];
+    const result = execFileSync('/usr/bin/security', args, {
+      encoding: 'utf-8',
+      timeout: 2000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
 
     if (!result) return null;
 
@@ -337,19 +340,53 @@ function readKeychainCredentials(): OAuthCredentials | null {
     // Handle nested structure (claudeAiOauth wrapper)
     const creds = parsed.claudeAiOauth || parsed;
 
-    if (creds.accessToken) {
-      return {
-        accessToken: creds.accessToken,
-        expiresAt: creds.expiresAt,
-        refreshToken: creds.refreshToken,
-        source: 'keychain' as const,
-      };
+    if (!creds.accessToken) return null;
+
+    return {
+      accessToken: creds.accessToken,
+      expiresAt: creds.expiresAt,
+      refreshToken: creds.refreshToken,
+      source: 'keychain' as const,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read OAuth credentials from macOS Keychain
+ */
+function readKeychainCredentials(): OAuthCredentials | null {
+  if (process.platform !== 'darwin') return null;
+
+  const serviceName = getKeychainServiceName();
+  const candidateAccounts: Array<string | undefined> = [];
+
+  try {
+    const username = userInfo().username?.trim();
+    if (username) {
+      candidateAccounts.push(username);
     }
   } catch {
-    // Keychain access failed
+    // Best-effort only; fall back to the legacy service-only lookup below.
   }
 
-  return null;
+  candidateAccounts.push(undefined);
+
+  let expiredFallback: OAuthCredentials | null = null;
+
+  for (const account of candidateAccounts) {
+    const creds = readKeychainCredential(serviceName, account);
+    if (!creds) continue;
+
+    if (!isCredentialExpired(creds)) {
+      return creds;
+    }
+
+    expiredFallback ??= creds;
+  }
+
+  return expiredFallback;
 }
 
 /**
@@ -399,12 +436,7 @@ function getCredentials(): OAuthCredentials | null {
 function validateCredentials(creds: OAuthCredentials): boolean {
   if (!creds.accessToken) return false;
 
-  if (creds.expiresAt != null) {
-    const now = Date.now();
-    if (creds.expiresAt <= now) return false;
-  }
-
-  return true;
+  return !isCredentialExpired(creds);
 }
 
 /**

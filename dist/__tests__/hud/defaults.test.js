@@ -24,6 +24,12 @@ describe('HUD Default Configuration', () => {
         it('should default wrapMode to truncate', () => {
             expect(DEFAULT_HUD_CONFIG.wrapMode).toBe('truncate');
         });
+        it('should default session duration display to enabled', () => {
+            expect(DEFAULT_HUD_CONFIG.elements.showSessionDuration).toBe(true);
+        });
+        it('should keep token usage display optional by default', () => {
+            expect(DEFAULT_HUD_CONFIG.elements.showTokens).toBe(false);
+        });
     });
     describe('PRESET_CONFIGS', () => {
         const presets = ['minimal', 'focused', 'full', 'opencode', 'dense'];
@@ -53,6 +59,11 @@ describe('HUD Default Configuration', () => {
         it('should have model disabled in all presets', () => {
             presets.forEach(preset => {
                 expect(PRESET_CONFIGS[preset].model).toBe(false);
+            });
+        });
+        it('should keep token usage display disabled in all presets', () => {
+            presets.forEach(preset => {
+                expect(PRESET_CONFIGS[preset].showTokens).toBe(false);
             });
         });
     });

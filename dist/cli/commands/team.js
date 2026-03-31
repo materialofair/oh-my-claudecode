@@ -65,6 +65,7 @@ const TEAM_API_OPERATION_REQUIRED_FIELDS = {
     'append-event': ['team_name', 'type', 'worker'],
     'get-summary': ['team_name'],
     'cleanup': ['team_name'],
+    'orphan-cleanup': ['team_name'],
     'write-shutdown-request': ['team_name', 'worker', 'requested_by'],
     'read-shutdown-ack': ['team_name', 'worker'],
     'read-monitor-snapshot': ['team_name'],
@@ -89,6 +90,87 @@ const TEAM_API_OPERATION_NOTES = {
     'release-task-claim': 'Use this only for rollback/requeue to pending (not for completion).',
     'transition-task-status': 'Lifecycle flow is claim-safe and typically transitions in_progress -> completed|failed.',
 };
+const NUMBERED_LINE_RE = /^\s*\d+[.)]\s+(.+)$/;
+const BULLETED_LINE_RE = /^\s*[-*•]\s+(.+)$/;
+// Conjunction split: "fix auth AND fix login AND fix logout" or "fix auth, fix login, and fix logout"
+const CONJUNCTION_SPLIT_RE = /\s+(?:and|,\s*and|,)\s+/i;
+/** Signals that a task is atomic (contains file refs, code symbols, or parallel keywords) */
+const PARALLELIZATION_KEYWORDS_RE = /\b(?:parallel|concurrently|simultaneously|at the same time|independently)\b/i;
+const FILE_REF_RE = /\b\S+\.\w{1,6}\b/g;
+const CODE_SYMBOL_RE = /`[^`]+`/g;
+/**
+ * Count atomic parallelization signals in a task string.
+ * Returns true when the task should NOT be decomposed (it's already atomic or tightly coupled).
+ */
+export function hasAtomicParallelizationSignals(task, _size) {
+    const fileRefs = (task.match(FILE_REF_RE) || []).length;
+    const codeSymbols = (task.match(CODE_SYMBOL_RE) || []).length;
+    const parallelKw = PARALLELIZATION_KEYWORDS_RE.test(task);
+    // Treat as atomic when many specific file/symbol refs present (tightly coupled)
+    return fileRefs >= 3 || codeSymbols >= 3 || parallelKw;
+}
+/**
+ * Resolve the effective worker count fanout limit for decomposed tasks.
+ * Caps worker count to the number of discovered subtasks when decomposition produces fewer items.
+ */
+export function resolveTeamFanoutLimit(requestedWorkerCount, _explicitAgentType, _explicitWorkerCount, plan) {
+    if (plan.strategy === 'atomic')
+        return requestedWorkerCount;
+    const subtaskCount = plan.subtasks.length;
+    if (subtaskCount > 0 && subtaskCount < requestedWorkerCount) {
+        return subtaskCount;
+    }
+    return requestedWorkerCount;
+}
+/**
+ * Decompose a task string into a structured plan.
+ *
+ * Detects:
+ * - Numbered list: "1. fix auth\n2. fix login"
+ * - Bulleted list: "- fix auth\n- fix login"
+ * - Conjunction: "fix auth and fix login and fix logout"
+ * - Atomic: single task, no decomposition
+ */
+export function splitTaskString(task) {
+    const lines = task.split('\n').map(l => l.trim()).filter(Boolean);
+    // Check numbered list
+    if (lines.length >= 2 && lines.every(l => NUMBERED_LINE_RE.test(l))) {
+        return {
+            strategy: 'numbered',
+            subtasks: lines.map(l => {
+                const m = l.match(NUMBERED_LINE_RE);
+                const subject = m[1].trim();
+                return { subject: subject.slice(0, 80), description: subject };
+            }),
+        };
+    }
+    // Check bulleted list
+    if (lines.length >= 2 && lines.every(l => BULLETED_LINE_RE.test(l))) {
+        return {
+            strategy: 'bulleted',
+            subtasks: lines.map(l => {
+                const m = l.match(BULLETED_LINE_RE);
+                const subject = m[1].trim();
+                return { subject: subject.slice(0, 80), description: subject };
+            }),
+        };
+    }
+    // Check conjunction split (single line with "and" or commas)
+    if (lines.length === 1) {
+        const parts = lines[0].split(CONJUNCTION_SPLIT_RE).map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+            return {
+                strategy: 'conjunction',
+                subtasks: parts.map(p => ({ subject: p.slice(0, 80), description: p })),
+            };
+        }
+    }
+    // Atomic: no decomposition
+    return {
+        strategy: 'atomic',
+        subtasks: [{ subject: task.slice(0, 80), description: task }],
+    };
+}
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -107,12 +189,31 @@ function getTeamWorkerIdentityFromEnv(env = process.env) {
     const omx = typeof env.OMX_TEAM_WORKER === 'string' ? env.OMX_TEAM_WORKER.trim() : '';
     return omx || null;
 }
-function assertTeamSpawnAllowed(env = process.env) {
+export async function assertTeamSpawnAllowed(cwd, env = process.env) {
     const workerIdentity = getTeamWorkerIdentityFromEnv(env);
-    if (!workerIdentity)
+    const { teamReadManifest } = await import('../../team/team-ops.js');
+    const { findActiveTeamsV2 } = await import('../../team/runtime-v2.js');
+    const { DEFAULT_TEAM_GOVERNANCE, normalizeTeamGovernance } = await import('../../team/governance.js');
+    if (workerIdentity) {
+        const [parentTeamName] = workerIdentity.split('/');
+        const parentManifest = parentTeamName ? await teamReadManifest(parentTeamName, cwd) : null;
+        const governance = normalizeTeamGovernance(parentManifest?.governance, parentManifest?.policy);
+        if (!governance.nested_teams_allowed) {
+            throw new Error(`Worker context (${workerIdentity}) cannot start nested teams because nested_teams_allowed is false.`);
+        }
+        if (!governance.delegation_only) {
+            throw new Error(`Worker context (${workerIdentity}) cannot start nested teams because delegation_only is false.`);
+        }
         return;
-    throw new Error(`Worker context (${workerIdentity}) cannot start/spawn new teams. ` +
-        `Use only "omc team api ..." operations from worker sessions.`);
+    }
+    const activeTeams = await findActiveTeamsV2(cwd);
+    for (const activeTeam of activeTeams) {
+        const manifest = await teamReadManifest(activeTeam, cwd);
+        const governance = normalizeTeamGovernance(manifest?.governance, manifest?.policy);
+        if (governance.one_team_per_leader_session ?? DEFAULT_TEAM_GOVERNANCE.one_team_per_leader_session) {
+            throw new Error(`Leader session already owns active team "${activeTeam}" and one_team_per_leader_session is enabled.`);
+        }
+    }
 }
 /** Regex for a single worker spec segment: N[:type[:role]] */
 const SINGLE_SPEC_RE = /^(\d+)(?::([a-z][a-z0-9-]*)(?::([a-z][a-z0-9-]*))?)?$/i;
@@ -121,6 +222,7 @@ export function parseTeamArgs(tokens) {
     const args = [...tokens];
     let workerCount = 3;
     let agentTypes = [];
+    let workerSpecs = [];
     let json = false;
     let newWindow = false;
     // Extract supported flags before parsing positional args
@@ -162,6 +264,7 @@ export function parseTeamArgs(tokens) {
                 workerCount += seg.count;
                 for (let i = 0; i < seg.count; i++) {
                     agentTypes.push(seg.type);
+                    workerSpecs.push({ agentType: seg.type, ...(seg.role ? { role: seg.role } : {}) });
                 }
             }
             if (workerCount > MAX_WORKER_COUNT) {
@@ -189,19 +292,34 @@ export function parseTeamArgs(tokens) {
             if (match[3])
                 role = match[3];
             agentTypes = Array.from({ length: workerCount }, () => type);
+            workerSpecs = Array.from({ length: workerCount }, () => ({ agentType: type, ...(role ? { role } : {}) }));
             filteredArgs.shift();
         }
     }
     // Default: 3 claude workers if no spec matched
     if (agentTypes.length === 0) {
         agentTypes = Array.from({ length: workerCount }, () => 'claude');
+        workerSpecs = Array.from({ length: workerCount }, () => ({ agentType: 'claude' }));
     }
     const task = filteredArgs.join(' ').trim();
     if (!task) {
         throw new Error('Usage: omc team [N:agent-type] "<task description>"');
     }
     const teamName = slugifyTask(task);
-    return { workerCount, agentTypes, role, task, teamName, json, newWindow };
+    return { workerCount, agentTypes, workerSpecs, role, task, teamName, json, newWindow };
+}
+export function buildStartupTasks(parsed) {
+    return Array.from({ length: parsed.workerCount }, (_, index) => {
+        const workerSpec = parsed.workerSpecs[index];
+        const roleLabel = workerSpec?.role ? ` (${workerSpec.role})` : '';
+        return {
+            subject: parsed.workerCount === 1
+                ? parsed.task.slice(0, 80)
+                : `Worker ${index + 1}${roleLabel}: ${parsed.task}`.slice(0, 80),
+            description: parsed.task,
+            ...(workerSpec?.role ? { owner: `worker-${index + 1}` } : {}),
+        };
+    });
 }
 function sampleValueForField(field) {
     switch (field) {
@@ -322,17 +440,34 @@ function parseTeamApiArgs(args) {
 // Team start (spawns tmux workers)
 // ---------------------------------------------------------------------------
 async function handleTeamStart(parsed, cwd) {
-    assertTeamSpawnAllowed();
-    // Create tasks from the task description (one per worker, like OMX)
+    await assertTeamSpawnAllowed(cwd);
+    // Decompose the task string into subtasks when possible
+    const decomposition = splitTaskString(parsed.task);
+    const effectiveWorkerCount = resolveTeamFanoutLimit(parsed.workerCount, parsed.agentTypes[0], parsed.workerCount, decomposition);
+    // Build the task list from decomposition subtasks or fall back to atomic replication
     const tasks = [];
-    for (let i = 0; i < parsed.workerCount; i++) {
-        tasks.push({
-            subject: parsed.workerCount === 1
-                ? parsed.task.slice(0, 80)
-                : `Worker ${i + 1}: ${parsed.task}`.slice(0, 80),
-            description: parsed.task,
-            owner: `worker-${i + 1}`,
-        });
+    if (decomposition.strategy !== 'atomic' && decomposition.subtasks.length > 1) {
+        // Use decomposed subtasks — one per subtask (up to effectiveWorkerCount)
+        const subtasks = decomposition.subtasks.slice(0, effectiveWorkerCount);
+        for (let i = 0; i < subtasks.length; i++) {
+            tasks.push({
+                subject: subtasks[i].subject,
+                description: subtasks[i].description,
+                owner: `worker-${i + 1}`,
+            });
+        }
+    }
+    else {
+        // Atomic task: replicate across all workers (backward compatible)
+        for (let i = 0; i < effectiveWorkerCount; i++) {
+            tasks.push({
+                subject: effectiveWorkerCount === 1
+                    ? parsed.task.slice(0, 80)
+                    : `Worker ${i + 1}: ${parsed.task}`.slice(0, 80),
+                description: parsed.task,
+                owner: `worker-${i + 1}`,
+            });
+        }
     }
     // Load role prompt if a role was specified (e.g., 3:codex:architect)
     let rolePrompt;
@@ -346,11 +481,12 @@ async function handleTeamStart(parsed, cwd) {
         const { startTeamV2, monitorTeamV2 } = await import('../../team/runtime-v2.js');
         const runtime = await startTeamV2({
             teamName: parsed.teamName,
-            workerCount: parsed.workerCount,
-            agentTypes: parsed.agentTypes,
+            workerCount: effectiveWorkerCount,
+            agentTypes: parsed.agentTypes.slice(0, effectiveWorkerCount),
             tasks,
             cwd,
             newWindow: parsed.newWindow,
+            workerRoles: parsed.workerSpecs.map((spec) => spec.role ?? spec.agentType),
             ...(rolePrompt ? { roleName: parsed.role, rolePrompt } : {}),
         });
         const uniqueTypes = [...new Set(parsed.agentTypes)].join(',');
@@ -379,8 +515,8 @@ async function handleTeamStart(parsed, cwd) {
     const { startTeam, monitorTeam } = await import('../../team/runtime.js');
     const runtime = await startTeam({
         teamName: parsed.teamName,
-        workerCount: parsed.workerCount,
-        agentTypes: parsed.agentTypes,
+        workerCount: effectiveWorkerCount,
+        agentTypes: parsed.agentTypes.slice(0, effectiveWorkerCount),
         tasks,
         cwd,
         newWindow: parsed.newWindow,
@@ -419,14 +555,37 @@ async function handleTeamStatus(teamName, cwd) {
     const { isRuntimeV2Enabled } = await import('../../team/runtime-v2.js');
     if (isRuntimeV2Enabled()) {
         const { monitorTeamV2 } = await import('../../team/runtime-v2.js');
+        const { deriveTeamLeaderGuidance } = await import('../../team/leader-nudge-guidance.js');
+        const { readTeamEventsByType } = await import('../../team/events.js');
         const snapshot = await monitorTeamV2(teamName, cwd);
         if (!snapshot) {
             console.log(`No team state found for ${teamName}`);
             return;
         }
+        const leaderGuidance = deriveTeamLeaderGuidance({
+            tasks: {
+                pending: snapshot.tasks.pending,
+                blocked: snapshot.tasks.blocked,
+                inProgress: snapshot.tasks.in_progress,
+                completed: snapshot.tasks.completed,
+                failed: snapshot.tasks.failed,
+            },
+            workers: {
+                total: snapshot.workers.length,
+                alive: snapshot.workers.filter((worker) => worker.alive).length,
+                idle: snapshot.workers.filter((worker) => worker.alive && (worker.status.state === 'idle' || worker.status.state === 'done')).length,
+                nonReporting: snapshot.nonReportingWorkers.length,
+            },
+        });
+        const latestLeaderNudge = (await readTeamEventsByType(teamName, 'team_leader_nudge', cwd)).at(-1);
         console.log(`team=${snapshot.teamName} phase=${snapshot.phase}`);
         console.log(`workers: total=${snapshot.workers.length}`);
         console.log(`tasks: total=${snapshot.tasks.total} pending=${snapshot.tasks.pending} blocked=${snapshot.tasks.blocked} in_progress=${snapshot.tasks.in_progress} completed=${snapshot.tasks.completed} failed=${snapshot.tasks.failed}`);
+        console.log(`leader_next_action=${leaderGuidance.nextAction}`);
+        console.log(`leader_guidance=${leaderGuidance.message}`);
+        if (latestLeaderNudge) {
+            console.log(`latest_leader_nudge action=${latestLeaderNudge.next_action ?? 'unknown'} at=${latestLeaderNudge.created_at} reason=${latestLeaderNudge.reason ?? 'n/a'}`);
+        }
         return;
     }
     // v1 fallback

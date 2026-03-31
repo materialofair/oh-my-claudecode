@@ -175,6 +175,8 @@ describe('HUD Windows Compatibility', () => {
       expect(content).toContain("node -e");
       // Should use path.join for constructing paths
       expect(content).toContain("p.join(d,'plugins','cache','omc','oh-my-claudecode')");
+      expect(content).not.toContain('ls ~/.claude/CLAUDE-*.md');
+      expect(content).toContain("find \"$HOME/.claude\" -maxdepth 1 -type f -name 'CLAUDE-*.md' -print 2>/dev/null");
     });
 
     it('hud skill should use cross-platform Node.js commands for plugin detection', () => {
@@ -186,6 +188,17 @@ describe('HUD Windows Compatibility', () => {
       expect(content).not.toMatch(/sort -V/);
       // Should use node for cross-platform path resolution
       expect(content).toContain("node -e");
+    });
+
+    it('hud skill should normalize statusLine command paths to forward slashes', () => {
+      const hudPath = join(packageRoot, 'skills', 'hud', 'SKILL.md');
+      const content = readFileSync(hudPath, 'utf-8');
+
+      expect(content).toContain(".split(require('path').sep).join('/')");
+      expect(content).toContain('The command path MUST use forward slashes on all platforms');
+      expect(content).toContain('On Windows the path uses forward slashes (not backslashes):');
+      expect(content).toContain('"command": "node C:/Users/username/.claude/hud/omc-hud.mjs"');
+      expect(content).not.toContain('"command": "node C:\\Users\\username\\.claude\\hud\\omc-hud.mjs"');
     });
 
     it('usage-api should use path.join with separate segments', () => {

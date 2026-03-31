@@ -7,6 +7,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
+[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/PUwSMR9XNk)
 
 > **Codex ユーザーの方へ:** [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) をチェックしてください — OpenAI Codex CLI 向けの同じオーケストレーション体験を提供します。
 
@@ -167,6 +168,31 @@ omc doctor
 - **HUD ステータスライン** - ステータスバーでリアルタイムのオーケストレーション指標を表示
 - **スキル学習** - セッションから再利用可能なパターンを抽出
 - **分析とコスト追跡** - 全セッションのトークン使用状況を把握
+
+### カスタムスキル
+
+一度学んだことを永遠に再利用。OMC はデバッグで得た実践的な知識をポータブルなスキルファイルに抽出し、関連する場面で自動的に注入します。
+
+| | プロジェクトスコープ | ユーザースコープ |
+|---|---|---|
+| **パス** | `.omc/skills/` | `~/.omc/skills/` |
+| **共有先** | チーム（バージョン管理対象） | すべてのプロジェクトで利用可能 |
+| **優先度** | 高（ユーザースコープを上書き） | 低（フォールバック） |
+
+```yaml
+# .omc/skills/fix-proxy-crash.md
+---
+name: Fix Proxy Crash
+description: aiohttp proxy crashes on ClientDisconnectedError
+triggers: ["proxy", "aiohttp", "disconnected"]
+source: extracted
+---
+server.py:42 のハンドラーを try/except ClientDisconnectedError で囲んでください...
+```
+
+**スキル管理：** `/skill list | add | remove | edit | search`
+**自動学習：** `/learner` が厳格な品質基準で再利用可能なパターンを抽出します
+**自動注入：** マッチするスキルが自動的にコンテキストに読み込まれます — 手動呼び出し不要
 
 [全機能リスト →](docs/REFERENCE.md)
 

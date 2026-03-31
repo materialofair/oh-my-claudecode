@@ -2,25 +2,20 @@ English | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](READM
 
 # oh-my-claudecode
 
-[![npm version](https://img.shields.io/npm/v/claudecode-omc?color=cb3837)](https://www.npmjs.com/package/claudecode-omc)
-[![npm downloads](https://img.shields.io/npm/dm/claudecode-omc?color=blue)](https://www.npmjs.com/package/claudecode-omc)
+[![npm version](https://img.shields.io/npm/v/oh-my-claude-sisyphus?color=cb3837)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
+[![npm downloads](https://img.shields.io/npm/dm/oh-my-claude-sisyphus?color=blue)](https://www.npmjs.com/package/oh-my-claude-sisyphus)
 [![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4%EF%B8%8F-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
+[![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
+[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/PUwSMR9XNk)
 
-Multi-agent orchestration for Claude Code with zero-friction setup.
+> **For Codex users:** Check out [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) — the same orchestration experience for OpenAI Codex CLI.
 
-[Quick Start](#quick-start) • [Reference](docs/REFERENCE.md) • [Architecture](docs/ARCHITECTURE.md) • [Migration](docs/MIGRATION.md)
+**Multi-agent orchestration for Claude Code. Zero learning curve.**
 
 _Don't learn Claude Code. Just use OMC._
 
-## What Changed
-
-This project is branded as **oh-my-claudecode**, and the npm package is published as **`claudecode-omc`**.
-
-- Legacy plugin-marketplace install flow is no longer the primary path in this README.
-- Use npm package installation and OMC CLI setup commands.
-- Multiple executable entrypoints are provided from the same package.
+[Get Started](#quick-start) • [Documentation](https://yeachan-heo.github.io/oh-my-claudecode-website) • [CLI Reference](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference) • [Workflows](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows) • [Migration Guide](docs/MIGRATION.md) • [Discord](https://discord.gg/PUwSMR9XNk)
 
 ---
 
@@ -28,8 +23,17 @@ This project is branded as **oh-my-claudecode**, and the npm package is publishe
 
 **Step 1: Install**
 
+Marketplace/plugin install (recommended for most Claude Code users):
+
 ```bash
-npm install -g claudecode-omc
+/plugin marketplace add https://github.com/Yeachan-Heo/oh-my-claudecode
+/plugin install oh-my-claudecode
+```
+
+If you prefer the npm CLI/runtime path instead of the marketplace flow:
+
+```bash
+npm i -g oh-my-claude-sisyphus@latest
 ```
 
 **Step 2: Setup**
@@ -45,39 +49,7 @@ npm install -g claudecode-omc
 autopilot: build a REST API for managing tasks
 ```
 
----
-
-## Package and CLI Entrypoints
-
-`claudecode-omc` exposes multiple command names:
-
-- `omc` (primary)
-- `oh-my-claudecode` (alias)
-- `omc-cli` (alias)
-- `omc-analytics` (analytics-focused entry)
-
-Check installed version:
-
-```bash
-omc version
-```
-
----
-
-## Update
-
-```bash
-npm install -g claudecode-omc@latest
-omc setup
-```
-
-If needed, run diagnostics:
-
-```bash
-omc doctor
-```
-
----
+That's it. Everything else is automatic.
 
 ### Not Sure Where to Start?
 
@@ -93,15 +65,15 @@ The deep interview uses Socratic questioning to clarify your thinking before any
 
 Starting in **v4.1.7**, **Team** is the canonical orchestration surface in OMC. The legacy `swarm` keyword/skill has been removed; use `team` directly.
 
-```text
-team 3:executor "fix all TypeScript errors"
+```bash
+/team 3:executor "fix all TypeScript errors"
 ```
 
-Pipeline:
+Team runs as a staged pipeline:
 
-`team-plan -> team-prd -> team-exec -> team-verify -> team-fix (loop)`
+`team-plan → team-prd → team-exec → team-verify → team-fix (loop)`
 
-To enable Claude Code native teams, add this to `~/.claude/settings.json`:
+Enable Claude Code native teams in `~/.claude/settings.json`:
 
 ```json
 {
@@ -111,9 +83,9 @@ To enable Claude Code native teams, add this to `~/.claude/settings.json`:
 }
 ```
 
----
+> If teams are disabled, OMC will warn you and fall back to non-team execution where possible.
 
-## Core Features
+### tmux CLI Workers — Codex & Gemini (v4.4.0+)
 
 **v4.4.0 removes the Codex/Gemini MCP servers** (`x`, `g` providers). Use the CLI-first Team runtime (`omc team ...`) to spawn real tmux worker panes:
 
@@ -142,17 +114,17 @@ For mixed Codex + Gemini work in one command, use the **`/ccg`** skill (routes v
 
 Workers spawn on-demand and die when their task completes — no idle resource usage. Requires `codex` / `gemini` CLIs installed and an active tmux session.
 
-> **Note: Package naming** — The project is branded as **oh-my-claudecode** (repo, plugin, commands), and the npm package is published as [`claudecode-omc`](https://www.npmjs.com/package/claudecode-omc). If you install or upgrade the CLI tools via npm/bun, use `npm i -g claudecode-omc@latest`.
+> **Note: Package naming** — The project is branded as **oh-my-claudecode** (repo, plugin, commands), but the npm package is published as [`oh-my-claude-sisyphus`](https://www.npmjs.com/package/oh-my-claude-sisyphus). If you install or upgrade the CLI tools via npm/bun, use `npm i -g oh-my-claude-sisyphus@latest`.
 
 ### Updating
 
 If you installed OMC via npm, upgrade with the published package name:
 
 ```bash
-npm i -g claudecode-omc@latest
+npm i -g oh-my-claude-sisyphus@latest
 ```
 
-> **Package naming note:** the repo, plugin, and commands are branded **oh-my-claudecode**, but the published npm package name is `claudecode-omc`.
+> **Package naming note:** the repo, plugin, and commands are branded **oh-my-claudecode**, but the published npm package name remains `oh-my-claude-sisyphus`.
 
 If you installed OMC via the Claude Code marketplace/plugin flow, update with:
 
@@ -161,8 +133,10 @@ If you installed OMC via the Claude Code marketplace/plugin flow, update with:
 /plugin marketplace update omc
 
 # 2. Re-run setup to refresh configuration
-/omc-setup
+/setup
 ```
+
+If you are developing from a local checkout or git worktree, update the checkout first, then re-run setup from that worktree so the active runtime matches the code you are testing.
 
 > **Note:** If marketplace auto-update is not enabled, you must manually run `/plugin marketplace update omc` to sync the latest version before running setup.
 
@@ -223,6 +197,31 @@ Multiple strategies for different use cases — from Team-backed orchestration t
 - **Skill learning** - Extract reusable patterns from your sessions
 - **Analytics & cost tracking** - Understand token usage across all sessions
 
+### Custom Skills
+
+Learn once, reuse forever. OMC extracts hard-won debugging knowledge into portable skill files that auto-inject when relevant.
+
+| | Project Scope | User Scope |
+|---|---|---|
+| **Path** | `.omc/skills/` | `~/.omc/skills/` |
+| **Shared with** | Team (version-controlled) | All your projects |
+| **Priority** | Higher (overrides user) | Lower (fallback) |
+
+```yaml
+# .omc/skills/fix-proxy-crash.md
+---
+name: Fix Proxy Crash
+description: aiohttp proxy crashes on ClientDisconnectedError
+triggers: ["proxy", "aiohttp", "disconnected"]
+source: extracted
+---
+Wrap handler at server.py:42 in try/except ClientDisconnectedError...
+```
+
+**Manage skills:** `/skill list | add | remove | edit | search`
+**Auto-learn:** `/learner` extracts reusable patterns with strict quality gates
+**Auto-inject:** Matching skills load into context automatically — no manual recall needed
+
 [Full feature list →](docs/REFERENCE.md)
 
 ---
@@ -276,13 +275,9 @@ Phase-1 aliases `OMX_ASK_ADVISOR_SCRIPT` and `OMX_ASK_ORIGINAL_TASK` are accepte
 Auto-resume Claude Code sessions when rate limits reset.
 
 ```bash
-omc --help
-omc install
-omc setup
-omc update
-omc wait
-omc config-stop-callback --help
-omc hud
+omc wait          # Check status, get guidance
+omc wait --start  # Enable auto-resume daemon
+omc wait --stop   # Disable daemon
 ```
 
 **Requires:** tmux (for session detection)
@@ -381,60 +376,10 @@ See `scripts/openclaw-gateway-demo.mjs` for a reference gateway that relays Open
 
 ---
 
-## Testing
-
-oh-my-claudecode now supports advanced test generation across multiple languages:
-
-```bash
-# Node.js/TypeScript
-omc test gen src/utils/math.ts
-
-# Python
-omc test gen src/utils/math.py
-
-# Go
-omc test gen pkg/math/math.go
-
-# Rust
-omc test gen src/math.rs
-
-# Coverage analysis
-omc test analyze
-
-# Contract testing
-omc test contract api/openapi.yaml
-
-# Detect project tech stack
-omc test detect-stack
-
-# Phase 3: Advanced features
-omc test promptfoo src/prompts/code-review.txt
-omc test e2e "User logs in, navigates to dashboard"
-omc test giskard src/models/classifier.ts
-omc test cicd -l nodejs
-omc test quality tests/utils/parser.test.ts
-
-# Use the skill for advanced features
-/test-gen src/services/payment.ts --coverage-analysis
-```
-
-**Features:**
-- Multi-language support (Node.js, Python, Go, Rust)
-- Coverage analysis and gap identification
-- Complexity-based test generation routing
-- API contract testing (Pact/Supertest/MSW)
-- **Phase 3**: Promptfoo LLM testing, E2E generation, Giskard behavioral tests, CI/CD workflows, test quality scoring
-- Integrated with `/ultraqa`, `/tdd`, and `/autopilot` workflows
-
-See [Testing Documentation](docs/testing/README.md) for details.
-
----
-
 ## Documentation
 
 - **[Full Reference](docs/REFERENCE.md)** - Complete feature documentation
 - **[CLI Reference](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference)** - All `omc` commands, flags, and tools
-- **[Testing Guide](docs/testing/README.md)** - LLM-driven test generation system
 - **[Notifications Guide](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#notifications)** - Discord, Telegram, Slack, and webhook setup
 - **[Recommended Workflows](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows)** - Battle-tested skill chains for common tasks
 - **[Release Notes](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#release-notes)** - What's new in each version
@@ -447,9 +392,8 @@ See [Testing Documentation](docs/testing/README.md) for details.
 
 ## Requirements
 
-- Node.js 20+
 - [Claude Code](https://docs.anthropic.com/claude-code) CLI
-- Claude Max/Pro subscription or Anthropic API key
+- Claude Max/Pro subscription OR Anthropic API key
 
 ### Platform & tmux
 
@@ -468,29 +412,14 @@ OMC features like `omc team` and rate-limit detection require **tmux**:
 
 ### Optional: Multi-AI Orchestration
 
-- [Gemini CLI](https://github.com/google-gemini/gemini-cli)
-- [Codex CLI](https://github.com/openai/codex)
+OMC can optionally orchestrate external AI providers for cross-validation and design consistency. These are **not required** — OMC works fully without them.
 
 | Provider                                                  | Install                             | What it enables                                  |
 | --------------------------------------------------------- | ----------------------------------- | ------------------------------------------------ |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `npm install -g @google/gemini-cli` | Design review, UI consistency (1M token context) |
 | [Codex CLI](https://github.com/openai/codex)              | `npm install -g @openai/codex`      | Architecture validation, code review cross-check |
 
-## Documentation
-
-- [Reference](docs/REFERENCE.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Performance Monitoring](docs/PERFORMANCE-MONITORING.md)
-- [Migration Guide](docs/MIGRATION.md)
-- [Local Plugin Installation (for local plugin development)](docs/LOCAL_PLUGIN_INSTALL.md)
-- [Changelog](CHANGELOG.md)
-
----
-
-## Support
-
-- [GitHub Issues](https://github.com/Yeachan-Heo/oh-my-claudecode/issues)
-- [GitHub Sponsors](https://github.com/sponsors/Yeachan-Heo)
+**Cost:** 3 Pro plans (Claude + Gemini + ChatGPT) cover everything for ~$60/month.
 
 ---
 
@@ -507,6 +436,24 @@ MIT
 **Zero learning curve. Maximum power.**
 
 </div>
+
+<!-- OMC:FEATURED-CONTRIBUTORS:START -->
+## Featured by OmC Contributors
+
+Top personal non-fork, non-archived repos from all-time OMC contributors (100+ GitHub stars).
+
+- [@Yeachan-Heo](https://github.com/Yeachan-Heo) — [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) (⭐ 11k)
+- [@junhoyeo](https://github.com/junhoyeo) — [tokscale](https://github.com/junhoyeo/tokscale) (⭐ 1.3k)
+- [@psmux](https://github.com/psmux) — [psmux](https://github.com/psmux/psmux) (⭐ 695)
+- [@BowTiedSwan](https://github.com/BowTiedSwan) — [buildflow](https://github.com/BowTiedSwan/buildflow) (⭐ 284)
+- [@alohays](https://github.com/alohays) — [awesome-visual-representation-learning-with-transformers](https://github.com/alohays/awesome-visual-representation-learning-with-transformers) (⭐ 268)
+- [@jcwleo](https://github.com/jcwleo) — [random-network-distillation-pytorch](https://github.com/jcwleo/random-network-distillation-pytorch) (⭐ 260)
+- [@emgeee](https://github.com/emgeee) — [mean-tutorial](https://github.com/emgeee/mean-tutorial) (⭐ 200)
+- [@anduinnn](https://github.com/anduinnn) — [HiFiNi-Auto-CheckIn](https://github.com/anduinnn/HiFiNi-Auto-CheckIn) (⭐ 172)
+- [@Znuff](https://github.com/Znuff) — [consolas-powerline](https://github.com/Znuff/consolas-powerline) (⭐ 145)
+- [@shaun0927](https://github.com/shaun0927) — [openchrome](https://github.com/shaun0927/openchrome) (⭐ 144)
+
+<!-- OMC:FEATURED-CONTRIBUTORS:END -->
 
 ## Star History
 

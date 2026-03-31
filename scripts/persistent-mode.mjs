@@ -15,6 +15,11 @@ import {
   readdirSync,
   mkdirSync,
   unlinkSync,
+  renameSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
 } from "fs";
 import { join, dirname, resolve, normalize } from "path";
 import { homedir } from "os";
@@ -44,7 +49,9 @@ function writeJsonFile(path, data) {
     if (dir && dir !== "." && !existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(path, JSON.stringify(data, null, 2));
+    const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
+    renameSync(tmp, path);
     return true;
   } catch {
     return false;
@@ -191,6 +198,10 @@ function getSafeReinforcementCount(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : 0;
+}
+
+function isAwaitingConfirmation(state) {
+  return state?.awaiting_confirmation === true;
 }
 
 /**
@@ -394,8 +405,20 @@ const CRITICAL_CONTEXT_STOP_PERCENT = 95;
 
 function estimateContextPercent(transcriptPath) {
   if (!transcriptPath || !existsSync(transcriptPath)) return 0;
+  let fd = -1;
   try {
-    const content = readFileSync(transcriptPath, "utf-8");
+    const size = statSync(transcriptPath).size;
+    if (size === 0) return 0;
+
+    // Read only the last 4KB to avoid OOM on large transcripts (10-100MB)
+    const readSize = Math.min(4096, size);
+    const buf = Buffer.alloc(readSize);
+    fd = openSync(transcriptPath, "r");
+    readSync(fd, buf, 0, readSize, size - readSize);
+    closeSync(fd);
+    fd = -1;
+
+    const content = buf.toString("utf-8");
     const windowMatch = content.match(/"context_window"\s{0,5}:\s{0,5}(\d+)/g);
     const inputMatch = content.match(/"input_tokens"\s{0,5}:\s{0,5}(\d+)/g);
     if (!windowMatch || !inputMatch) return 0;
@@ -405,6 +428,7 @@ function estimateContextPercent(transcriptPath) {
     if (!Number.isFinite(lastWindow) || lastWindow <= 0 || !Number.isFinite(lastInput)) return 0;
     return Math.round((lastInput / lastWindow) * 100);
   } catch {
+    if (fd !== -1) try { closeSync(fd); } catch { /* best-effort */ }
     return 0;
   }
 }
@@ -567,7 +591,7 @@ async function main() {
     // Priority 1: Ralph Loop (explicit persistence mode)
     // Skip if state is stale (older than 2 hours) - prevents blocking new sessions
     if (
-      ralph.state?.active &&
+      ralph.state?.active && !isAwaitingConfirmation(ralph.state) &&
       !isStaleState(ralph.state) &&
       isStateForCurrentProject(ralph.state, directory, ralph.isGlobal)
     ) {
@@ -593,7 +617,6 @@ async function main() {
 
           console.log(
             JSON.stringify({
-              continue: false,
               decision: "block",
               reason,
             }),
@@ -606,11 +629,11 @@ async function main() {
         ralph.state.last_checked_at = new Date().toISOString();
         writeJsonFile(ralph.path, ralph.state);
 
+        const ralphExtendedReason = `[RALPH LOOP - EXTENDED] Max iterations reached; extending to ${ralph.state.max_iterations} and continuing. When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel (or --force).`;
         console.log(
           JSON.stringify({
-            continue: false,
             decision: "block",
-            reason: `[RALPH LOOP - EXTENDED] Max iterations reached; extending to ${ralph.state.max_iterations} and continuing. When FULLY complete (after Architect verification), run /oh-my-claudecode:cancel (or --force).`,
+            reason: ralphExtendedReason,
           }),
         );
         return;
@@ -619,7 +642,7 @@ async function main() {
 
     // Priority 2: Autopilot (high-level orchestration)
     if (
-      autopilot.state?.active &&
+      autopilot.state?.active && !isAwaitingConfirmation(autopilot.state) &&
       !isStaleState(autopilot.state) &&
       isStateForCurrentProject(autopilot.state, directory, autopilot.isGlobal)
     ) {
@@ -638,14 +661,16 @@ async function main() {
             autopilot.state.last_checked_at = new Date().toISOString();
             writeJsonFile(autopilot.path, autopilot.state);
 
-            let reason = `[AUTOPILOT - Phase: ${phase}] Autopilot not complete. Continue working. When all phases are complete, run /oh-my-claudecode:cancel to cleanly exit and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.`;
+            const cancelGuidance = hasValidSessionId && autopilot.state.session_id === sessionId
+              ? " When all phases are complete, run /oh-my-claudecode:cancel to cleanly exit and clean up this session's autopilot state files. If cancel fails, retry with /oh-my-claudecode:cancel --force."
+              : "";
+            let reason = `[AUTOPILOT - Phase: ${phase}] Autopilot not complete. Continue working.${cancelGuidance}`;
             if (errorGuidance) {
               reason = errorGuidance + reason;
             }
 
             console.log(
               JSON.stringify({
-                continue: false,
                 decision: "block",
                 reason,
               }),
@@ -686,7 +711,6 @@ async function main() {
 
           console.log(
             JSON.stringify({
-              continue: false,
               decision: "block",
               reason,
             }),
@@ -722,7 +746,6 @@ async function main() {
 
           console.log(
             JSON.stringify({
-              continue: false,
               decision: "block",
               reason,
             }),
@@ -760,7 +783,6 @@ async function main() {
 
           console.log(
             JSON.stringify({
-              continue: false,
               decision: "block",
               reason,
             }),
@@ -798,7 +820,6 @@ async function main() {
 
             console.log(
               JSON.stringify({
-                continue: false,
                 decision: "block",
                 reason,
               }),
@@ -835,7 +856,7 @@ async function main() {
               reason = errorGuidance + reason;
             }
 
-            console.log(JSON.stringify({ continue: false, decision: "block", reason }));
+            console.log(JSON.stringify({ decision: "block", reason }));
             return;
           }
         }
@@ -868,7 +889,6 @@ async function main() {
 
         console.log(
           JSON.stringify({
-            continue: false,
             decision: "block",
             reason,
           }),
@@ -883,7 +903,7 @@ async function main() {
     // If state has session_id, it must match. If no session_id (legacy), allow.
     // Project isolation: only block if state belongs to this project
     if (
-      ultrawork.state?.active &&
+      ultrawork.state?.active && !isAwaitingConfirmation(ultrawork.state) &&
       !isStaleState(ultrawork.state) &&
       (hasValidSessionId
         ? ultrawork.state.session_id === sessionId
@@ -927,7 +947,7 @@ async function main() {
         reason = errorGuidance + reason;
       }
 
-      console.log(JSON.stringify({ continue: false, decision: "block", reason }));
+      console.log(JSON.stringify({ decision: "block", reason }));
       return;
     }
 

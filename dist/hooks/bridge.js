@@ -12,23 +12,27 @@
  * echo "$INPUT" | node ~/.claude/omc/hook-bridge.mjs --hook=keyword-detector
  * ```
  */
-import { pathToFileURL } from 'url';
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { pathToFileURL } from "url";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, } from "fs";
 import { dirname, join } from "path";
 import { resolveToWorktreeRoot, getOmcRoot } from "../lib/worktree-paths.js";
+import { writeModeState } from "../lib/mode-state-io.js";
+import { formatOmcCliInvocation } from "../utils/omc-cli-rendering.js";
+import { createSwallowedErrorLogger } from "../lib/swallowed-error.js";
 // Hot-path imports: needed on every/most hook invocations (keyword-detector, pre/post-tool-use)
-import { removeCodeBlocks, getAllKeywordsWithSizeCheck, applyRalplanGate, sanitizeForKeywordDetection, NON_LATIN_SCRIPT_PATTERN } from "./keyword-detector/index.js";
-import { processOrchestratorPreTool, processOrchestratorPostTool } from "./omc-orchestrator/index.js";
+import { removeCodeBlocks, getAllKeywordsWithSizeCheck, applyRalplanGate, sanitizeForKeywordDetection, NON_LATIN_SCRIPT_PATTERN, } from "./keyword-detector/index.js";
+import { processOrchestratorPreTool, processOrchestratorPostTool, } from "./omc-orchestrator/index.js";
 import { normalizeHookInput } from "./bridge-normalize.js";
-import { addBackgroundTask, getRunningTaskCount, } from "../hud/background-tasks.js";
+import { addBackgroundTask, completeBackgroundTask, completeMostRecentMatchingBackgroundTask, getRunningTaskCount, remapBackgroundTaskId, remapMostRecentMatchingBackgroundTaskId, } from "../hud/background-tasks.js";
 import { readHudState, writeHudState } from "../hud/state.js";
 import { compactOmcStartupGuidance, loadConfig } from "../config/loader.js";
+import { resolveAutopilotPlanPath, resolveOpenQuestionsPlanPath, } from "../config/plan-output.js";
 import { writeSkillActiveState } from "./skill-state/index.js";
 import { ULTRAWORK_MESSAGE, ULTRATHINK_MESSAGE, SEARCH_MESSAGE, ANALYZE_MESSAGE, TDD_MESSAGE, CODE_REVIEW_MESSAGE, SECURITY_REVIEW_MESSAGE, RALPH_MESSAGE, PROMPT_TRANSLATION_MESSAGE, } from "../installer/hooks.js";
 // Agent dashboard is used in pre/post-tool-use hot path
-import { getAgentDashboard, } from "./subagent-tracker/index.js";
+import { getAgentDashboard } from "./subagent-tracker/index.js";
 // Session replay recordFileTouch is used in pre-tool-use hot path
-import { recordFileTouch, } from "./subagent-tracker/session-replay.js";
+import { recordFileTouch } from "./subagent-tracker/session-replay.js";
 import { getBackgroundBashPermissionFallback, getBackgroundTaskPermissionFallback, } from "./permission-handler/index.js";
 // Security: wrap untrusted file content to prevent prompt injection
 import { wrapUntrustedFileContent } from "../agents/prompt-helpers.js";
@@ -67,6 +71,135 @@ const TEAM_STAGE_ALIASES = {
     fix: "team-fix",
     fixing: "team-fix",
 };
+const BACKGROUND_AGENT_ID_PATTERN = /agentId:\s*([a-zA-Z0-9_-]+)/;
+const TASK_OUTPUT_ID_PATTERN = /<task_id>([^<]+)<\/task_id>/i;
+const TASK_OUTPUT_STATUS_PATTERN = /<status>([^<]+)<\/status>/i;
+const SAFE_SESSION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/;
+const MODE_CONFIRMATION_SKILL_MAP = {
+    ralph: ["ralph", "ultrawork"],
+    ultrawork: ["ultrawork"],
+    autopilot: ["autopilot"],
+    ralplan: ["ralplan"],
+};
+function getExtraField(input, key) {
+    return input[key];
+}
+function getHookToolUseId(input) {
+    const value = getExtraField(input, "tool_use_id");
+    return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+function extractAsyncAgentId(toolOutput) {
+    if (typeof toolOutput !== "string") {
+        return undefined;
+    }
+    return toolOutput.match(BACKGROUND_AGENT_ID_PATTERN)?.[1];
+}
+function parseTaskOutputLifecycle(toolOutput) {
+    if (typeof toolOutput !== "string") {
+        return null;
+    }
+    const taskId = toolOutput.match(TASK_OUTPUT_ID_PATTERN)?.[1]?.trim();
+    const status = toolOutput.match(TASK_OUTPUT_STATUS_PATTERN)?.[1]?.trim().toLowerCase();
+    if (!taskId || !status) {
+        return null;
+    }
+    return { taskId, status };
+}
+function taskOutputDidFail(status) {
+    return status === "failed" || status === "error";
+}
+function taskLaunchDidFail(toolOutput) {
+    if (typeof toolOutput !== "string") {
+        return false;
+    }
+    const normalized = toolOutput.toLowerCase();
+    return normalized.includes("error") || normalized.includes("failed");
+}
+function getModeStatePaths(directory, modeName, sessionId) {
+    const stateDir = join(getOmcRoot(directory), "state");
+    const safeSessionId = typeof sessionId === "string" && SAFE_SESSION_ID_PATTERN.test(sessionId)
+        ? sessionId
+        : undefined;
+    return [
+        safeSessionId ? join(stateDir, "sessions", safeSessionId, `${modeName}-state.json`) : null,
+        join(stateDir, `${modeName}-state.json`),
+    ].filter((statePath) => Boolean(statePath));
+}
+function updateModeAwaitingConfirmation(directory, modeName, sessionId, awaitingConfirmation) {
+    for (const statePath of getModeStatePaths(directory, modeName, sessionId)) {
+        if (!existsSync(statePath)) {
+            continue;
+        }
+        try {
+            const state = JSON.parse(readFileSync(statePath, "utf-8"));
+            if (!state || typeof state !== "object") {
+                continue;
+            }
+            if (awaitingConfirmation) {
+                state.awaiting_confirmation = true;
+            }
+            else if (state.awaiting_confirmation === true) {
+                delete state.awaiting_confirmation;
+            }
+            else {
+                continue;
+            }
+            const tmpPath = `${statePath}.${process.pid}.${Date.now()}.tmp`;
+            writeFileSync(tmpPath, JSON.stringify(state, null, 2));
+            renameSync(tmpPath, statePath);
+        }
+        catch {
+            // Best-effort state sync only.
+        }
+    }
+}
+function markModeAwaitingConfirmation(directory, sessionId, ...modeNames) {
+    for (const modeName of modeNames) {
+        updateModeAwaitingConfirmation(directory, modeName, sessionId, true);
+    }
+}
+function confirmSkillModeStates(directory, skillName, sessionId) {
+    for (const modeName of MODE_CONFIRMATION_SKILL_MAP[skillName] ?? []) {
+        updateModeAwaitingConfirmation(directory, modeName, sessionId, false);
+    }
+}
+function getSkillInvocationArgs(toolInput) {
+    if (!toolInput || typeof toolInput !== "object") {
+        return "";
+    }
+    const input = toolInput;
+    const candidates = [
+        input.args,
+        input.arguments,
+        input.argument,
+        input.skill_args,
+        input.skillArgs,
+        input.prompt,
+        input.description,
+        input.input,
+    ];
+    return candidates.find((value) => typeof value === "string" && value.trim().length > 0)?.trim() ?? "";
+}
+function isConsensusPlanningSkillInvocation(skillName, toolInput) {
+    if (!skillName) {
+        return false;
+    }
+    if (skillName === "ralplan") {
+        return true;
+    }
+    if (skillName !== "omc-plan" && skillName !== "plan") {
+        return false;
+    }
+    return getSkillInvocationArgs(toolInput).toLowerCase().includes("--consensus");
+}
+function activateRalplanState(directory, sessionId) {
+    writeModeState("ralplan", {
+        active: true,
+        session_id: sessionId,
+        current_phase: "ralplan",
+        started_at: new Date().toISOString(),
+    }, directory, sessionId);
+}
 function readTeamStagedState(directory, sessionId) {
     const stateDir = join(getOmcRoot(directory), "state");
     const statePaths = sessionId
@@ -105,7 +238,11 @@ function getTeamStage(state) {
         "team-exec");
 }
 function getTeamStageForEnforcement(state) {
-    const rawStage = state.stage ?? state.current_stage ?? state.currentStage ?? state.current_phase ?? state.phase;
+    const rawStage = state.stage ??
+        state.current_stage ??
+        state.currentStage ??
+        state.current_phase ??
+        state.phase;
     if (typeof rawStage !== "string") {
         return null;
     }
@@ -131,7 +268,8 @@ function readTeamStopBreakerCount(directory, sessionId) {
         const parsed = JSON.parse(readFileSync(breakerPath, "utf-8"));
         if (typeof parsed.updated_at === "string") {
             const updatedAt = new Date(parsed.updated_at).getTime();
-            if (Number.isFinite(updatedAt) && Date.now() - updatedAt > TEAM_STOP_BLOCKER_TTL_MS) {
+            if (Number.isFinite(updatedAt) &&
+                Date.now() - updatedAt > TEAM_STOP_BLOCKER_TTL_MS) {
                 return 0;
             }
         }
@@ -168,7 +306,10 @@ function writeTeamStopBreakerCount(directory, sessionId, count) {
     }
 }
 function isTeamStateTerminal(state) {
-    if (state.terminal === true || state.cancelled === true || state.canceled === true || state.completed === true) {
+    if (state.terminal === true ||
+        state.cancelled === true ||
+        state.canceled === true ||
+        state.completed === true) {
         return true;
     }
     const status = String(state.status || "").toLowerCase();
@@ -205,7 +346,7 @@ function workerBashBlockReason(command) {
         return "Team worker cannot run tmux pane/session orchestration commands.";
     }
     if (WORKER_BLOCKED_TEAM_CLI_PATTERN.test(command)) {
-        return "Team worker cannot run team orchestration commands. Use only `omc team api ... --json`.";
+        return `Team worker cannot run team orchestration commands. Use only \`${formatOmcCliInvocation("team api ... --json")}\`.`;
     }
     if (WORKER_BLOCKED_SKILL_PATTERN.test(command)) {
         return "Team worker cannot invoke orchestration skills (`$team`, `$ultrawork`, `$autopilot`, `$ralph`).";
@@ -246,6 +387,10 @@ function validateHookInput(input, requiredFields, hookType) {
         return false;
     }
     return true;
+}
+function isDelegationToolName(toolName) {
+    const normalizedToolName = (toolName || "").toLowerCase();
+    return normalizedToolName === "task" || normalizedToolName === "agent";
 }
 /**
  * Extract prompt text from various input formats
@@ -311,13 +456,16 @@ async function processKeywordDetector(input) {
     // Apply ralplan-first gate BEFORE task-size suppression (issue #997).
     // Reconstruct the full keyword set so the gate sees execution keywords
     // that task-size suppression may have already removed for small tasks.
-    const fullKeywords = [...sizeCheckResult.keywords, ...sizeCheckResult.suppressedKeywords];
+    const fullKeywords = [
+        ...sizeCheckResult.keywords,
+        ...sizeCheckResult.suppressedKeywords,
+    ];
     const gateResult = applyRalplanGate(fullKeywords, cleanedText);
     let keywords;
     if (gateResult.gateApplied) {
         // Gate fired: redirect to ralplan (task-size suppression is moot — we're planning, not executing)
         keywords = gateResult.keywords;
-        const gated = gateResult.gatedKeywords.join(', ');
+        const gated = gateResult.gatedKeywords.join(", ");
         messages.push(`[RALPLAN GATE] Redirecting ${gated} → ralplan for scoping.\n` +
             `Tip: add a concrete anchor to run directly next time:\n` +
             `  \u2022 "ralph fix the bug in src/auth.ts"  (file path)\n` +
@@ -329,8 +477,9 @@ async function processKeywordDetector(input) {
         // Gate did not fire: use task-size-suppressed result as normal
         keywords = sizeCheckResult.keywords;
         // Notify user when heavy modes were suppressed for a small task
-        if (sizeCheckResult.suppressedKeywords.length > 0 && sizeCheckResult.taskSizeResult) {
-            const suppressed = sizeCheckResult.suppressedKeywords.join(', ');
+        if (sizeCheckResult.suppressedKeywords.length > 0 &&
+            sizeCheckResult.taskSizeResult) {
+            const suppressed = sizeCheckResult.suppressedKeywords.join(", ");
             const reason = sizeCheckResult.taskSizeResult.reason;
             messages.push(`[TASK-SIZE: SMALL] Heavy orchestration mode(s) suppressed: ${suppressed}.\n` +
                 `Reason: ${reason}\n` +
@@ -353,7 +502,7 @@ async function processKeywordDetector(input) {
     }
     if (keywords.length === 0) {
         if (messages.length > 0) {
-            return { continue: true, message: messages.join('\n\n---\n\n') };
+            return { continue: true, message: messages.join("\n\n---\n\n") };
         }
         return { continue: true };
     }
@@ -362,21 +511,27 @@ async function processKeywordDetector(input) {
         switch (keywordType) {
             case "ralph": {
                 // Lazy-load ralph module
-                const { createRalphLoopHook, findPrdPath: findPrd, initPrd: initPrdFn, initProgress: initProgressFn, detectNoPrdFlag: detectNoPrd, stripNoPrdFlag: stripNoPrd, detectCriticModeFlag, stripCriticModeFlag } = await import("./ralph/index.js");
+                const { createRalphLoopHook, findPrdPath: findPrd, initPrd: initPrdFn, initProgress: initProgressFn, detectNoPrdFlag: detectNoPrd, stripNoPrdFlag: stripNoPrd, detectCriticModeFlag, stripCriticModeFlag, } = await import("./ralph/index.js");
                 // Handle --no-prd flag
                 const noPrd = detectNoPrd(promptText);
                 const criticMode = detectCriticModeFlag(promptText) ?? undefined;
                 const promptWithoutCriticFlag = stripCriticModeFlag(promptText);
-                const cleanPrompt = noPrd ? stripNoPrd(promptWithoutCriticFlag) : promptWithoutCriticFlag;
+                const cleanPrompt = noPrd
+                    ? stripNoPrd(promptWithoutCriticFlag)
+                    : promptWithoutCriticFlag;
                 // Auto-generate scaffold PRD if none exists and --no-prd not set
                 const existingPrd = findPrd(directory);
                 if (!noPrd && !existingPrd) {
                     const { basename } = await import("path");
                     const { execSync } = await import("child_process");
                     const projectName = basename(directory);
-                    let branchName = 'ralph/task';
+                    let branchName = "ralph/task";
                     try {
-                        branchName = execSync('git rev-parse --abbrev-ref HEAD', { cwd: directory, encoding: 'utf-8', timeout: 5000 }).trim();
+                        branchName = execSync("git rev-parse --abbrev-ref HEAD", {
+                            cwd: directory,
+                            encoding: "utf-8",
+                            timeout: 5000,
+                        }).trim();
                     }
                     catch {
                         // Not a git repo or git not available — use fallback
@@ -386,7 +541,10 @@ async function processKeywordDetector(input) {
                 }
                 // Activate ralph state which also auto-activates ultrawork
                 const hook = createRalphLoopHook(directory);
-                hook.startLoop(sessionId, cleanPrompt, criticMode ? { criticMode } : undefined);
+                const started = hook.startLoop(sessionId, cleanPrompt, criticMode ? { criticMode } : undefined);
+                if (started) {
+                    markModeAwaitingConfirmation(directory, sessionId, 'ralph', 'ultrawork');
+                }
                 messages.push(RALPH_MESSAGE);
                 break;
             }
@@ -394,7 +552,10 @@ async function processKeywordDetector(input) {
                 // Lazy-load ultrawork module
                 const { activateUltrawork } = await import("./ultrawork/index.js");
                 // Activate persistent ultrawork state
-                activateUltrawork(promptText, sessionId, directory);
+                const activated = activateUltrawork(promptText, sessionId, directory);
+                if (activated) {
+                    markModeAwaitingConfirmation(directory, sessionId, 'ultrawork');
+                }
                 messages.push(ULTRAWORK_MESSAGE);
                 break;
             }
@@ -426,10 +587,11 @@ async function processKeywordDetector(input) {
                 break;
             case "codex":
             case "gemini": {
+                const teamStartCommand = formatOmcCliInvocation(`team start --agent ${keywordType} --count N --task "<task from user message>"`);
                 messages.push(`[MAGIC KEYWORD: team]\n` +
-                    `User intent: delegate to ${keywordType} CLI workers via omc team CLI.\n` +
+                    `User intent: delegate to ${keywordType} CLI workers via ${formatOmcCliInvocation('team')}.\n` +
                     `Agent type: ${keywordType}. Parse N from user message (default 1).\n` +
-                    `Invoke: omc team start --agent ${keywordType} --count N --task "<task from user message>"`);
+                    `Invoke: ${teamStartCommand}`);
                 break;
             }
             default:
@@ -469,7 +631,7 @@ async function processPersistentMode(input) {
     const sessionId = input.sessionId ?? rawSessionId;
     const directory = resolveToWorktreeRoot(input.directory);
     // Lazy-load persistent-mode and todo-continuation modules
-    const { checkPersistentModes, createHookOutput, shouldSendIdleNotification, recordIdleNotificationSent } = await import("./persistent-mode/index.js");
+    const { checkPersistentModes, createHookOutput, shouldSendIdleNotification, recordIdleNotificationSent, } = await import("./persistent-mode/index.js");
     const { isExplicitCancelCommand, isAuthenticationError } = await import("./todo-continuation/index.js");
     // Extract stop context for abort detection (supports both camelCase and snake_case)
     const stopContext = {
@@ -493,17 +655,21 @@ async function processPersistentMode(input) {
     // Skip legacy bridge.ts team enforcement if persistent-mode already
     // handled this stop event (or intentionally emitted a stop message).
     // Prevents mixed/double continuation prompts across modes.
-    if (result.mode !== 'none' || Boolean(output.message)) {
+    if (result.mode !== "none" || Boolean(output.message)) {
         return output;
     }
     const teamState = readTeamStagedState(directory, sessionId);
-    if (!teamState || teamState.active !== true || isTeamStateTerminal(teamState)) {
+    if (!teamState ||
+        teamState.active !== true ||
+        isTeamStateTerminal(teamState)) {
         writeTeamStopBreakerCount(directory, sessionId, 0);
         // No persistent mode and no active team — Claude is truly idle.
         // Send session-idle notification (non-blocking) unless this was a user abort or context limit.
         if (result.mode === "none" && sessionId) {
-            const isAbort = stopContext.user_requested === true || stopContext.userRequested === true;
-            const isContextLimit = stopContext.stop_reason === "context_limit" || stopContext.stopReason === "context_limit";
+            const isAbort = stopContext.user_requested === true ||
+                stopContext.userRequested === true;
+            const isContextLimit = stopContext.stop_reason === "context_limit" ||
+                stopContext.stopReason === "context_limit";
             if (!isAbort && !isContextLimit) {
                 // Always wake OpenClaw on stop — cooldown only applies to user-facing notifications
                 _openclaw.wake("stop", { sessionId, projectPath: directory });
@@ -512,11 +678,14 @@ async function processPersistentMode(input) {
                 const stateDir = join(getOmcRoot(directory), "state");
                 if (shouldSendIdleNotification(stateDir, sessionId)) {
                     recordIdleNotificationSent(stateDir, sessionId);
-                    import("../notifications/index.js").then(({ notify }) => notify("session-idle", {
+                    const logSessionIdleNotifyFailure = createSwallowedErrorLogger('hooks.bridge session-idle notification failed');
+                    import("../notifications/index.js")
+                        .then(({ notify }) => notify("session-idle", {
                         sessionId,
                         projectPath: directory,
                         profileName: process.env.OMC_NOTIFY_PROFILE,
-                    }).catch(() => { })).catch(() => { });
+                    }).catch(logSessionIdleNotifyFailure))
+                        .catch(logSessionIdleNotifyFailure);
                 }
             }
             // IMPORTANT: Do NOT clean up reply-listener/session-registry on Stop hooks.
@@ -589,11 +758,14 @@ async function processSessionStart(input) {
     initSilentAutoUpdate();
     // Send session-start notification (non-blocking, swallows errors)
     if (sessionId) {
-        import("../notifications/index.js").then(({ notify }) => notify("session-start", {
+        const logSessionStartNotifyFailure = createSwallowedErrorLogger('hooks.bridge session-start notification failed');
+        import("../notifications/index.js")
+            .then(({ notify }) => notify("session-start", {
             sessionId,
             projectPath: directory,
             profileName: process.env.OMC_NOTIFY_PROFILE,
-        }).catch(() => { })).catch(() => { });
+        }).catch(logSessionStartNotifyFailure))
+            .catch(logSessionStartNotifyFailure);
         // Wake OpenClaw gateway for session-start (non-blocking)
         _openclaw.wake("session-start", { sessionId, projectPath: directory });
     }
@@ -602,7 +774,8 @@ async function processSessionStart(input) {
         Promise.all([
             import("../notifications/reply-listener.js"),
             import("../notifications/config.js"),
-        ]).then(([{ startReplyListener }, { getReplyConfig, getNotificationConfig, getReplyListenerPlatformConfig },]) => {
+        ])
+            .then(([{ startReplyListener }, { getReplyConfig, getNotificationConfig, getReplyListenerPlatformConfig, },]) => {
             const replyConfig = getReplyConfig();
             if (!replyConfig)
                 return;
@@ -612,7 +785,8 @@ async function processSessionStart(input) {
                 ...replyConfig,
                 ...platformConfig,
             });
-        }).catch(() => { });
+        })
+            .catch(() => { });
     }
     const messages = [];
     // Inject startup codebase map (issue #804) — first context item so agents orient quickly
@@ -699,10 +873,10 @@ Treat this as prior-session context only. Prioritize the user's newest request, 
         }
     }
     // Load root AGENTS.md if it exists (deepinit output - issue #613)
-    const agentsMdPath = join(directory, 'AGENTS.md');
+    const agentsMdPath = join(directory, "AGENTS.md");
     if (existsSync(agentsMdPath)) {
         try {
-            let agentsContent = compactOmcStartupGuidance(readFileSync(agentsMdPath, 'utf-8')).trim();
+            let agentsContent = compactOmcStartupGuidance(readFileSync(agentsMdPath, "utf-8")).trim();
             if (agentsContent) {
                 // Truncate to ~5000 tokens (20000 chars) to avoid context bloat
                 const MAX_AGENTS_CHARS = 20000;
@@ -783,13 +957,19 @@ The CLAUDE.md instruction "Pass model on Task calls: haiku, sonnet, opus" does N
 export function dispatchAskUserQuestionNotification(sessionId, directory, toolInput) {
     const input = toolInput;
     const questions = input?.questions || [];
-    const questionText = questions.map(q => q.question || "").filter(Boolean).join("; ") || "User input requested";
-    import("../notifications/index.js").then(({ notify }) => notify("ask-user-question", {
+    const questionText = questions
+        .map((q) => q.question || "")
+        .filter(Boolean)
+        .join("; ") || "User input requested";
+    const logAskUserQuestionNotifyFailure = createSwallowedErrorLogger('hooks.bridge ask-user-question notification failed');
+    import("../notifications/index.js")
+        .then(({ notify }) => notify("ask-user-question", {
         sessionId,
         projectPath: directory,
         question: questionText,
         profileName: process.env.OMC_NOTIFY_PROFILE,
-    }).catch(() => { })).catch(() => { });
+    }).catch(logAskUserQuestionNotifyFailure))
+        .catch(logAskUserQuestionNotifyFailure);
 }
 /** @internal Object wrapper so tests can spy on the dispatch call. */
 export const _notify = {
@@ -807,7 +987,10 @@ export const _openclaw = {
     wake: (event, context) => {
         if (process.env.OMC_OPENCLAW !== "1")
             return;
-        import("../openclaw/index.js").then(({ wakeOpenClaw }) => wakeOpenClaw(event, context).catch(() => { })).catch(() => { });
+        const logOpenClawWakeFailure = createSwallowedErrorLogger(`hooks.bridge openclaw wake failed for ${event}`);
+        import("../openclaw/index.js")
+            .then(({ wakeOpenClaw }) => wakeOpenClaw(event, context).catch(logOpenClawWakeFailure))
+            .catch(logOpenClawWakeFailure);
     },
 };
 /**
@@ -860,24 +1043,26 @@ function processPreToolUse(input) {
             message: enforcementResult.message,
         };
     }
-    const preToolMessages = enforcementResult.message ? [enforcementResult.message] : [];
+    const preToolMessages = enforcementResult.message
+        ? [enforcementResult.message]
+        : [];
     let modifiedToolInput;
-    // Force-inherit: deny Task calls that carry a `model` parameter when
+    // Force-inherit: deny Task/Agent calls that carry a `model` parameter when
     // forceInherit is enabled (Bedrock, Vertex, CC Switch, etc.).
     // Claude Code's hook protocol does not support modifiedInput, so we cannot
     // silently strip the model. Instead, deny the call so Claude retries without
     // the model param, letting agents inherit the parent session's model.
-    // (issues #1135, #1201)
-    if (input.toolName === "Task") {
-        const originalTaskInput = input.toolInput;
-        const taskModel = originalTaskInput?.model;
-        if (taskModel) {
+    // (issues #1135, #1201, #1415)
+    if (isDelegationToolName(input.toolName)) {
+        const originalInput = input.toolInput;
+        const inputModel = originalInput?.model;
+        if (inputModel) {
             const config = loadConfig();
             if (config.routing?.forceInherit) {
                 // Use permissionDecision:"deny" — the only PreToolUse mechanism
                 // Claude Code supports for blocking a specific tool call with
                 // feedback. modifiedInput is NOT supported by the hook protocol.
-                const denyReason = `[MODEL ROUTING] This environment uses a non-standard provider (Bedrock/Vertex/proxy). Do NOT pass the \`model\` parameter on Task calls — remove \`model\` and retry so agents inherit the parent session's model. The model "${taskModel}" is not valid for this provider.`;
+                const denyReason = `[MODEL ROUTING] This environment uses a non-standard provider (Bedrock/Vertex/proxy). Do NOT pass the \`model\` parameter on ${input.toolName} calls — remove \`model\` and retry so agents inherit the parent session's model. The model "${inputModel}" is not valid for this provider.`;
                 return {
                     continue: true,
                     hookSpecificOutput: {
@@ -888,6 +1073,9 @@ function processPreToolUse(input) {
                 };
             }
         }
+    }
+    if (input.toolName === "Task") {
+        const originalTaskInput = input.toolInput;
         if (originalTaskInput?.run_in_background === true) {
             const subagentType = typeof originalTaskInput.subagent_type === "string"
                 ? originalTaskInput.subagent_type
@@ -931,24 +1119,34 @@ function processPreToolUse(input) {
             projectPath: directory,
             question: (() => {
                 const ti = input.toolInput;
-                return ti?.questions?.map(q => q.question || "").filter(Boolean).join("; ") || "";
+                return (ti?.questions
+                    ?.map((q) => q.question || "")
+                    .filter(Boolean)
+                    .join("; ") || "");
             })(),
         });
     }
     // Activate skill state when Skill tool is invoked (issue #1033)
     // This writes skill-active-state.json so the Stop hook can prevent premature
     // session termination while a skill is executing.
+    // Pass rawSkillName so writeSkillActiveState can distinguish OMC built-in
+    // skills from project custom skills with the same name (issue #1581).
     if (input.toolName === "Skill") {
         const skillName = getInvokedSkillName(input.toolInput);
         if (skillName) {
+            const rawSkillName = getRawSkillName(input.toolInput);
             // Use the statically-imported synchronous write so it completes before
             // the Stop hook can fire. The previous fire-and-forget .then() raced with
             // the Stop hook in short-lived processes.
             try {
-                writeSkillActiveState(directory, skillName, input.sessionId);
+                writeSkillActiveState(directory, skillName, input.sessionId, rawSkillName);
+                confirmSkillModeStates(directory, skillName, input.sessionId);
+                if (isConsensusPlanningSkillInvocation(skillName, input.toolInput)) {
+                    activateRalplanState(directory, input.sessionId);
+                }
             }
             catch {
-                // Skill-state write is best-effort; don't fail the hook on error.
+                // Skill-state/state-sync writes are best-effort; don't fail the hook on error.
             }
         }
     }
@@ -960,13 +1158,16 @@ function processPreToolUse(input) {
         const agentName = agentType?.includes(":")
             ? agentType.split(":").pop()
             : agentType;
-        import("../notifications/index.js").then(({ notify }) => notify("agent-call", {
+        const logAgentCallNotifyFailure = createSwallowedErrorLogger('hooks.bridge agent-call notification failed');
+        import("../notifications/index.js")
+            .then(({ notify }) => notify("agent-call", {
             sessionId: input.sessionId,
             projectPath: directory,
             agentName,
             agentType,
             profileName: process.env.OMC_NOTIFY_PROFILE,
-        }).catch(() => { })).catch(() => { });
+        }).catch(logAgentCallNotifyFailure))
+            .catch(logAgentCallNotifyFailure);
     }
     // Warn about pkill -f self-termination risk (issue #210)
     // Matches: pkill -f, pkill -9 -f, pkill --full, etc.
@@ -1006,11 +1207,12 @@ function processPreToolUse(input) {
             }
         }
     }
-    // Track Task tool invocations for HUD background tasks display
+    // Track Task tool invocations for HUD display
     if (input.toolName === "Task") {
         const toolInput = (modifiedToolInput ?? input.toolInput);
         if (toolInput?.description) {
-            const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const taskId = getHookToolUseId(input)
+                ?? `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             addBackgroundTask(taskId, toolInput.description, toolInput.subagent_type, directory);
         }
     }
@@ -1027,7 +1229,9 @@ function processPreToolUse(input) {
     if (input.toolName === "Task") {
         const dashboard = getAgentDashboard(directory);
         if (dashboard) {
-            const combined = [...preToolMessages, dashboard].filter(Boolean).join("\n\n");
+            const combined = [...preToolMessages, dashboard]
+                .filter(Boolean)
+                .join("\n\n");
             return {
                 continue: true,
                 ...(combined ? { message: combined } : {}),
@@ -1047,7 +1251,9 @@ function processPreToolUse(input) {
     }
     return {
         continue: true,
-        ...(preToolMessages.length > 0 ? { message: preToolMessages.join("\n\n") } : {}),
+        ...(preToolMessages.length > 0
+            ? { message: preToolMessages.join("\n\n") }
+            : {}),
         ...(modifiedToolInput ? { modifiedInput: modifiedToolInput } : {}),
     };
 }
@@ -1059,11 +1265,7 @@ function getInvokedSkillName(toolInput) {
         return null;
     }
     const input = toolInput;
-    const rawSkill = input.skill ??
-        input.skill_name ??
-        input.skillName ??
-        input.command ??
-        null;
+    const rawSkill = input.skill ?? input.skill_name ?? input.skillName ?? input.command ?? null;
     if (typeof rawSkill !== "string" || rawSkill.trim().length === 0) {
         return null;
     }
@@ -1072,6 +1274,19 @@ function getInvokedSkillName(toolInput) {
         ? normalized.split(":").at(-1)
         : normalized;
     return namespaced?.toLowerCase() || null;
+}
+/**
+ * Extract the raw (un-normalized) skill name from Skill tool input.
+ * Used to distinguish OMC built-in skills (prefixed with 'oh-my-claudecode:')
+ * from project custom skills or other plugin skills with the same bare name.
+ * See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/1581
+ */
+function getRawSkillName(toolInput) {
+    if (!toolInput || typeof toolInput !== "object")
+        return undefined;
+    const input = toolInput;
+    const raw = input.skill ?? input.skill_name ?? input.skillName ?? input.command ?? null;
+    return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : undefined;
 }
 async function processPostToolUse(input) {
     const directory = resolveToWorktreeRoot(input.directory);
@@ -1082,7 +1297,7 @@ async function processPostToolUse(input) {
     if (toolName === "skill") {
         const skillName = getInvokedSkillName(input.toolInput);
         if (skillName === "ralph") {
-            const { createRalphLoopHook, findPrdPath: findPrd, initPrd: initPrdFn, initProgress: initProgressFn, detectNoPrdFlag: detectNoPrd, stripNoPrdFlag: stripNoPrd, detectCriticModeFlag, stripCriticModeFlag } = await import("./ralph/index.js");
+            const { createRalphLoopHook, findPrdPath: findPrd, initPrd: initPrdFn, initProgress: initProgressFn, detectNoPrdFlag: detectNoPrd, stripNoPrdFlag: stripNoPrd, detectCriticModeFlag, stripCriticModeFlag, } = await import("./ralph/index.js");
             const rawPrompt = typeof input.prompt === "string" && input.prompt.trim().length > 0
                 ? input.prompt
                 : "Ralph loop activated via Skill tool";
@@ -1090,16 +1305,22 @@ async function processPostToolUse(input) {
             const noPrd = detectNoPrd(rawPrompt);
             const criticMode = detectCriticModeFlag(rawPrompt) ?? undefined;
             const promptWithoutCriticFlag = stripCriticModeFlag(rawPrompt);
-            const cleanPrompt = noPrd ? stripNoPrd(promptWithoutCriticFlag) : promptWithoutCriticFlag;
+            const cleanPrompt = noPrd
+                ? stripNoPrd(promptWithoutCriticFlag)
+                : promptWithoutCriticFlag;
             // Auto-generate scaffold PRD if none exists and --no-prd not set
             const existingPrd = findPrd(directory);
             if (!noPrd && !existingPrd) {
                 const { basename } = await import("path");
                 const { execSync } = await import("child_process");
                 const projectName = basename(directory);
-                let branchName = 'ralph/task';
+                let branchName = "ralph/task";
                 try {
-                    branchName = execSync('git rev-parse --abbrev-ref HEAD', { cwd: directory, encoding: 'utf-8', timeout: 5000 }).trim();
+                    branchName = execSync("git rev-parse --abbrev-ref HEAD", {
+                        cwd: directory,
+                        encoding: "utf-8",
+                        timeout: 5000,
+                    }).trim();
                 }
                 catch {
                     // Not a git repo or git not available — use fallback
@@ -1125,11 +1346,44 @@ async function processPostToolUse(input) {
     if (orchestratorResult.message) {
         messages.push(orchestratorResult.message);
     }
-    // After Task completion, show updated agent dashboard
+    if (orchestratorResult.modifiedOutput) {
+        messages.push(orchestratorResult.modifiedOutput);
+    }
     if (input.toolName === "Task") {
+        const toolInput = input.toolInput;
+        const toolUseId = getHookToolUseId(input);
+        const asyncAgentId = extractAsyncAgentId(input.toolOutput);
+        const description = toolInput?.description;
+        const agentType = toolInput?.subagent_type;
+        if (asyncAgentId) {
+            if (toolUseId) {
+                remapBackgroundTaskId(toolUseId, asyncAgentId, directory);
+            }
+            else if (description) {
+                remapMostRecentMatchingBackgroundTaskId(description, asyncAgentId, directory, agentType);
+            }
+        }
+        else {
+            const failed = taskLaunchDidFail(input.toolOutput);
+            if (toolUseId) {
+                completeBackgroundTask(toolUseId, directory, failed);
+            }
+            else if (description) {
+                completeMostRecentMatchingBackgroundTask(description, directory, failed, agentType);
+            }
+        }
+    }
+    // After delegation completion, show updated agent dashboard
+    if (isDelegationToolName(input.toolName)) {
         const dashboard = getAgentDashboard(directory);
         if (dashboard) {
             messages.push(dashboard);
+        }
+    }
+    if (input.toolName === "TaskOutput") {
+        const taskOutput = parseTaskOutputLifecycle(input.toolOutput);
+        if (taskOutput) {
+            completeBackgroundTask(taskOutput.taskId, directory, taskOutputDidFail(taskOutput.status));
         }
     }
     // Wake OpenClaw gateway for post-tool-use (non-blocking, fires for all tools).
@@ -1164,10 +1418,12 @@ async function processAutopilot(input) {
         return { continue: true };
     }
     // Check phase and inject appropriate prompt
+    const config = loadConfig();
     const context = {
         idea: state.originalIdea,
         specPath: state.expansion.spec_path || ".omc/autopilot/spec.md",
-        planPath: state.planning.plan_path || ".omc/plans/autopilot-impl.md",
+        planPath: state.planning.plan_path || resolveAutopilotPlanPath(config),
+        openQuestionsPath: resolveOpenQuestionsPlanPath(config),
     };
     const phasePrompt = getPhasePrompt(state.phase, context);
     if (phasePrompt) {
@@ -1291,7 +1547,8 @@ export async function processHook(hookType, rawInput) {
                 const normalizedStop = input;
                 const stopInput = {
                     cwd: (normalizedStop.directory ?? normalizedStop.cwd),
-                    session_id: (normalizedStop.sessionId ?? normalizedStop.session_id),
+                    session_id: (normalizedStop.sessionId ??
+                        normalizedStop.session_id),
                     agent_id: normalizedStop.agent_id,
                     agent_type: normalizedStop.agent_type,
                     transcript_path: normalizedStop.transcript_path,
@@ -1352,7 +1609,8 @@ export async function processHook(hookType, rawInput) {
                     session_id: (rawPR.sessionId ?? rawPR.session_id),
                     cwd: (rawPR.directory ?? rawPR.cwd),
                     tool_name: (rawPR.toolName ?? rawPR.tool_name),
-                    tool_input: (rawPR.toolInput ?? rawPR.tool_input),
+                    tool_input: (rawPR.toolInput ??
+                        rawPR.tool_input),
                     transcript_path: rawPR.transcript_path,
                     permission_mode: (rawPR.permission_mode ?? "default"),
                     hook_event_name: "PermissionRequest",

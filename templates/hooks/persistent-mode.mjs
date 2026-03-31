@@ -12,6 +12,7 @@ import {
   existsSync,
   readFileSync,
   writeFileSync,
+  renameSync,
   readdirSync,
   mkdirSync,
   unlinkSync,
@@ -39,16 +40,15 @@ function readJsonFile(path) {
 
 function writeJsonFile(path, data) {
   try {
-    // Ensure directory exists
     const dir = dirname(path);
     if (dir && dir !== "." && !existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(path, JSON.stringify(data, null, 2));
+    const tmpPath = path + '.tmp.' + process.pid;
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+    renameSync(tmpPath, path);
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 /**
@@ -191,6 +191,10 @@ function getSafeReinforcementCount(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : 0;
+}
+
+function isAwaitingConfirmation(state) {
+  return state?.awaiting_confirmation === true;
 }
 
 /**
@@ -347,6 +351,18 @@ function readStateFileWithSession(stateDir, globalStateDir, filename, sessionId)
   }
 
   return readStateFile(stateDir, globalStateDir, filename);
+}
+
+function getActiveSubagentCount(stateDir) {
+  try {
+    const tracking = readJsonFile(join(stateDir, "subagent-tracking.json"));
+    if (!tracking || !Array.isArray(tracking.agents)) {
+      return 0;
+    }
+    return tracking.agents.filter((agent) => agent?.status === "running").length;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -628,7 +644,7 @@ async function main() {
     // Priority 1: Ralph Loop (explicit persistence mode)
     // Skip if state is stale (older than 2 hours) - prevents blocking new sessions
     if (
-      ralph.state?.active &&
+      ralph.state?.active && !isAwaitingConfirmation(ralph.state) &&
       !isStaleState(ralph.state) &&
       isStateForCurrentProject(ralph.state, directory, ralph.isGlobal)
     ) {
@@ -681,7 +697,7 @@ async function main() {
 
     // Priority 2: Autopilot (high-level orchestration)
     if (
-      autopilot.state?.active &&
+      autopilot.state?.active && !isAwaitingConfirmation(autopilot.state) &&
       !isStaleState(autopilot.state) &&
       isStateForCurrentProject(autopilot.state, directory, autopilot.isGlobal)
     ) {
@@ -700,7 +716,10 @@ async function main() {
             autopilot.state.last_checked_at = new Date().toISOString();
             writeJsonFile(autopilot.path, autopilot.state);
 
-            let reason = `[AUTOPILOT - Phase: ${phase}] Autopilot not complete. Continue working. When all phases are complete, run /oh-my-claudecode:cancel to cleanly exit and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.`;
+            const cancelGuidance = hasValidSessionId && autopilot.state.session_id === sessionId
+              ? " When all phases are complete, run /oh-my-claudecode:cancel to cleanly exit and clean up this session's autopilot state files. If cancel fails, retry with /oh-my-claudecode:cancel --force."
+              : "";
+            let reason = `[AUTOPILOT - Phase: ${phase}] Autopilot not complete. Continue working.${cancelGuidance}`;
             if (errorGuidance) {
               reason = errorGuidance + reason;
             }
@@ -912,7 +931,7 @@ async function main() {
     // Session isolation: only block if state belongs to this session (issue #311)
     // If state has session_id, it must match. If no session_id (legacy), allow.
     if (
-      ultrawork.state?.active &&
+      ultrawork.state?.active && !isAwaitingConfirmation(ultrawork.state) &&
       !isStaleState(ultrawork.state) &&
       (hasValidSessionId
         ? ultrawork.state.session_id === sessionId
@@ -981,6 +1000,11 @@ async function main() {
         const maxReinforcements = skillState.state.max_reinforcements || 3;
 
         if (count < maxReinforcements) {
+          if (getActiveSubagentCount(stateDir) > 0) {
+            console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+            return;
+          }
+
           const toolError = readLastToolError(stateDir);
           const errorGuidance = getToolErrorRetryGuidance(toolError);
 

@@ -58,7 +58,7 @@ export function extractNotifyFlag(args) {
  * This flag is stripped before passing args to Claude CLI.
  */
 export function extractOpenClawFlag(args) {
-    let openclawEnabled = false;
+    let openclawEnabled = undefined;
     const remainingArgs = [];
     for (const arg of args) {
         if (arg === OPENCLAW_FLAG) {
@@ -232,14 +232,29 @@ export async function preLaunch(_cwd, _sessionId) {
     // e.g., session state, environment prep, etc.
 }
 /**
+ * Check if args contain --print or -p flag.
+ * When in print mode, Claude outputs to stdout and must not be wrapped in tmux
+ * (which would capture stdout and prevent piping to the parent process).
+ */
+export function isPrintMode(args) {
+    return args.some((arg) => arg === '--print' || arg === '-p');
+}
+/**
  * runClaude: Launch Claude CLI (blocks until exit)
  * Handles 3 scenarios:
  * 1. inside-tmux: Launch claude in current pane
  * 2. outside-tmux: Create new tmux session with claude
  * 3. direct: tmux not available, run claude directly
+ *
+ * When --print/-p is present, always runs direct to preserve stdout piping.
  */
 export function runClaude(cwd, args, sessionId) {
-    const policy = resolveLaunchPolicy(process.env);
+    // Print mode must bypass tmux so stdout flows to the parent process (issue #1665)
+    if (isPrintMode(args)) {
+        runClaudeDirect(cwd, args);
+        return;
+    }
+    const policy = resolveLaunchPolicy(process.env, args);
     switch (policy) {
         case 'inside-tmux':
             runClaudeInsideTmux(cwd, args);
@@ -300,7 +315,13 @@ function runClaudeOutsideTmux(cwd, args, _sessionId) {
         execFileSync('tmux', tmuxArgs, { stdio: 'inherit' });
     }
     catch {
-        // tmux failed, fall back to direct launch
+        // tmux attach failed — kill the orphaned detached session that
+        // new-session -d just created so they don't accumulate.
+        try {
+            execFileSync('tmux', ['kill-session', '-t', sessionName], { stdio: 'ignore' });
+        }
+        catch { /* session may already be gone */ }
+        // fall back to direct launch
         runClaudeDirect(cwd, args);
     }
 }
@@ -396,7 +417,7 @@ export async function launchCommand(args) {
         process.exit(1);
     }
     const normalizedArgs = normalizeClaudeLaunchArgs(argsAfterWebhook);
-    const sessionId = `omc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const sessionId = `omc-${Date.now()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
     // Phase 1: preLaunch
     try {
         await preLaunch(cwd, sessionId);

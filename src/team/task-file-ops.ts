@@ -22,6 +22,7 @@ import { getClaudeConfigDir } from '../utils/paths.js';
 import type { TaskFile, TaskFileUpdate, TaskFailureSidecar } from './types.js';
 import { sanitizeName } from './tmux-session.js';
 import { atomicWriteJson, validateResolvedPath, ensureDirWithMode } from './fs-utils.js';
+import { isProcessAlive } from '../platform/index.js';
 import { getTaskStoragePath, getLegacyTaskStoragePath } from './state-paths.js';
 
 // ─── Lock-based atomic claiming ────────────────────────────────────────────
@@ -34,25 +35,6 @@ export interface LockHandle {
 
 /** Default age (ms) after which a lock file is considered stale. */
 const DEFAULT_STALE_LOCK_MS = 30_000;
-const FAILURE_LOCK_RETRY_ATTEMPTS = 40;
-const FAILURE_LOCK_RETRY_DELAY_MS = 5;
-
-
-/**
- * Check if a process with the given PID is alive.
- * Returns false for PIDs <= 0 or if kill(pid, 0) throws ESRCH.
- */
-function isPidAlive(pid: number): boolean {
-  if (pid <= 0 || !Number.isFinite(pid)) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e: unknown) {
-    // EPERM means the process exists but we don't have permission — still alive
-    if (e && typeof e === 'object' && 'code' in e && (e as { code: string }).code === 'EPERM') return true;
-    return false;
-  }
-}
 
 /**
  * Try to acquire an exclusive lock file for a task.
@@ -110,27 +92,6 @@ export function releaseTaskLock(handle: LockHandle): void {
   try { unlinkSync(handle.path); } catch { /* already removed */ }
 }
 
-async function sleepAsync(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function acquireTaskLockWithRetry(
-  teamName: string,
-  taskId: string,
-  opts?: { staleLockMs?: number; workerName?: string; cwd?: string; attempts?: number; delayMs?: number },
-): Promise<LockHandle> {
-  const attempts = opts?.attempts ?? FAILURE_LOCK_RETRY_ATTEMPTS;
-  const delayMs = opts?.delayMs ?? FAILURE_LOCK_RETRY_DELAY_MS;
-
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const handle = acquireTaskLock(teamName, taskId, opts);
-    if (handle) return handle;
-    if (attempt < attempts - 1) await sleepAsync(delayMs);
-  }
-
-  throw new Error(`Failed to acquire lock for ${taskId} after ${attempts} attempts`);
-}
-
 /**
  * Execute a function while holding an exclusive task lock.
  * Returns the function's result, or null if the lock could not be acquired.
@@ -164,7 +125,7 @@ function isLockStale(lockPath: string, staleLockMs: number): boolean {
     try {
       const raw = readFileSync(lockPath, 'utf-8');
       const payload = JSON.parse(raw) as { pid?: number };
-      if (payload.pid && isPidAlive(payload.pid)) return false;
+      if (payload.pid && isProcessAlive(payload.pid)) return false;
     } catch {
       // Malformed or unreadable — treat as stale if old enough
     }
@@ -300,13 +261,7 @@ export function updateTask(
 
   const handle = acquireTaskLock(teamName, taskId, { cwd: opts?.cwd });
   if (!handle) {
-    // Fallback: another worker holds the lock — proceed without lock + warn
-    // This maintains backward compatibility while logging the degradation
-    if (typeof process !== 'undefined' && process.stderr) {
-      process.stderr.write(`[task-file-ops] WARN: could not acquire lock for task ${taskId}, updating without lock\n`);
-    }
-    doUpdate();
-    return;
+    throw new Error(`Cannot acquire lock for task ${taskId}: another process holds the lock`);
   }
 
   try {
@@ -438,7 +393,6 @@ export function isTaskRetryExhausted(
   if (!failure) return false;
   return failure.retryCount >= maxRetries;
 }
-
 
 /** List all task IDs in a team directory, sorted ascending */
 export function listTaskIds(teamName: string, opts?: { cwd?: string }): string[] {

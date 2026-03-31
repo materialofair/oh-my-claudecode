@@ -1,6 +1,7 @@
 ---
 name: omc-doctor
 description: Diagnose and fix oh-my-claudecode installation issues
+level: 3
 ---
 
 # Doctor Skill
@@ -53,10 +54,10 @@ ls -la ~/.claude/CLAUDE.md 2>/dev/null
 grep -q "<!-- OMC:START -->" ~/.claude/CLAUDE.md 2>/dev/null && echo "Has OMC config" || echo "Missing OMC config in CLAUDE.md"
 
 # Check companion files for file-split pattern (e.g. CLAUDE-omc.md)
-ls ~/.claude/CLAUDE-*.md 2>/dev/null
-for f in ~/.claude/CLAUDE-*.md; do
-  [ -f "$f" ] && grep -q "<!-- OMC:START -->" "$f" 2>/dev/null && echo "Has OMC config in companion: $f"
-done
+find "$HOME/.claude" -maxdepth 1 -type f -name 'CLAUDE-*.md' -print 2>/dev/null
+while IFS= read -r f; do
+  grep -q "<!-- OMC:START -->" "$f" 2>/dev/null && echo "Has OMC config in companion: $f"
+done < <(find "$HOME/.claude" -maxdepth 1 -type f -name 'CLAUDE-*.md' -print 2>/dev/null)
 
 # Check if CLAUDE.md references a companion file
 grep -o "CLAUDE-[^ )]*\.md" ~/.claude/CLAUDE.md 2>/dev/null
@@ -104,7 +105,7 @@ ls -la ~/.claude/skills/ 2>/dev/null
 `architect.md`, `document-specialist.md`, `explore.md`, `executor.md`, `debugger.md`, `planner.md`, `analyst.md`, `critic.md`, `verifier.md`, `test-engineer.md`, `designer.md`, `writer.md`, `qa-tester.md`, `scientist.md`, `security-reviewer.md`, `code-reviewer.md`, `git-master.md`, `code-simplifier.md`
 
 **Known plugin skill names** (check skills/ for these):
-`ai-slop-cleaner`, `ask`, `autopilot`, `cancel`, `ccg`, `configure-notifications`, `deep-interview`, `deepinit`, `external-context`, `hud`, `learner`, `mcp-setup`, `omc-doctor`, `omc-setup`, `omc-teams`, `plan`, `project-session-manager`, `ralph`, `ralplan`, `release`, `sciomc`, `setup`, `skill`, `team`, `ultraqa`, `ultrawork`, `writer-memory`
+`ai-slop-cleaner`, `ask`, `autopilot`, `cancel`, `ccg`, `configure-notifications`, `deep-interview`, `deepinit`, `external-context`, `hud`, `learner`, `mcp-setup`, `omc-doctor`, `omc-setup`, `omc-teams`, `plan`, `project-session-manager`, `ralph`, `ralplan`, `release`, `sciomc`, `setup`, `skill`, `team`, `ultraqa`, `ultrawork`, `visual-verdict`, `writer-memory`
 
 **Known plugin command names** (check commands/ for these):
 `ultrawork.md`, `deepsearch.md`

@@ -198,6 +198,7 @@ describe('gitInfoPosition configuration', () => {
     promptTime: null,
     apiKeySource: null,
     profileName: null,
+    sessionSummary: null,
   });
 
   const createMockConfig = (gitInfoPosition: 'above' | 'below'): HudConfig => ({
@@ -381,6 +382,7 @@ describe('maxWidth wrapMode behavior', () => {
     promptTime: null,
     apiKeySource: null,
     profileName: null,
+    sessionSummary: null,
   });
 
   const createWrapConfig = (
@@ -466,5 +468,138 @@ describe('maxWidth wrapMode behavior', () => {
 
     expect(lines).toHaveLength(1);
     expect(stringWidth(lines[0] ?? '')).toBeLessThanOrEqual(8);
+  });
+});
+
+describe('token usage rendering', () => {
+  const createTokenContext = (): HudRenderContext => ({
+    contextPercent: 30,
+    modelName: 'claude-sonnet-4-5',
+    ralph: null,
+    ultrawork: null,
+    prd: null,
+    autopilot: null,
+    activeAgents: [],
+    todos: [],
+    backgroundTasks: [],
+    cwd: '/home/user/project',
+    lastSkill: null,
+    rateLimitsResult: null,
+    customBuckets: null,
+    pendingPermission: null,
+    thinkingState: null,
+    sessionHealth: { durationMinutes: 10, messageCount: 5, health: 'healthy' },
+    lastRequestTokenUsage: { inputTokens: 1250, outputTokens: 340, reasoningTokens: 120 },
+    sessionTotalTokens: 6590,
+    omcVersion: '4.5.4',
+    updateAvailable: null,
+    toolCallCount: 0,
+    agentCallCount: 0,
+    skillCallCount: 0,
+    promptTime: null,
+    apiKeySource: null,
+    profileName: null,
+    sessionSummary: null,
+  });
+
+  const createTokenConfig = (showTokens?: boolean): HudConfig => ({
+    preset: 'focused',
+    elements: {
+      ...DEFAULT_HUD_CONFIG.elements,
+      omcLabel: true,
+      rateLimits: false,
+      ralph: false,
+      autopilot: false,
+      prdStory: false,
+      activeSkills: false,
+      contextBar: false,
+      agents: false,
+      backgroundTasks: false,
+      todos: false,
+      promptTime: false,
+      sessionHealth: true,
+      showTokens,
+      maxOutputLines: 4,
+    },
+    thresholds: DEFAULT_HUD_CONFIG.thresholds,
+    staleTaskThresholdMinutes: 30,
+    contextLimitWarning: {
+      ...DEFAULT_HUD_CONFIG.contextLimitWarning,
+      threshold: 101,
+    },
+    usageApiPollIntervalMs: DEFAULT_HUD_CONFIG.usageApiPollIntervalMs,
+  });
+
+  it('shows last-request token usage when enabled', async () => {
+    const result = await render(createTokenContext(), createTokenConfig(true));
+
+    expect(result).toContain('tok:i1.3k/o340 r120 s6.6k');
+  });
+
+  it('omits last-request token usage when explicitly disabled', async () => {
+    const result = await render(createTokenContext(), createTokenConfig(false));
+
+    expect(result).not.toContain('tok:');
+  });
+});
+
+
+describe('optional HUD line defaults', () => {
+  it('does not emit a blank header line when all top-line elements are disabled', async () => {
+    const context: HudRenderContext = {
+      contextPercent: 30,
+      modelName: 'claude-sonnet-4-5',
+      ralph: null,
+      ultrawork: null,
+      prd: null,
+      autopilot: null,
+      activeAgents: [],
+      todos: [],
+      backgroundTasks: [],
+      cwd: '/home/user/project',
+      lastSkill: null,
+      rateLimitsResult: null,
+      customBuckets: null,
+      pendingPermission: null,
+      thinkingState: null,
+      sessionHealth: { durationMinutes: 10, messageCount: 5, health: 'healthy' },
+      omcVersion: '4.5.4',
+      updateAvailable: null,
+      toolCallCount: 0,
+      agentCallCount: 0,
+      skillCallCount: 0,
+      promptTime: null,
+      apiKeySource: null,
+      profileName: null,
+      sessionSummary: null,
+    };
+
+    const config: HudConfig = {
+      ...DEFAULT_HUD_CONFIG,
+      elements: {
+        ...DEFAULT_HUD_CONFIG.elements,
+        omcLabel: false,
+        rateLimits: false,
+        permissionStatus: false,
+        thinking: false,
+        promptTime: false,
+        sessionHealth: false,
+        ralph: false,
+        autopilot: false,
+        prdStory: false,
+        activeSkills: false,
+        lastSkill: false,
+        contextBar: false,
+        agents: false,
+        backgroundTasks: false,
+        todos: false,
+        showCallCounts: false,
+        cwd: true,
+        gitRepo: false,
+        gitBranch: false,
+      },
+    };
+
+    await expect(render(context, config)).resolves.toBe('~/workspace/project');
   });
 });

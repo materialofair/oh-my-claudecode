@@ -34,13 +34,24 @@ export interface SkillActiveState {
 }
 /**
  * Get the protection level for a skill.
- * Unknown skills default to 'light' for safety.
+ *
+ * Only skills explicitly registered in SKILL_PROTECTION receive stop-hook
+ * protection. Unregistered skills (including external plugin skills like
+ * Anthropic's example-skills, document-skills, superpowers, data, etc.)
+ * default to 'none' so the Stop hook does not block them.
+ *
+ * @param skillName - The normalized (prefix-stripped) skill name.
+ * @param rawSkillName - The original skill name as invoked (e.g., 'oh-my-claudecode:plan'
+ *   or 'plan'). When provided, only skills invoked with the 'oh-my-claudecode:' prefix
+ *   are eligible for protection. This prevents project custom skills (e.g., a user's
+ *   `.claude/skills/plan/`) from being confused with OMC built-in skills of the same name.
+ *   See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/1581
  */
-export declare function getSkillProtection(skillName: string): SkillProtectionLevel;
+export declare function getSkillProtection(skillName: string, rawSkillName?: string): SkillProtectionLevel;
 /**
  * Get the protection config for a skill.
  */
-export declare function getSkillConfig(skillName: string): SkillStateConfig;
+export declare function getSkillConfig(skillName: string, rawSkillName?: string): SkillStateConfig;
 /**
  * Read the current skill active state.
  * Returns null if no state exists or state is invalid.
@@ -49,8 +60,11 @@ export declare function readSkillActiveState(directory: string, sessionId?: stri
 /**
  * Write skill active state.
  * Called when a skill is invoked via the Skill tool.
+ *
+ * @param rawSkillName - The original skill name as invoked, used to distinguish
+ *   OMC built-in skills from project custom skills. See getSkillProtection().
  */
-export declare function writeSkillActiveState(directory: string, skillName: string, sessionId?: string): SkillActiveState | null;
+export declare function writeSkillActiveState(directory: string, skillName: string, sessionId?: string, rawSkillName?: string): SkillActiveState | null;
 /**
  * Clear skill active state.
  * Called when a skill completes or is cancelled.

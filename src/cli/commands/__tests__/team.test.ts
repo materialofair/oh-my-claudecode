@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { teamCommand, parseTeamArgs } from '../team.js';
+import { teamCommand, parseTeamArgs, buildStartupTasks, assertTeamSpawnAllowed } from '../team.js';
 
 /** Helper: capture console.log output during a callback */
 async function captureLog(fn: () => Promise<void>): Promise<string[]> {
@@ -187,6 +187,55 @@ describe('teamCommand api operations', () => {
       process.exitCode = 0;
     }
   });
+
+  it('allows nested team spawn only when parent governance enables it', async () => {
+    wd = await mkdtemp(join(tmpdir(), 'omc-team-governance-'));
+    previousCwd = process.cwd();
+    process.chdir(wd);
+    const base = join(wd, '.omc', 'state', 'team', 'demo-team');
+    await mkdir(base, { recursive: true });
+    await writeFile(join(base, 'manifest.json'), JSON.stringify({
+      schema_version: 2,
+      name: 'demo-team',
+      task: 'test',
+      leader: { session_id: 's1', worker_id: 'leader-fixed', role: 'leader' },
+      policy: {
+        display_mode: 'split_pane',
+        worker_launch_mode: 'interactive',
+        dispatch_mode: 'hook_preferred_with_fallback',
+        dispatch_ack_timeout_ms: 15000,
+      },
+      governance: {
+        delegation_only: true,
+        plan_approval_required: false,
+        nested_teams_allowed: true,
+        one_team_per_leader_session: true,
+        cleanup_requires_all_workers_inactive: true,
+      },
+      permissions_snapshot: {
+        approval_mode: 'default',
+        sandbox_mode: 'workspace-write',
+        network_access: false,
+      },
+      tmux_session: 'demo-session',
+      worker_count: 1,
+      workers: [],
+      next_task_id: 2,
+      created_at: new Date().toISOString(),
+      leader_pane_id: null,
+      hud_pane_id: null,
+      resize_hook_name: null,
+      resize_hook_target: null,
+    }));
+
+    const previousWorker = process.env.OMC_TEAM_WORKER;
+    try {
+      process.env.OMC_TEAM_WORKER = 'demo-team/worker-1';
+      await expect(assertTeamSpawnAllowed(wd, process.env)).resolves.toBeUndefined();
+    } finally {
+      process.env.OMC_TEAM_WORKER = previousWorker;
+    }
+  });
 });
 
 describe('parseTeamArgs comma-separated multi-type specs', () => {
@@ -194,6 +243,7 @@ describe('parseTeamArgs comma-separated multi-type specs', () => {
     const parsed = parseTeamArgs(['1:codex,1:gemini', 'do the task']);
     expect(parsed.workerCount).toBe(2);
     expect(parsed.agentTypes).toEqual(['codex', 'gemini']);
+    expect(parsed.workerSpecs).toEqual([{ agentType: 'codex' }, { agentType: 'gemini' }]);
     expect(parsed.task).toBe('do the task');
   });
 
@@ -201,6 +251,11 @@ describe('parseTeamArgs comma-separated multi-type specs', () => {
     const parsed = parseTeamArgs(['2:claude,1:codex:architect', 'design system']);
     expect(parsed.workerCount).toBe(3);
     expect(parsed.agentTypes).toEqual(['claude', 'claude', 'codex']);
+    expect(parsed.workerSpecs).toEqual([
+      { agentType: 'claude' },
+      { agentType: 'claude' },
+      { agentType: 'codex', role: 'architect' },
+    ]);
     expect(parsed.role).toBeUndefined(); // mixed roles -> no single role
     expect(parsed.task).toBe('design system');
   });
@@ -209,6 +264,11 @@ describe('parseTeamArgs comma-separated multi-type specs', () => {
     const parsed = parseTeamArgs(['1:codex:executor,2:gemini:executor', 'run tasks']);
     expect(parsed.workerCount).toBe(3);
     expect(parsed.agentTypes).toEqual(['codex', 'gemini', 'gemini']);
+    expect(parsed.workerSpecs).toEqual([
+      { agentType: 'codex', role: 'executor' },
+      { agentType: 'gemini', role: 'executor' },
+      { agentType: 'gemini', role: 'executor' },
+    ]);
     expect(parsed.role).toBe('executor');
   });
 
@@ -230,6 +290,10 @@ describe('parseTeamArgs comma-separated multi-type specs', () => {
     const parsed = parseTeamArgs(['2:codex:architect', 'design auth']);
     expect(parsed.workerCount).toBe(2);
     expect(parsed.agentTypes).toEqual(['codex', 'codex']);
+    expect(parsed.workerSpecs).toEqual([
+      { agentType: 'codex', role: 'architect' },
+      { agentType: 'codex', role: 'architect' },
+    ]);
     expect(parsed.role).toBe('architect');
   });
 
@@ -244,5 +308,32 @@ describe('parseTeamArgs comma-separated multi-type specs', () => {
 
   it('throws on total count exceeding maximum', () => {
     expect(() => parseTeamArgs(['15:codex,10:gemini', 'big task'])).toThrow('exceeds maximum');
+  });
+});
+
+
+describe('buildStartupTasks', () => {
+  it('adds owner-aware fanout for explicit per-worker roles', () => {
+    const parsed = parseTeamArgs(['1:codex:architect,1:gemini:writer', 'draft launch plan']);
+    expect(buildStartupTasks(parsed)).toEqual([
+      {
+        subject: 'Worker 1 (architect): draft launch plan',
+        description: 'draft launch plan',
+        owner: 'worker-1',
+      },
+      {
+        subject: 'Worker 2 (writer): draft launch plan',
+        description: 'draft launch plan',
+        owner: 'worker-2',
+      },
+    ]);
+  });
+
+  it('keeps simple fanout unchanged when no explicit roles are provided', () => {
+    const parsed = parseTeamArgs(['2:codex', 'fix tests']);
+    expect(buildStartupTasks(parsed)).toEqual([
+      { subject: 'Worker 1: fix tests', description: 'fix tests' },
+      { subject: 'Worker 2: fix tests', description: 'fix tests' },
+    ]);
   });
 });

@@ -13,6 +13,8 @@ import { readFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { performance } from 'perf_hooks';
 import { TeamPaths, absPath } from './state-paths.js';
+import { normalizeTeamManifest } from './governance.js';
+import { canonicalizeTeamConfigWorkers } from './worker-canonicalization.js';
 // ---------------------------------------------------------------------------
 // State I/O helpers (self-contained, no external deps beyond fs)
 // ---------------------------------------------------------------------------
@@ -38,11 +40,53 @@ async function writeAtomic(filePath, data) {
 // ---------------------------------------------------------------------------
 // Config / Manifest readers
 // ---------------------------------------------------------------------------
+function configFromManifest(manifest) {
+    return {
+        name: manifest.name,
+        task: manifest.task,
+        agent_type: 'claude',
+        policy: manifest.policy,
+        governance: manifest.governance,
+        worker_launch_mode: manifest.policy.worker_launch_mode,
+        worker_count: manifest.worker_count,
+        max_workers: 20,
+        workers: manifest.workers,
+        created_at: manifest.created_at,
+        tmux_session: manifest.tmux_session,
+        next_task_id: manifest.next_task_id,
+        leader_cwd: manifest.leader_cwd,
+        team_state_root: manifest.team_state_root,
+        workspace_mode: manifest.workspace_mode,
+        leader_pane_id: manifest.leader_pane_id,
+        hud_pane_id: manifest.hud_pane_id,
+        resize_hook_name: manifest.resize_hook_name,
+        resize_hook_target: manifest.resize_hook_target,
+        next_worker_index: manifest.next_worker_index,
+    };
+}
 export async function readTeamConfig(teamName, cwd) {
-    return readJsonSafe(absPath(cwd, TeamPaths.config(teamName)));
+    const [config, manifest] = await Promise.all([
+        readJsonSafe(absPath(cwd, TeamPaths.config(teamName))),
+        readTeamManifest(teamName, cwd),
+    ]);
+    if (!config && !manifest)
+        return null;
+    if (!manifest)
+        return config ? canonicalizeTeamConfigWorkers(config) : null;
+    if (!config)
+        return canonicalizeTeamConfigWorkers(configFromManifest(manifest));
+    return canonicalizeTeamConfigWorkers({
+        ...configFromManifest(manifest),
+        ...config,
+        workers: [...(config.workers ?? []), ...(manifest.workers ?? [])],
+        worker_count: Math.max(config.worker_count ?? 0, manifest.worker_count ?? 0),
+        next_task_id: Math.max(config.next_task_id ?? 1, manifest.next_task_id ?? 1),
+        max_workers: Math.max(config.max_workers ?? 0, 20),
+    });
 }
 export async function readTeamManifest(teamName, cwd) {
-    return readJsonSafe(absPath(cwd, TeamPaths.manifest(teamName)));
+    const manifest = await readJsonSafe(absPath(cwd, TeamPaths.manifest(teamName)));
+    return manifest ? normalizeTeamManifest(manifest) : null;
 }
 // ---------------------------------------------------------------------------
 // Worker status / heartbeat readers
@@ -245,6 +289,29 @@ export async function getTeamSummary(teamName, cwd) {
 // ---------------------------------------------------------------------------
 export async function saveTeamConfig(config, cwd) {
     await writeAtomic(absPath(cwd, TeamPaths.config(config.name)), JSON.stringify(config, null, 2));
+    const manifestPath = absPath(cwd, TeamPaths.manifest(config.name));
+    const existingManifest = await readJsonSafe(manifestPath);
+    if (existingManifest) {
+        const nextManifest = normalizeTeamManifest({
+            ...existingManifest,
+            workers: config.workers,
+            worker_count: config.worker_count,
+            tmux_session: config.tmux_session,
+            next_task_id: config.next_task_id,
+            created_at: config.created_at,
+            leader_cwd: config.leader_cwd,
+            team_state_root: config.team_state_root,
+            workspace_mode: config.workspace_mode,
+            leader_pane_id: config.leader_pane_id,
+            hud_pane_id: config.hud_pane_id,
+            resize_hook_name: config.resize_hook_name,
+            resize_hook_target: config.resize_hook_target,
+            next_worker_index: config.next_worker_index,
+            policy: config.policy ?? existingManifest.policy,
+            governance: config.governance ?? existingManifest.governance,
+        });
+        await writeAtomic(manifestPath, JSON.stringify(nextManifest, null, 2));
+    }
 }
 // ---------------------------------------------------------------------------
 // Scaling lock (file-based mutex for scale up/down)

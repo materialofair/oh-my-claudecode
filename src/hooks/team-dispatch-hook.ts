@@ -16,6 +16,7 @@
 import { readFile, writeFile, mkdir, readdir, appendFile, rename, rm, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import { dirname, join, resolve } from 'path';
+import { createSwallowedErrorLogger } from '../lib/swallowed-error.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -361,7 +362,7 @@ async function runProcess(cmd: string, args: string[], timeoutMs: number): Promi
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
-async function defaultInjector(request: DispatchRequest, config: TeamConfig, cwd: string): Promise<InjectionResult> {
+async function defaultInjector(request: DispatchRequest, config: TeamConfig, _cwd: string): Promise<InjectionResult> {
   const target = defaultInjectTarget(request, config);
   if (!target) return { ok: false, reason: 'missing_tmux_target' };
 
@@ -563,6 +564,9 @@ export async function drainPendingTeamDispatch(options: {
   let processed = 0;
   let skipped = 0;
   let failed = 0;
+  const logMailboxSyncFailure = createSwallowedErrorLogger(
+    'hooks.team-dispatch drainPendingTeamDispatch mailbox notification sync failed',
+  );
   const issueCooldownMs = resolveIssueDispatchCooldownMs();
   const triggerCooldownMs = resolveDispatchTriggerCooldownMs();
 
@@ -697,7 +701,7 @@ export async function drainPendingTeamDispatch(options: {
           request.notified_at = nowIso;
           request.last_reason = result.reason;
           if (request.kind === 'mailbox' && request.message_id) {
-            await updateMailboxNotified(stateDir, teamName, request.to_worker, request.message_id).catch(() => {});
+            await updateMailboxNotified(stateDir, teamName, request.to_worker, request.message_id).catch(logMailboxSyncFailure);
           }
           processed += 1;
           mutated = true;

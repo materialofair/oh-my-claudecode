@@ -66,10 +66,12 @@ export async function sendSocketRequest(socketPath, method, params, timeout = 60
         const requestLine = JSON.stringify(request) + '\n';
         let responseBuffer = '';
         let timedOut = false;
+        let settled = false;
         const MAX_RESPONSE_SIZE = 2 * 1024 * 1024; // 2MB
         // Timeout handler
         const timer = setTimeout(() => {
             timedOut = true;
+            settled = true;
             socket.destroy();
             reject(new SocketTimeoutError(`Request timeout after ${timeout}ms for method "${method}"`, timeout));
         }, timeout);
@@ -83,6 +85,10 @@ export async function sendSocketRequest(socketPath, method, params, timeout = 60
         let socket;
         if (socketPath.startsWith('tcp:')) {
             const port = parseInt(socketPath.slice(4), 10);
+            if (isNaN(port) || port <= 0 || port > 65535) {
+                reject(new Error(`Invalid TCP port in socketPath: "${socketPath}"`));
+                return;
+            }
             socket = net.createConnection({ host: '127.0.0.1', port });
         }
         else {
@@ -97,8 +103,11 @@ export async function sendSocketRequest(socketPath, method, params, timeout = 60
             responseBuffer += chunk.toString();
             // Prevent memory exhaustion from huge responses
             if (responseBuffer.length > MAX_RESPONSE_SIZE) {
-                cleanup();
-                reject(new Error(`Response exceeded maximum size of ${MAX_RESPONSE_SIZE} bytes`));
+                if (!settled) {
+                    settled = true;
+                    cleanup();
+                    reject(new Error(`Response exceeded maximum size of ${MAX_RESPONSE_SIZE} bytes`));
+                }
                 return;
             }
             // Check for complete newline-delimited response
@@ -110,24 +119,39 @@ export async function sendSocketRequest(socketPath, method, params, timeout = 60
                     const response = JSON.parse(jsonLine);
                     // Validate JSON-RPC 2.0 response format
                     if (response.jsonrpc !== '2.0') {
-                        reject(new Error(`Invalid JSON-RPC version: expected "2.0", got "${response.jsonrpc}"`));
+                        if (!settled) {
+                            settled = true;
+                            reject(new Error(`Invalid JSON-RPC version: expected "2.0", got "${response.jsonrpc}"`));
+                        }
                         return;
                     }
                     // Validate response ID matches request
                     if (response.id !== id) {
-                        reject(new Error(`Response ID mismatch: expected "${id}", got "${response.id}"`));
+                        if (!settled) {
+                            settled = true;
+                            reject(new Error(`Response ID mismatch: expected "${id}", got "${response.id}"`));
+                        }
                         return;
                     }
                     // Handle error response
                     if (response.error) {
-                        reject(new JsonRpcError(response.error.message, response.error.code, response.error.data));
+                        if (!settled) {
+                            settled = true;
+                            reject(new JsonRpcError(response.error.message, response.error.code, response.error.data));
+                        }
                         return;
                     }
                     // Success - return result
-                    resolve(response.result);
+                    if (!settled) {
+                        settled = true;
+                        resolve(response.result);
+                    }
                 }
                 catch (e) {
-                    reject(new Error(`Failed to parse JSON-RPC response: ${e.message}`));
+                    if (!settled) {
+                        settled = true;
+                        reject(new Error(`Failed to parse JSON-RPC response: ${e.message}`));
+                    }
                 }
             }
         });
@@ -136,6 +160,9 @@ export async function sendSocketRequest(socketPath, method, params, timeout = 60
             if (timedOut) {
                 return; // Timeout already handled
             }
+            if (settled)
+                return;
+            settled = true;
             cleanup();
             // Provide specific error messages for common cases
             if (err.code === 'ENOENT') {
@@ -153,6 +180,9 @@ export async function sendSocketRequest(socketPath, method, params, timeout = 60
             if (timedOut) {
                 return; // Timeout already handled
             }
+            if (settled)
+                return;
+            settled = true;
             // If we haven't received a complete response, this is an error
             if (responseBuffer.indexOf('\n') === -1) {
                 cleanup();

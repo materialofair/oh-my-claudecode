@@ -2,11 +2,11 @@ import { mkdir, writeFile, readFile, rm, rename } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import type { CliAgentType } from './model-contract.js';
-import { buildWorkerArgv, resolveValidatedBinaryPath, getWorkerEnv as getModelWorkerEnv, isPromptModeAgent, getPromptModeArgs } from './model-contract.js';
+import { buildWorkerArgv, resolveValidatedBinaryPath, getWorkerEnv as getModelWorkerEnv, isPromptModeAgent, getPromptModeArgs, resolveClaudeWorkerModel } from './model-contract.js';
 import { validateTeamName } from './team-name.js';
 import {
   createTeamSession, spawnWorkerInPane, sendToWorker,
-  isWorkerAlive, killTeamSession, waitForPaneReady,
+  isWorkerAlive, killTeamSession, resolveSplitPaneWorkerPaneIds, waitForPaneReady,
   type TeamSession, type WorkerPaneConfig,
 } from './tmux-session.js';
 import {
@@ -86,13 +86,6 @@ interface DoneSignal {
   status: 'completed' | 'failed';
   summary: string;
   completedAt: string;
-}
-
-interface TeamPanesFile {
-  paneIds: string[];
-  leaderPaneId: string;
-  sessionName: string;
-  ownsWindow: boolean;
 }
 
 interface TeamTaskRecord {
@@ -703,7 +696,14 @@ export async function spawnWorkerForTask(
     '-c', runtime.cwd,
   ]);
   const paneId = splitResult.stdout.split('\n')[0]?.trim();
-  if (!paneId) return '';
+  if (!paneId) {
+    try {
+      await resetTaskToPending(root, taskId, runtime.teamName, runtime.cwd);
+    } catch {
+      // best-effort revert
+    }
+    return '';
+  }
 
   const workerIndex = parseWorkerIndex(workerNameValue);
   const agentType = runtime.config.agentTypes[workerIndex % runtime.config.agentTypes.length]
@@ -716,7 +716,6 @@ export async function spawnWorkerForTask(
   // for interactive agents it is sent via tmux send-keys after startup.
   const instruction = buildInitialTaskInstruction(runtime.teamName, workerNameValue, task, taskId);
   await composeInitialInbox(runtime.teamName, workerNameValue, instruction, runtime.cwd);
-  const relInboxPath = `.omc/state/team/${runtime.teamName}/workers/${workerNameValue}/inbox.md`;
 
   const envVars = getModelWorkerEnv(runtime.teamName, workerNameValue, agentType);
   const resolvedBinaryPath = runtime.resolvedBinaryPaths?.[agentType] ?? resolveValidatedBinaryPath(agentType);
@@ -725,7 +724,9 @@ export async function spawnWorkerForTask(
   }
   runtime.resolvedBinaryPaths[agentType] = resolvedBinaryPath;
 
-  // Resolve model from environment variables based on agent type
+  // Resolve model from environment variables based on agent type.
+  // For Claude agents on Bedrock/Vertex, resolve the provider-specific model
+  // so workers don't fall back to invalid Anthropic API model names. (#1695)
   const modelForAgent = (() => {
     if (agentType === 'codex') {
       return process.env.OMC_EXTERNAL_MODELS_DEFAULT_CODEX_MODEL
@@ -737,7 +738,8 @@ export async function spawnWorkerForTask(
         || process.env.OMC_GEMINI_DEFAULT_MODEL
         || undefined;
     }
-    return undefined;
+    // Claude agents: resolve Bedrock/Vertex model when on those providers
+    return resolveClaudeWorkerModel();
   })();
 
   const [launchBinary, ...launchArgs] = buildWorkerArgv(agentType, {
@@ -865,10 +867,8 @@ export async function assignTask(
   // Update task ownership under an exclusive lock to prevent concurrent double-claims
   type TaskSnapshot = { status: string; owner: string | null; assignedAt: string | undefined };
   let previousTaskState: TaskSnapshot | null = null;
-  let lockedTask: TeamTaskRecord | null = null;
   await withTaskLock(teamName, taskId, async () => {
     const t = await readJsonSafe<TeamTaskRecord>(taskFilePath);
-    lockedTask = t;
     previousTaskState = t ? {
       status: t.status,
       owner: t.owner,
@@ -892,12 +892,16 @@ export async function assignTask(
   // Send tmux trigger
   const notified = await notifyPaneWithRetry(sessionName, paneId, `new-task:${taskId}`);
   if (!notified) {
-    if (lockedTask && previousTaskState) {
-      const rollback = lockedTask as TeamTaskRecord;
-      rollback.status = (previousTaskState as TaskSnapshot).status as TeamTaskRecord['status'];
-      rollback.owner = (previousTaskState as TaskSnapshot).owner;
-      rollback.assignedAt = (previousTaskState as TaskSnapshot).assignedAt;
-      await writeJson(taskFilePath, rollback);
+    if (previousTaskState) {
+      await withTaskLock(teamName, taskId, async () => {
+        const t = await readJsonSafe<TeamTaskRecord>(taskFilePath);
+        if (t) {
+          t.status = (previousTaskState as TaskSnapshot).status as TeamTaskRecord['status'];
+          t.owner = (previousTaskState as TaskSnapshot).owner;
+          t.assignedAt = (previousTaskState as TaskSnapshot).assignedAt;
+          await writeJson(taskFilePath, t);
+        }
+      }, { cwd });
     }
     throw new Error(`worker_notify_failed:${targetWorkerName}:new-task:${taskId}`);
   }
@@ -957,7 +961,10 @@ export async function shutdownTeam(
   const sessionMode = (ownsWindow ?? Boolean(configData?.tmuxOwnsWindow))
     ? (sessionName.includes(':') ? 'dedicated-window' : 'detached-session')
     : 'split-pane';
-  await killTeamSession(sessionName, workerPaneIds, leaderPaneId, { sessionMode });
+  const effectiveWorkerPaneIds = sessionMode === 'split-pane'
+    ? await resolveSplitPaneWorkerPaneIds(sessionName, workerPaneIds, leaderPaneId)
+    : workerPaneIds;
+  await killTeamSession(sessionName, effectiveWorkerPaneIds, leaderPaneId, { sessionMode });
 
   // Clean up state
   try {

@@ -16,6 +16,7 @@ import { isWindows, MIN_NODE_VERSION } from './hooks.js';
 import { getRuntimePackageVersion } from '../lib/version.js';
 import { getConfigDir } from '../utils/config-dir.js';
 import { resolveNodeBinary } from '../utils/resolve-node.js';
+import { syncUnifiedMcpRegistryTargets } from './mcp-registry.js';
 /** Claude Code configuration directory */
 export const CLAUDE_CONFIG_DIR = getConfigDir();
 export const AGENTS_DIR = join(CLAUDE_CONFIG_DIR, 'agents');
@@ -194,8 +195,7 @@ export function isOmcStatusLine(statusLine) {
 }
 /**
  * Known OMC hook script filenames installed into .claude/hooks/.
- * Must be kept in sync with getHookScripts() in hooks.ts and
- * HOOKS_SETTINGS_CONFIG_NODE command entries.
+ * Must be kept in sync with HOOKS_SETTINGS_CONFIG_NODE command entries.
  */
 const OMC_HOOK_FILENAMES = new Set([
     'keyword-detector.mjs',
@@ -311,7 +311,7 @@ function directoryHasMarkdownFiles(directory) {
         return false;
     }
 }
-function getInstalledOmcPluginRoots() {
+export function getInstalledOmcPluginRoots() {
     const pluginRoots = new Set();
     const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT?.trim();
     if (pluginRoot) {
@@ -370,6 +370,9 @@ function getPackageDir() {
         return process.cwd();
     }
 }
+export function getRuntimePackageRoot() {
+    return getPackageDir();
+}
 /**
  * Load agent definitions from /agents/*.md files
  */
@@ -410,6 +413,13 @@ function loadCommandDefinitions() {
 /**
  * Load CLAUDE.md content from /docs/CLAUDE.md
  */
+function loadBundledSkillContent(skillName) {
+    const skillPath = join(getPackageDir(), 'skills', skillName, 'SKILL.md');
+    if (!existsSync(skillPath)) {
+        return null;
+    }
+    return readFileSync(skillPath, 'utf-8');
+}
 function loadClaudeMdContent() {
     const claudeMdPath = join(getPackageDir(), 'docs', 'CLAUDE.md');
     if (!existsSync(claudeMdPath)) {
@@ -803,6 +813,22 @@ export function install(options = {}) {
             }
             // NOTE: SKILL_DEFINITIONS removed - skills now only installed via COMMAND_DEFINITIONS
             // to avoid duplicate entries in Claude Code's available skills list
+            const omcReferenceSkillContent = loadBundledSkillContent('omc-reference');
+            if (omcReferenceSkillContent) {
+                const omcReferenceDir = join(SKILLS_DIR, 'omc-reference');
+                const omcReferencePath = join(omcReferenceDir, 'SKILL.md');
+                if (!existsSync(omcReferenceDir)) {
+                    mkdirSync(omcReferenceDir, { recursive: true });
+                }
+                if (existsSync(omcReferencePath) && !options.force) {
+                    log('  Skipping omc-reference/SKILL.md (already exists)');
+                }
+                else {
+                    writeFileSync(omcReferencePath, omcReferenceSkillContent);
+                    result.installedSkills.push('omc-reference/SKILL.md');
+                    log('  Installed omc-reference/SKILL.md');
+                }
+            }
             // Install CLAUDE.md with merge support
             const claudeMdPath = join(CLAUDE_CONFIG_DIR, 'CLAUDE.md');
             const homeMdPath = join(homedir(), 'CLAUDE.md');
@@ -1103,7 +1129,19 @@ export function install(options = {}) {
                 catch {
                     log('  Warning: Could not save node binary path (non-fatal)');
                 }
-                // 4. Single atomic write
+                // 4. Sync unified MCP registry into Claude + Codex config surfaces
+                const mcpSync = syncUnifiedMcpRegistryTargets(existingSettings);
+                existingSettings = mcpSync.settings;
+                if (mcpSync.result.bootstrappedFromClaude) {
+                    log(`  Bootstrapped unified MCP registry: ${mcpSync.result.registryPath}`);
+                }
+                if (mcpSync.result.claudeChanged) {
+                    log(`  Synced ${mcpSync.result.serverNames.length} MCP server(s) into Claude MCP config: ${mcpSync.result.claudeConfigPath}`);
+                }
+                if (mcpSync.result.codexChanged) {
+                    log(`  Synced ${mcpSync.result.serverNames.length} MCP server(s) into Codex config: ${mcpSync.result.codexConfigPath}`);
+                }
+                // 5. Single atomic write
                 writeFileSync(SETTINGS_FILE, JSON.stringify(existingSettings, null, 2));
                 log('  settings.json updated');
             }

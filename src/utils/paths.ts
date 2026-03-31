@@ -63,6 +63,118 @@ export function getConfigDir(): string {
 }
 
 /**
+ * Get Windows-appropriate state directory.
+ */
+export function getStateDir(): string {
+  if (process.platform === 'win32') {
+    return process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local');
+  }
+
+  return process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
+}
+
+function prefersXdgOmcDirs(): boolean {
+  return process.platform !== 'win32' && process.platform !== 'darwin';
+}
+
+function getUserHomeDir(): string {
+  if (process.platform === 'win32') {
+    return process.env.USERPROFILE || process.env.HOME || homedir();
+  }
+
+  return process.env.HOME || homedir();
+}
+
+/**
+ * Legacy global OMC directory under the user's home directory.
+ */
+export function getLegacyOmcDir(): string {
+  return join(getUserHomeDir(), '.omc');
+}
+
+/**
+ * Global OMC config directory.
+ *
+ * Precedence:
+ * 1. OMC_HOME (existing explicit override)
+ * 2. XDG-aware config root on Linux/Unix
+ * 3. Legacy ~/.omc elsewhere
+ */
+export function getGlobalOmcConfigRoot(): string {
+  const explicitRoot = process.env.OMC_HOME?.trim();
+  if (explicitRoot) {
+    return explicitRoot;
+  }
+
+  if (prefersXdgOmcDirs()) {
+    return join(getConfigDir(), 'omc');
+  }
+
+  return getLegacyOmcDir();
+}
+
+/**
+ * Global OMC state directory.
+ *
+ * When OMC_HOME is set, preserve that existing override semantics by treating
+ * it as the shared root and resolving state beneath it.
+ */
+export function getGlobalOmcStateRoot(): string {
+  const explicitRoot = process.env.OMC_HOME?.trim();
+  if (explicitRoot) {
+    return join(explicitRoot, 'state');
+  }
+
+  if (prefersXdgOmcDirs()) {
+    return join(getStateDir(), 'omc');
+  }
+
+  return join(getLegacyOmcDir(), 'state');
+}
+
+export function getGlobalOmcConfigPath(...segments: string[]): string {
+  return join(getGlobalOmcConfigRoot(), ...segments);
+}
+
+export function getGlobalOmcStatePath(...segments: string[]): string {
+  return join(getGlobalOmcStateRoot(), ...segments);
+}
+
+export function getLegacyOmcPath(...segments: string[]): string {
+  return join(getLegacyOmcDir(), ...segments);
+}
+
+function dedupePaths(paths: string[]): string[] {
+  return [...new Set(paths)];
+}
+
+export function getGlobalOmcConfigCandidates(...segments: string[]): string[] {
+  if (process.env.OMC_HOME?.trim()) {
+    return [getGlobalOmcConfigPath(...segments)];
+  }
+
+  return dedupePaths([
+    getGlobalOmcConfigPath(...segments),
+    getLegacyOmcPath(...segments),
+  ]);
+}
+
+export function getGlobalOmcStateCandidates(...segments: string[]): string[] {
+  const explicitRoot = process.env.OMC_HOME?.trim();
+  if (explicitRoot) {
+    return dedupePaths([
+      getGlobalOmcStatePath(...segments),
+      join(explicitRoot, ...segments),
+    ]);
+  }
+
+  return dedupePaths([
+    getGlobalOmcStatePath(...segments),
+    getLegacyOmcPath('state', ...segments),
+  ]);
+}
+
+/**
  * Get the plugin cache base directory for oh-my-claudecode.
  * This is the directory containing version subdirectories.
  *
@@ -138,7 +250,7 @@ function stripTrailing(p: string): string {
  * are still referenced by long-running sessions via CLAUDE_PLUGIN_ROOT. */
 const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
-export function purgeStalePluginCacheVersions(): PurgeCacheResult {
+export function purgeStalePluginCacheVersions(options?: { skipGracePeriod?: boolean }): PurgeCacheResult {
   const result: PurgeCacheResult = { removed: 0, removedPaths: [], errors: [] };
 
   const configDir = getClaudeConfigDir();
@@ -185,6 +297,7 @@ export function purgeStalePluginCacheVersions(): PurgeCacheResult {
   }
 
   const now = Date.now();
+  const activePathsArray = [...activePaths];
 
   for (const marketplace of marketplaces) {
     const marketDir = join(cacheDir, marketplace);
@@ -210,16 +323,18 @@ export function purgeStalePluginCacheVersions(): PurgeCacheResult {
 
         // Check if this version or any of its subdirectories are referenced
         const isActive = activePaths.has(normalised) ||
-          Array.from(activePaths).some(ap => ap.startsWith(normalised + '/'));
+          activePathsArray.some(ap => ap.startsWith(normalised + '/'));
 
         if (isActive) continue;
 
         // Grace period: skip recently modified directories to avoid
         // race conditions during concurrent plugin updates
-        try {
-          const stats = statSync(versionDir);
-          if (now - stats.mtimeMs < STALE_THRESHOLD_MS) continue;
-        } catch { continue; }
+        if (!options?.skipGracePeriod) {
+          try {
+            const stats = statSync(versionDir);
+            if (now - stats.mtimeMs < STALE_THRESHOLD_MS) continue;
+          } catch { continue; }
+        }
 
         if (safeRmSync(versionDir)) {
           result.removed++;
