@@ -1,12 +1,14 @@
 [English](README.md) | [한국어](README.ko.md) | 中文 | [日本語](README.ja.md) | [Español](README.es.md) | [Tiếng Việt](README.vi.md) | [Português](README.pt.md)
 
+> **Fork 说明：** 本仓库是 [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) 的持续维护分叉版本，聚焦 Claude Code 的实战多智能体编排。保留上游致谢，同时使用本分叉自己的发布节奏与定制集成。
+
 # oh-my-claudecode
 
 [![npm version](https://img.shields.io/npm/v/claudecode-omc?color=cb3837)](https://www.npmjs.com/package/claudecode-omc)
 [![npm downloads](https://img.shields.io/npm/dm/claudecode-omc?color=blue)](https://www.npmjs.com/package/claudecode-omc)
-[![GitHub stars](https://img.shields.io/github/stars/Yeachan-Heo/oh-my-claudecode?style=flat&color=yellow)](https://github.com/Yeachan-Heo/oh-my-claudecode/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/materialofair/oh-my-claudecode?style=flat&color=yellow)](https://github.com/materialofair/oh-my-claudecode/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/Yeachan-Heo)
+[![Sponsor](https://img.shields.io/badge/Sponsor-❤️-red?style=flat&logo=github)](https://github.com/sponsors/materialofair)
 [![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/PUwSMR9XNk)
 
 > **Codex 用户：** 查看 [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) — 为 OpenAI Codex CLI 提供同样的编排体验。
@@ -15,7 +17,7 @@
 
 *无需学习 Claude Code，直接使用 OMC。*
 
-[快速开始](#快速开始) • [文档](https://yeachan-heo.github.io/oh-my-claudecode-website) • [CLI 参考](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference) • [工作流](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows) • [迁移指南](docs/MIGRATION.md)
+[快速开始](#快速开始) • [文档](docs/REFERENCE.md) • [CLI 参考](docs/REFERENCE.md) • [工作流](docs/FEATURES.md) • [迁移指南](docs/MIGRATION.md)
 
 ---
 
@@ -143,7 +145,7 @@ omc doctor
 ## 功能特性
 
 ### 执行模式
-针对不同场景的多种策略 - 从全自动构建到 token 高效重构。[了解更多 →](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#execution-modes)
+针对不同场景的多种策略 - 从全自动构建到 token 高效重构。[了解更多 →](docs/FEATURES.md)
 
 | 模式 | 特点 | 适用场景 |
 |------|---------|---------|
@@ -323,11 +325,11 @@ omc config-stop-callback discord --clear-tags
 ## 文档
 
 - **[完整参考](docs/REFERENCE.md)** - 完整功能文档
-- **[CLI 参考](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#cli-reference)** - 所有 `omc` 命令、标志和工具
-- **[通知指南](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#notifications)** - Discord、Telegram、Slack 和 webhook 设置
-- **[推荐工作流](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#workflows)** - 常见任务的经过实战检验的技能链
-- **[发布说明](https://yeachan-heo.github.io/oh-my-claudecode-website/docs.html#release-notes)** - 每个版本的新内容
-- **[网站](https://yeachan-heo.github.io/oh-my-claudecode-website)** - 交互式指南和示例
+- **[CLI 参考](docs/REFERENCE.md)** - 所有 `omc` 命令、标志和工具
+- **[通知指南](docs/REFERENCE.md)** - Discord、Telegram、Slack 和 webhook 设置
+- **[推荐工作流](docs/FEATURES.md)** - 常见任务的经过实战检验的技能链
+- **[发布说明](CHANGELOG.md)** - 每个版本的新内容
+- **[仓库主页](https://github.com/materialofair/oh-my-claudecode)** - 源码、Issue 和发布记录
 - **[迁移指南](docs/MIGRATION.md)** - 从 v2.x 升级
 - **[架构](docs/ARCHITECTURE.md)** - 底层工作原理
 - **[性能监控](docs/PERFORMANCE-MONITORING.md)** - 智能体追踪、调试和优化
@@ -368,13 +370,13 @@ MIT
 
 ## Star 历史
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Yeachan-Heo/oh-my-claudecode&type=date&legend=top-left)](https://www.star-history.com/#Yeachan-Heo/oh-my-claudecode&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=materialofair/oh-my-claudecode&type=date&legend=top-left)](https://www.star-history.com/#materialofair/oh-my-claudecode&type=date&legend=top-left)
 
 ## 💖 支持本项目
 
 如果 Oh-My-ClaudeCode 帮助了你的工作流，请考虑赞助：
 
-[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-❤️-red?style=for-the-badge&logo=github)](https://github.com/sponsors/Yeachan-Heo)
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-❤️-red?style=for-the-badge&logo=github)](https://github.com/sponsors/materialofair)
 
 ### 为什么赞助？
 
